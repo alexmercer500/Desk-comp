@@ -6,12 +6,19 @@
 // on port 47822 for phones on private addresses only. The companion page sends
 // the session list (`phone_sessions`); phones get it on connect and on every
 // change. A phone's Allow / Deny goes the same way as a click in the bubble:
-// to the relay holding the request open (agents::decide).
+// to the relay holding the request open (agents::decide); so do answers to
+// Claude's questions.
+//
+// Replies: while the user is away (a phone with away mode is signed in and
+// this PC has had no input for AWAY_IDLE), a finished Claude Code turn is held
+// for a few minutes (agents.rs). Its session then carries `reply` for phones,
+// and a reply from one goes to the relay holding the turn.
 
 mod identity;
 mod proto;
 mod server;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use base64::Engine;
@@ -28,7 +35,14 @@ pub struct PhoneLink {
     running: Mutex<Option<Running>>,
     /// Why the link couldn't start (port in use, keys not saved), for Settings.
     error: Mutex<Option<String>>,
+    /// The page's latest session list, before `reply` is added.
+    list: Mutex<Value>,
+    /// Turns held for a reply: session id → (request id, until when, ms since 1970).
+    holds: Mutex<HashMap<String, (String, u64)>>,
 }
+
+/// No input on this PC for this long counts as away (for holding a finished turn).
+const AWAY_IDLE_SECS: u64 = 60;
 
 struct Running {
     task: tauri::async_runtime::JoinHandle<()>,
@@ -38,7 +52,13 @@ struct Running {
 
 impl Default for PhoneLink {
     fn default() -> Self {
-        PhoneLink { shared: Shared::new(), running: Mutex::new(None), error: Mutex::new(None) }
+        PhoneLink {
+            shared: Shared::new(),
+            running: Mutex::new(None),
+            error: Mutex::new(None),
+            list: Mutex::new(Value::Array(Vec::new())),
+            holds: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -56,9 +76,86 @@ impl Host for AppHost {
     fn decide(&self, rid: &str, allow: bool) -> bool {
         crate::agents::decide_from_phone(&self.0, rid, if allow { "allow" } else { "deny" })
     }
+    fn answer(&self, rid: &str, answers: &[(String, String)]) -> bool {
+        crate::agents::answer_from_phone(&self.0, rid, answers)
+    }
+    fn reply(&self, rid: &str, text: &str) -> bool {
+        crate::agents::reply_from_phone(&self.0, rid, text)
+    }
     fn phones_changed(&self) {
         let _ = self.0.emit("phone-status", status_of(&self.0));
     }
+}
+
+/// Whether to hold a finished turn for a reply: the link is on, a phone with
+/// away mode is signed in, answering from the companion is on, and nobody has
+/// touched this PC for a while.
+pub fn should_hold(app: &AppHandle) -> bool {
+    let p = crate::system::current(app);
+    let link = app.state::<PhoneLink>();
+    let running = link.running.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    p.phone_link && p.answer_permissions && running && link.shared.any_away() && idle_secs().is_some_and(|s| s >= AWAY_IDLE_SECS)
+}
+
+/// Seconds since the last input on this PC. Debug builds can pretend nobody's
+/// there (DESK_COMPANION_ASSUME_AWAY=1), to test held turns from a busy PC.
+fn idle_secs() -> Option<u64> {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("DESK_COMPANION_ASSUME_AWAY").is_some() {
+        return Some(u64::MAX);
+    }
+    crate::system::idle_secs()
+}
+
+/// Whether a held turn should go on waiting: still a phone to reply from, and
+/// still nobody at the PC (any key or mouse movement lets it go).
+pub fn keep_holding(app: &AppHandle) -> bool {
+    let link = app.state::<PhoneLink>();
+    let running = link.running.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+    running && link.shared.any_away() && idle_secs().is_none_or(|s| s >= 1)
+}
+
+pub fn hold_started(app: &AppHandle, session: &str, rid: &str, until: u64) {
+    let link = app.state::<PhoneLink>();
+    link.holds.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_string(), (rid.to_string(), until));
+    let _ = publish(&link);
+}
+
+pub fn hold_ended(app: &AppHandle, session: &str, rid: &str) {
+    let link = app.state::<PhoneLink>();
+    {
+        let mut holds = link.holds.lock().unwrap_or_else(|e| e.into_inner());
+        if holds.get(session).is_some_and(|(r, _)| r == rid) {
+            holds.remove(session);
+        }
+    }
+    let _ = publish(&link);
+}
+
+/// Sends phones the page's list, with `reply` on each session held for one.
+fn publish(link: &PhoneLink) -> Result<(), String> {
+    let mut list = link.list.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    {
+        let holds = link.holds.lock().unwrap_or_else(|e| e.into_inner());
+        for s in list.as_array_mut().into_iter().flatten() {
+            let held = s.get("id").and_then(Value::as_str).and_then(|id| holds.get(id)).cloned();
+            if let (Some((rid, until)), Some(o)) = (held, s.as_object_mut()) {
+                o.insert("reply".into(), serde_json::json!({ "rid": rid, "until": until }));
+            }
+        }
+    }
+    let line = proto::sessions(&list);
+    if line.len() > MAX_SESSIONS_BYTES.min(proto::MAX_LINE) {
+        return Err("session list too long".into());
+    }
+    link.shared.sessions.send_if_modified(|current| {
+        if **current == line {
+            return false;
+        }
+        *current = Arc::new(line);
+        true
+    });
+    Ok(())
 }
 
 /// Starts or stops the link to match the setting. Called at start-up and when it changes.
@@ -230,16 +327,6 @@ pub async fn phone_sessions(link: State<'_, PhoneLink>, sessions: Value) -> Resu
     if !sessions.is_array() {
         return Err("sessions must be a list".into());
     }
-    let line = proto::sessions(&sessions);
-    if line.len() > MAX_SESSIONS_BYTES.min(proto::MAX_LINE) {
-        return Err("session list too long".into());
-    }
-    link.shared.sessions.send_if_modified(|current| {
-        if **current == line {
-            return false;
-        }
-        *current = Arc::new(line);
-        true
-    });
-    Ok(())
+    *link.list.lock().unwrap_or_else(|e| e.into_inner()) = sessions;
+    publish(&link)
 }

@@ -28,6 +28,8 @@ pub struct PhoneInfo {
     pub address: String,
     /// When it signed in, ms since 1970.
     pub since: u64,
+    /// Away mode is on: finished turns may be held for a reply from it.
+    pub away: bool,
 }
 
 /// What the server and its connections share; outlives a restart (Pair again).
@@ -56,6 +58,11 @@ impl Shared {
         self.phones.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// A phone that wants finished turns held for its reply is signed in.
+    pub fn any_away(&self) -> bool {
+        self.phones.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|p| p.away)
+    }
+
     /// Closes every phone's connection.
     pub fn kick_all(&self) {
         self.kick.send_modify(|n| *n += 1);
@@ -70,6 +77,10 @@ pub trait Host: Send + Sync + 'static {
     fn seen(&self, rid: &str);
     /// The user's answer; false when the request is already gone.
     fn decide(&self, rid: &str, allow: bool) -> bool;
+    /// Answers to a question card; false when it's already gone.
+    fn answer(&self, rid: &str, answers: &[(String, String)]) -> bool;
+    /// A further prompt for a held turn; false when it's no longer held.
+    fn reply(&self, rid: &str, text: &str) -> bool;
     /// The list of phones changed.
     fn phones_changed(&self);
 }
@@ -137,7 +148,7 @@ where
                 let _ = send(&mut write, &proto::error("version", "Update the app on your phone or on your PC")).await;
                 None
             }
-            Ok(FromPhone::Hello { token: given, device, .. }) => {
+            Ok(FromPhone::Hello { token: given, device, away, .. }) => {
                 if !proto::same_secret(&given, token) {
                     tokio::time::sleep(proto::WRONG_TOKEN_DELAY).await;
                     let _ = send(&mut write, &proto::error("token", "This phone isn't paired any more. Scan the code in Settings again")).await;
@@ -147,7 +158,7 @@ where
                     let mut phones = shared.phones.lock().unwrap_or_else(|e| e.into_inner());
                     (phones.len() < proto::MAX_PHONES).then(|| {
                         let id = shared.next_id.fetch_add(1, Ordering::SeqCst);
-                        phones.push(PhoneInfo { id, device, address: addr.ip().to_string(), since: now_ms() });
+                        phones.push(PhoneInfo { id, device, address: addr.ip().to_string(), since: now_ms(), away });
                         id
                     })
                 };
@@ -184,6 +195,21 @@ where
                     Ok(FromPhone::Decision { rid, allow }) => {
                         let done = host.approvals() && host.decide(&rid, allow);
                         Some(proto::decided(&rid, done))
+                    }
+                    Ok(FromPhone::Answer { rid, answers }) => {
+                        let done = host.approvals() && host.answer(&rid, &answers);
+                        Some(proto::decided(&rid, done))
+                    }
+                    Ok(FromPhone::Reply { rid, text }) => {
+                        let done = host.reply(&rid, &text);
+                        Some(proto::decided(&rid, done))
+                    }
+                    Ok(FromPhone::Away { on }) => {
+                        let mut phones = shared.phones.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(p) = phones.iter_mut().find(|p| p.id == id) {
+                            p.away = on;
+                        }
+                        None
                     }
                     // A second hello, a newer phone's message, or a bad line: nothing to do.
                     _ => None,
@@ -261,6 +287,8 @@ mod tests {
     struct FakeHost {
         decisions: Mutex<Vec<(String, bool)>>,
         seen: Mutex<Vec<String>>,
+        answers: Mutex<Vec<(String, Vec<(String, String)>)>>,
+        replies: Mutex<Vec<(String, String)>>,
     }
     impl Host for FakeHost {
         fn approvals(&self) -> bool {
@@ -272,6 +300,14 @@ mod tests {
         fn decide(&self, rid: &str, allow: bool) -> bool {
             self.decisions.lock().unwrap().push((rid.into(), allow));
             rid == "waiting"
+        }
+        fn answer(&self, rid: &str, answers: &[(String, String)]) -> bool {
+            self.answers.lock().unwrap().push((rid.into(), answers.to_vec()));
+            rid == "asked"
+        }
+        fn reply(&self, rid: &str, text: &str) -> bool {
+            self.replies.lock().unwrap().push((rid.into(), text.into()));
+            rid == "held"
         }
         fn phones_changed(&self) {}
     }
@@ -315,6 +351,18 @@ mod tests {
             assert_eq!(read_line(&mut r).await["ok"], false);
             assert_eq!(*host.seen.lock().unwrap(), vec!["waiting".to_string()]);
             assert_eq!(*host.decisions.lock().unwrap(), vec![("waiting".to_string(), false), ("gone".to_string(), true)]);
+
+            // Answers and replies go to the host; away mode is kept per phone.
+            assert!(!shared.any_away());
+            w.write_all(b"{\"t\":\"away\",\"on\":true}\n{\"t\":\"answer\",\"rid\":\"asked\",\"answers\":{\"Which?\":\"Blue\"}}\n").await.unwrap();
+            assert_eq!(read_line(&mut r).await["ok"], true);
+            assert!(shared.any_away());
+            w.write_all(b"{\"t\":\"reply\",\"rid\":\"held\",\"text\":\"Now the docs\"}\n").await.unwrap();
+            assert_eq!(read_line(&mut r).await["ok"], true);
+            w.write_all(b"{\"t\":\"reply\",\"rid\":\"over\",\"text\":\"Too late\"}\n").await.unwrap();
+            assert_eq!(read_line(&mut r).await["ok"], false);
+            assert_eq!(host.answers.lock().unwrap()[0], ("asked".to_string(), vec![("Which?".to_string(), "Blue".to_string())]));
+            assert_eq!(host.replies.lock().unwrap().len(), 2);
 
             w.write_all(b"{\"t\":\"ping\"}\n").await.unwrap();
             assert_eq!(read_line(&mut r).await["t"], "pong");

@@ -1,6 +1,10 @@
 package app.deskcompanion.phone.link
 
 import app.deskcompanion.phone.model.Approval
+import app.deskcompanion.phone.model.Choice
+import app.deskcompanion.phone.model.Question
+import app.deskcompanion.phone.model.QuestionItem
+import app.deskcompanion.phone.model.ReplyHold
 import app.deskcompanion.phone.model.FileChange
 import app.deskcompanion.phone.model.Session
 import app.deskcompanion.phone.model.Status
@@ -12,9 +16,20 @@ import org.json.JSONObject
 object Protocol {
     const val VERSION = 1
 
-    fun hello(token: String, device: String) = line(JSONObject().put("t", "hello").put("v", VERSION).put("token", token).put("device", device))
+    /** Longest reply the PC accepts. */
+    const val MAX_REPLY = 4000
+
+    fun hello(token: String, device: String, away: Boolean) =
+        line(JSONObject().put("t", "hello").put("v", VERSION).put("token", token).put("device", device).put("away", away))
     fun seen(rid: String) = line(JSONObject().put("t", "seen").put("rid", rid))
     fun decision(rid: String, allow: Boolean) = line(JSONObject().put("t", "decision").put("rid", rid).put("decision", if (allow) "allow" else "deny"))
+    fun answer(rid: String, answers: Map<String, String>): String {
+        val o = JSONObject()
+        for ((q, a) in answers) o.put(q, a)
+        return line(JSONObject().put("t", "answer").put("rid", rid).put("answers", o))
+    }
+    fun reply(rid: String, text: String) = line(JSONObject().put("t", "reply").put("rid", rid).put("text", text))
+    fun away(on: Boolean) = line(JSONObject().put("t", "away").put("on", on))
     fun ping() = line(JSONObject().put("t", "ping"))
 
     private fun line(o: JSONObject) = o.toString() + "\n"
@@ -69,6 +84,27 @@ object Protocol {
             val rid = a.optString("rid").ifEmpty { return@let null }
             Approval(rid = rid, tool = a.optString("tool"), action = a.optString("action", "continue"), detail = a.optString("detail"), canAlways = a.optBoolean("canAlways"))
         }
+        val question = o.optJSONObject("question")?.let { q ->
+            val rid = q.optString("rid").ifEmpty { return@let null }
+            val arr = q.optJSONArray("questions") ?: return@let null
+            val items = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.mapNotNull { item ->
+                val text = item.optString("question").ifEmpty { return@mapNotNull null }
+                val opts = item.optJSONArray("options") ?: JSONArray()
+                QuestionItem(
+                    question = text,
+                    header = item.optStringOrNull("header"),
+                    multiSelect = item.optBoolean("multiSelect"),
+                    options = (0 until opts.length()).mapNotNull { opts.optJSONObject(it) }.mapNotNull { c ->
+                        Choice(c.optString("label").ifEmpty { return@mapNotNull null }, c.optStringOrNull("description"))
+                    },
+                )
+            }
+            if (items.isEmpty()) null else Question(rid, items)
+        }
+        val reply = o.optJSONObject("reply")?.let { r ->
+            val rid = r.optString("rid").ifEmpty { return@let null }
+            ReplyHold(rid, r.optLong("until"))
+        }
         return Session(
             id = id,
             agent = o.optString("agent", "Agent"),
@@ -80,6 +116,8 @@ object Protocol {
             steps = steps,
             files = files,
             approval = approval,
+            question = question,
+            reply = reply,
             updatedAt = o.optLong("updatedAt"),
         )
     }

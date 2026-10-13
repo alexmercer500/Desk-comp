@@ -46,11 +46,19 @@ class LinkTest {
 
     @Test
     fun messagesToThePcAreSingleJsonLines() {
-        val hello = Protocol.hello(token, "Pixel 7")
+        val hello = Protocol.hello(token, "Pixel 7", away = true)
         assertTrue(hello.endsWith("\n"))
         val o = JSONObject(hello)
         assertEquals("hello", o.getString("t"))
         assertEquals(1, o.getInt("v"))
+        assertTrue(o.getBoolean("away"))
+        val answer = JSONObject(Protocol.answer("q1", mapOf("Which one?" to "Blue, Green")))
+        assertEquals("q1", answer.getString("rid"))
+        assertEquals("Blue, Green", answer.getJSONObject("answers").getString("Which one?"))
+        val reply = Protocol.reply("h1", "Now the docs\nplease")
+        assertEquals(1, reply.count { it == '\n' }) // the line break inside is escaped
+        assertEquals("Now the docs\nplease", JSONObject(reply).getString("text"))
+        assertFalse(JSONObject(Protocol.away(false)).getBoolean("on"))
         assertEquals("deny", JSONObject(Protocol.decision("r1", allow = false)).getString("decision"))
         assertEquals("allow", JSONObject(Protocol.decision("r1", allow = true)).getString("decision"))
         assertEquals("r1", JSONObject(Protocol.seen("r1")).getString("rid"))
@@ -63,10 +71,23 @@ class LinkTest {
              "steps":[{"tool":"Bash","detail":"npm test","failed":false}],"files":[{"path":"a.ts","add":3,"del":1}],"updatedAt":1760000000000,
              "approval":{"rid":"s1:1:2","tool":"Bash","action":"run","detail":"npm test","canAlways":true}},
             {"id":"s2","agent":"Codex","project":"blog","status":"done","line":"Added it","approval":null},
+            {"id":"s3","agent":"Claude Code","project":"app","status":"waiting","line":"Has a question",
+             "question":{"rid":"q1","questions":[{"question":"Which?","header":"Pick","multiSelect":true,
+               "options":[{"label":"A","description":"first"},{"label":"B","description":null},{"label":""}]}]}},
+            {"id":"s4","agent":"Claude Code","project":"api","status":"done","line":"Done","reply":{"rid":"h1","until":1760000300000}},
             {"no-id":true}
         ]}"""
         val m = Protocol.parse(line) as Protocol.FromPc.Sessions
-        assertEquals(2, m.sessions.size)
+        assertEquals(4, m.sessions.size)
+        val q = m.sessions[2].question!!
+        assertEquals("q1", q.rid)
+        assertEquals("Which?", q.items[0].question)
+        assertTrue(q.items[0].multiSelect)
+        assertEquals(listOf("A", "B"), q.items[0].options.map { it.label })
+        assertNull(q.items[0].options[1].description)
+        assertEquals("h1", m.sessions[3].reply!!.rid)
+        assertEquals(1760000300000, m.sessions[3].reply!!.until)
+        assertNull(m.sessions[0].reply)
         val s = m.sessions[0]
         assertEquals(Status.Waiting, s.status)
         assertEquals("s1:1:2", s.approval!!.rid)

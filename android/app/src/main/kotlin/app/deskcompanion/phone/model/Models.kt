@@ -19,6 +19,23 @@ data class Approval(
     val canAlways: Boolean = false,
 )
 
+/** One of Claude's multiple-choice questions. */
+data class QuestionItem(
+    /** Sent back exactly as given: the PC matches the answer to it. */
+    val question: String,
+    val header: String? = null,
+    val multiSelect: Boolean = false,
+    val options: List<Choice>,
+)
+
+data class Choice(val label: String, val description: String? = null)
+
+/** Claude's question card, waiting for answers. */
+data class Question(val rid: String, val items: List<QuestionItem>)
+
+/** A finished turn the PC is holding for a reply from here, until [until] (ms since 1970). */
+data class ReplyHold(val rid: String, val until: Long)
+
 data class Session(
     val id: String,
     /** "Claude Code", "Codex"… */
@@ -33,6 +50,9 @@ data class Session(
     val files: List<FileChange> = emptyList(),
     val minutesAgo: Int = 0,
     val approval: Approval? = null,
+    val question: Question? = null,
+    /** Set while a reply from here continues this session (away mode, PC idle). */
+    val reply: ReplyHold? = null,
     /** When the PC last heard from this session (ms since 1970); 0 in the demo. */
     val updatedAt: Long = 0,
 )

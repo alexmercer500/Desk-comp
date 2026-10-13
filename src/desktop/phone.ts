@@ -20,8 +20,17 @@ export interface PhoneSession {
   steps: { tool: string; detail: string; failed: boolean }[];
   files: { path: string; add: number; del: number }[];
   updatedAt: number;
-  /** Present only while Allow / Deny can be sent for it (not questions: those come later). */
+  /** Present only while Allow / Deny can be sent for it. */
   approval: { rid: string; tool: string; action: string; detail: string; canAlways: boolean } | null;
+  /** Claude's question card, while it can be answered from here. */
+  question: { rid: string; questions: PhoneQuestion[] } | null;
+}
+
+export interface PhoneQuestion {
+  question: string;
+  header: string | null;
+  multiSelect: boolean;
+  options: { label: string; description: string | null }[];
 }
 
 const MAX_SESSIONS = 20;
@@ -78,6 +87,18 @@ export function phoneView(sessions: SessionView[]): PhoneSession[] {
       updatedAt: s.lastEvent,
       approval: p && p.rid && !p.questions
         ? { rid: p.rid, tool: p.tool, action: p.action, detail: clip(p.detail ?? "", 2000), canAlways: p.canAlways }
+        : null,
+      // Not clipped: an answer must repeat the question exactly (the relay checks it).
+      question: p && p.rid && p.questions
+        ? {
+            rid: p.rid,
+            questions: p.questions.map((q) => ({
+              question: q.question,
+              header: q.header ?? null,
+              multiSelect: Boolean(q.multiSelect),
+              options: q.options.map((o) => ({ label: o.label, description: o.description ?? null })),
+            })),
+          }
         : null,
     };
   });

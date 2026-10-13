@@ -506,6 +506,11 @@ pub fn battery_now() -> Option<(u8, bool)> {
 
 // ── Windows readings ──────────────────────────────────────────────────────────
 
+/// Seconds since the last keyboard or mouse input on this PC.
+pub fn idle_secs() -> Option<u64> {
+    win::idle_secs()
+}
+
 #[cfg(windows)]
 mod win {
     #[repr(C)]

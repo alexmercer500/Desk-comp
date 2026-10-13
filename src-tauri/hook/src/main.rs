@@ -24,6 +24,14 @@
 //! over the payload's. `--wait` marks the hook entry that answers questions
 //! (Claude Code's AskUserQuestion, and Command Code's through our mod).
 //!
+//! **Replies from the phone.** When Claude Code finishes a turn while the user
+//! is away (a phone with away mode is linked and the PC has been idle), the
+//! app may ask us to hold the Stop for a few minutes. A reply typed on the
+//! phone then comes back as Claude Code's documented Stop output (`decision:
+//! block` with the reply as the reason), and Claude carries on with it. The app
+//! says within HOLD_ACK whether to hold at all; anything else, or no reply in
+//! time, prints nothing and the turn simply ends.
+//!
 //! IDEs too: Cursor (`--agent cursor`, its own hooks.json), Antigravity
 //! (`--agent antigravity`) and VS Code's agent (`--agent vscode`, sharing
 //! Copilot CLI's hook file). They're status only: nothing here ever answers
@@ -55,8 +63,14 @@ const MAX_SUMMARY: usize = 1200;
 /// bigger is left out (the app then shows the file without a diff).
 const MAX_EDIT_TEXT: usize = 48 * 1024;
 const MAX_EDIT_TOTAL: usize = 160 * 1024;
-/// Longest answer line we accept from the app (question answers are JSON).
+/// Longest answer line we accept from the app (question answers and replies are JSON).
 const MAX_ANSWER: u64 = 16 * 1024;
+/// How long the app has to say whether to hold a finished turn for a reply.
+const HOLD_ACK: Duration = Duration::from_millis(1500);
+/// How long a held turn waits for a reply. Keep under the Stop hook's timeout (setup.rs).
+const HOLD_BUDGET: Duration = Duration::from_secs(300);
+/// Longest reply passed on to the agent.
+const MAX_REPLY: usize = 4000;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -105,12 +119,16 @@ fn main() {
         return;
     }
     let permission = waits_for_decision(&agent, event.as_deref(), tool.as_deref());
+    let holdable = can_hold(&agent, event.as_deref());
     let waits = permission || question;
 
     let mut summary = summarize(&hook, &agent, event.as_deref(), tool.as_deref());
-    if waits {
+    if waits || holdable {
         // Lets the app match the user's answer to this exact request.
         summary["rid"] = Value::String(request_id(&hook));
+    }
+    if holdable {
+        summary["hold"] = Value::Bool(true);
     }
     if permission && has_suggestions(&hook) {
         summary["canAlways"] = Value::Bool(true);
@@ -125,11 +143,20 @@ fn main() {
     summary["procs"] = json!(ancestors());
     let line = format!("{summary}\n");
 
+    let mode = if waits { Talk::Answer } else if holdable { Talk::Hold } else { Talk::Tell };
     let (done, wait) = mpsc::channel();
     std::thread::spawn(move || {
-        let _ = done.send(talk(&line, waits));
+        let _ = done.send(talk(&line, mode, &done));
     });
-    let outcome = wait.recv_timeout(if waits { DECISION_BUDGET } else { DEADLINE });
+    let outcome = match mode {
+        Talk::Tell => wait.recv_timeout(DEADLINE),
+        Talk::Answer => wait.recv_timeout(DECISION_BUDGET),
+        // First the app's "hold" (or not), then, only if it holds, the reply.
+        Talk::Hold => match wait.recv_timeout(HOLD_ACK) {
+            Ok(Ok(Some(ack))) if ack == "hold" => wait.recv_timeout(HOLD_BUDGET),
+            other => other,
+        },
+    };
 
     // The only thing ever printed: an answer a person gave (see reply_*()).
     let answer = match &outcome {
@@ -138,6 +165,8 @@ fn main() {
     };
     let out = if question {
         reply_question(answer, &hook)
+    } else if holdable {
+        reply_stop(answer)
     } else if permission {
         reply_permission(answer, &hook)
     } else {
@@ -329,6 +358,27 @@ fn reply_permission(decision: &str, hook: &Map<String, Value>) -> Option<String>
     Some(json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision } }).to_string())
 }
 
+/// Claude Code's turn ending: held for a reply from the phone when the app says so.
+/// Not Cursor running Claude Code's hooks (the agent is renamed by then).
+fn can_hold(agent: &str, event: Option<&str>) -> bool {
+    agent == "claude-code" && event == Some("Stop")
+}
+
+/// A reply from the phone, from the app as `{"reply": text}`: Claude Code's
+/// documented Stop output that makes it carry on, with the reply as the
+/// reason. Text only: not empty, at most MAX_REPLY characters, no control
+/// characters but line breaks and tabs. Anything else prints nothing and the
+/// turn ends as usual.
+fn reply_stop(answer: &str) -> Option<String> {
+    let given = serde_json::from_str::<Value>(answer.trim()).ok()?;
+    let text = given.get("reply")?.as_str()?.trim();
+    if text.is_empty() || text.chars().count() > MAX_REPLY || text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return None;
+    }
+    let reason = format!("The user replied from their phone:\n\n{text}");
+    Some(json!({ "decision": "block", "reason": reason }).to_string())
+}
+
 /// Longest answer typed by hand ("Other…").
 const MAX_OTHER: usize = 500;
 
@@ -362,9 +412,24 @@ fn reply_question(answer: &str, hook: &Map<String, Value>) -> Option<String> {
 
 // ── The pipe ──────────────────────────────────────────────────────────────────
 
-/// Sends the event; for a permission or question, then waits for the app's one-line answer.
+/// What we wait for after sending the event.
+#[derive(Clone, Copy, PartialEq)]
+enum Talk {
+    /// Nothing: report and go.
+    Tell,
+    /// The user's answer (a permission or a question): one line.
+    Answer,
+    /// A turn's end: the app's "hold" or not (a line), then, if held, the reply.
+    Hold,
+}
+
+type Heard = std::io::Result<Option<String>>;
+
+/// Sends the event, then reads what `mode` waits for. For Hold the first line
+/// goes out through `early` (the caller times it separately) and the second
+/// is returned.
 #[cfg(windows)]
-fn talk(line: &str, wait_for_answer: bool) -> std::io::Result<Option<String>> {
+fn talk(line: &str, mode: Talk, early: &mpsc::Sender<Heard>) -> Heard {
     use std::io::{BufRead, BufReader, Write};
     let mut pipe = std::fs::OpenOptions::new().read(true).write(true).open(pipe_name::pipe_name())?;
     // Anything could have opened a pipe with this name first. Only the real
@@ -374,16 +439,27 @@ fn talk(line: &str, wait_for_answer: bool) -> std::io::Result<Option<String>> {
     }
     pipe.write_all(line.as_bytes())?;
     pipe.flush()?;
-    if !wait_for_answer {
+    if mode == Talk::Tell {
         return Ok(None);
     }
+    let mut reader = BufReader::new(pipe);
     let mut answer = String::new();
-    BufReader::new(pipe).take(MAX_ANSWER).read_line(&mut answer)?;
+    (&mut reader).take(MAX_ANSWER).read_line(&mut answer)?;
+    if mode == Talk::Hold {
+        let ack = answer.trim().to_string();
+        let held = ack == "hold";
+        let _ = early.send(Ok(Some(ack)));
+        if !held {
+            return Ok(None);
+        }
+        answer.clear();
+        (&mut reader).take(MAX_ANSWER).read_line(&mut answer)?;
+    }
     Ok(Some(answer.trim().to_string()))
 }
 
 #[cfg(not(windows))]
-fn talk(_line: &str, _wait_for_answer: bool) -> std::io::Result<Option<String>> {
+fn talk(_line: &str, _mode: Talk, _early: &mpsc::Sender<Heard>) -> Heard {
     // Unix socket transport comes with the macOS/Linux port.
     Ok(None)
 }
@@ -639,6 +715,21 @@ mod tests {
         assert!(summarize(&obj(&big), "claude-code", Some("PostToolUse"), Some("Write"))["edits"].is_null());
         let shell = obj(r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#);
         assert!(summarize(&shell, "claude-code", Some("PostToolUse"), Some("Bash"))["edits"].is_null());
+    }
+
+    #[test]
+    fn only_claude_codes_turn_end_is_held_and_only_a_real_reply_continues_it() {
+        assert!(can_hold("claude-code", Some("Stop")));
+        assert!(!can_hold("cursor", Some("Stop")));
+        assert!(!can_hold("codex", Some("Stop")));
+        assert!(!can_hold("claude-code", Some("StopFailure")));
+        let out: Value = serde_json::from_str(&reply_stop(r#"{"reply":"  Now add a test\nfor it  "}"#).unwrap()).unwrap();
+        assert_eq!(out["decision"], "block");
+        assert!(out["reason"].as_str().unwrap().ends_with("Now add a test\nfor it"));
+        let long = format!(r#"{{"reply":"{}"}}"#, "a".repeat(MAX_REPLY + 1));
+        for no in ["", "hold", "allow", r#"{"reply":""}"#, r#"{"reply":"   "}"#, r#"{"reply":"a\u0007b"}"#, r#"{"reply":3}"#, r#"{"answers":{}}"#, long.as_str()] {
+            assert_eq!(reply_stop(no), None, "{no:?}");
+        }
     }
 
     #[test]

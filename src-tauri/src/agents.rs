@@ -20,6 +20,12 @@
 // is let go at once and the agent asks in its terminal, instead of sitting
 // there for two minutes waiting on a card nobody saw.
 //
+// A finished Claude Code turn (`hold`) asks whether to wait for a reply from
+// the phone (phone::should_hold). We answer "hold" or not straight away. A
+// held turn waits up to HOLD_WAIT for a reply, and is let go at once when
+// someone uses this PC or no phone is left to reply from. A reply goes back
+// to the relay, and the page sees it as the session's next prompt.
+//
 // The pipe's default security only lets the current user (and admins) write
 // to it, and tokio rejects remote clients by default.
 
@@ -43,17 +49,39 @@ use crate::desktop;
 const DECISION_WAIT: Duration = Duration::from_secs(115);
 /// How long the page has to put the card on screen before the agent is let go.
 const SHOW_WAIT: Duration = Duration::from_secs(2);
+/// How long a finished turn is held for a reply: a little under the relay's 300 s.
+const HOLD_WAIT: Duration = Duration::from_secs(290);
+/// How often a held turn checks whether someone is back at the PC.
+const HOLD_CHECK: Duration = Duration::from_millis(400);
 
-/// Permission requests waiting for a click: request id → where to send the answer.
+/// What a waiting request is, so an answer of one kind never reaches another.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Kind {
+    Permission,
+    Question,
+    /// A finished turn held for a reply (only the phone answers these).
+    Hold,
+}
+
+/// Requests waiting for the user: request id → where to send the answer.
 #[derive(Default)]
-pub struct Pending(Mutex<HashMap<String, Answer>>);
+pub struct Pending(Mutex<HashMap<String, (Answer, Kind)>>);
 
 impl Pending {
-    fn insert(&self, rid: String, tx: Answer) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(rid, tx);
+    fn insert(&self, rid: String, tx: Answer, kind: Kind) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(rid, (tx, kind));
     }
-    fn take(&self, rid: &str) -> Option<Answer> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(rid)
+    /// Removes the request, whatever it is.
+    fn remove(&self, rid: &str) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(rid);
+    }
+    /// Takes the request only if it is one of `kinds`.
+    fn take(&self, rid: &str, kinds: &[Kind]) -> Option<Answer> {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !map.get(rid).is_some_and(|(_, k)| kinds.contains(k)) {
+            return None;
+        }
+        map.remove(rid).map(|(tx, _)| tx)
     }
 }
 
@@ -91,9 +119,29 @@ pub fn mark_shown(app: &AppHandle, rid: &str) {
 /// is already gone (answered elsewhere, timed out).
 pub fn decide_from_phone(app: &AppHandle, rid: &str, word: &str) -> bool {
     debug_assert!(word == "allow" || word == "deny");
-    let Some(tx) = app.state::<Pending>().take(rid) else { return false };
+    let Some(tx) = app.state::<Pending>().take(rid, &[Kind::Permission]) else { return false };
     let _ = app.emit_to(desktop::LABEL, "phone:decided", serde_json::json!({ "rid": rid, "decision": word }));
     tx.try_send(Some(word.to_string())).is_ok()
+}
+
+/// Answers to Claude's question card from the phone (already checked for
+/// shape in phone/proto.rs; the relay checks them against what was asked).
+pub fn answer_from_phone(app: &AppHandle, rid: &str, answers: &[(String, String)]) -> bool {
+    let map: serde_json::Map<String, Value> = answers.iter().map(|(q, a)| (q.clone(), Value::String(a.clone()))).collect();
+    let line = serde_json::json!({ "answers": map }).to_string();
+    if line.len() > 15 * 1024 {
+        return false;
+    }
+    let Some(tx) = app.state::<Pending>().take(rid, &[Kind::Question]) else { return false };
+    let _ = app.emit_to(desktop::LABEL, "phone:answered", rid);
+    tx.try_send(Some(line)).is_ok()
+}
+
+/// A reply from the phone to a held turn (checked in phone/proto.rs and again by the relay).
+pub fn reply_from_phone(app: &AppHandle, rid: &str, text: &str) -> bool {
+    let line = serde_json::json!({ "reply": text }).to_string();
+    let Some(tx) = app.state::<Pending>().take(rid, &[Kind::Hold]) else { return false };
+    tx.try_send(Some(line)).is_ok()
 }
 
 /// The user's answer to a permission request: "allow", "always" (allow, and
@@ -107,7 +155,7 @@ pub async fn answer_permission(pending: State<'_, Pending>, rid: String, decisio
         "terminal" => String::new(),
         other => return Err(format!("unknown decision {other:?}")),
     };
-    Ok(pending.take(&rid).is_some_and(|tx| tx.try_send(Some(word)).is_ok()))
+    Ok(pending.take(&rid, &[Kind::Permission, Kind::Question]).is_some_and(|tx| tx.try_send(Some(word)).is_ok()))
 }
 
 /// The user's answers to Claude Code's question: question → chosen option(s).
@@ -125,7 +173,7 @@ pub async fn answer_question(
     if line.len() > 15 * 1024 {
         return Err("answers too long".into());
     }
-    Ok(pending.take(&rid).is_some_and(|tx| tx.try_send(Some(line)).is_ok()))
+    Ok(pending.take(&rid, &[Kind::Question]).is_some_and(|tx| tx.try_send(Some(line)).is_ok()))
 }
 
 #[path = "../hook/src/pipe_name.rs"]
@@ -137,7 +185,7 @@ const TRANSCRIPT_TAIL: u64 = 512 * 1024;
 /// Longest summary passed on.
 const MAX_SUMMARY: usize = 1200;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AgentEvent {
     agent: String,
     event: Option<String>,
@@ -171,6 +219,9 @@ pub struct AgentEvent {
     /// editor is among them (focus.rs brings it forward).
     #[serde(default)]
     procs: Option<Vec<u32>>,
+    /// Input only: a finished turn the relay can hold for a reply (with `rid`).
+    #[serde(default, skip_serializing)]
+    hold: bool,
 }
 
 #[cfg(windows)]
@@ -223,8 +274,26 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
                 continue;
             }
         };
+        // A finished turn: say at once whether it's held, before anything slow.
+        let mut held = None;
+        if ev.hold {
+            let rid = ev.rid.take();
+            let session = ev.session.clone().filter(|s| !s.is_empty());
+            let hold = rid.is_some() && session.is_some() && crate::phone::should_hold(&app);
+            let _ = write.write_all(if hold { b"hold\n" as &[u8] } else { b"\n" }).await;
+            let _ = write.flush().await;
+            if hold {
+                held = rid.zip(session);
+            }
+        }
         if let Some(path) = ev.transcript.take() {
             ev.summary = summary_from(&path).await;
+        }
+        if let Some((rid, session)) = held {
+            let next = AgentEvent { agent: ev.agent.clone(), session: ev.session.clone(), cwd: ev.cwd.clone(), procs: ev.procs.clone(), ..Default::default() };
+            let _ = app.emit_to(desktop::LABEL, "agent", ev);
+            hold_for_reply(&app, &mut write, lines, rid, session, next).await;
+            return;
         }
         if ev.rid.is_some() {
             let prefs = crate::system::current(&app);
@@ -240,7 +309,8 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
         let (tx, mut rx) = mpsc::channel::<Option<String>>(2);
         let (shown_tx, shown_rx) = tokio::sync::oneshot::channel::<()>();
         if let Some(rid) = &rid {
-            app.state::<Pending>().insert(rid.clone(), tx.clone());
+            let kind = if ev.questions.is_some() { Kind::Question } else { Kind::Permission };
+            app.state::<Pending>().insert(rid.clone(), tx.clone(), kind);
             app.state::<Shown>().insert(rid.clone(), shown_tx);
         }
         let _ = app.emit_to(desktop::LABEL, "agent", ev);
@@ -261,7 +331,7 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
             rx.try_recv().ok().flatten()
         };
         hangup.abort();
-        app.state::<Pending>().take(&rid);
+        app.state::<Pending>().remove(&rid);
         if let Some(word) = answer {
             let _ = write.write_all(format!("{word}\n").as_bytes()).await;
             let _ = write.flush().await;
@@ -269,6 +339,54 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
         let _ = app.emit_to(desktop::LABEL, "permission-closed", rid);
         return; // one request per connection
     }
+}
+
+/// Holds a finished turn until a reply comes from the phone, someone uses the
+/// PC, the phones go, the relay hangs up, or HOLD_WAIT runs out. A reply goes
+/// to the relay (Claude carries on with it) and to the page as the session's
+/// next prompt (`next`, filled in here).
+#[cfg(windows)]
+async fn hold_for_reply<W, R>(app: &AppHandle, write: &mut W, mut lines: tokio::io::Lines<R>, rid: String, session: String, mut next: AgentEvent)
+where
+    W: tokio::io::AsyncWrite + Unpin,
+    R: tokio::io::AsyncBufRead + Unpin + Send + 'static,
+{
+    use tokio::io::AsyncWriteExt;
+
+    let (tx, mut rx) = mpsc::channel::<Option<String>>(2);
+    app.state::<Pending>().insert(rid.clone(), tx.clone(), Kind::Hold);
+    let until = std::time::SystemTime::now()
+        .checked_add(HOLD_WAIT)
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_millis() as u64);
+    crate::phone::hold_started(app, &session, &rid, until);
+    let hangup = tauri::async_runtime::spawn(async move {
+        let _ = lines.next_line().await;
+        let _ = tx.send(None).await;
+    });
+    let deadline = tokio::time::Instant::now() + HOLD_WAIT;
+    let reply = loop {
+        tokio::select! {
+            r = rx.recv() => break r.flatten(),
+            _ = tokio::time::sleep_until(deadline) => break None,
+            _ = tokio::time::sleep(HOLD_CHECK) => {
+                if !crate::phone::keep_holding(app) {
+                    break None;
+                }
+            }
+        }
+    };
+    hangup.abort();
+    app.state::<Pending>().remove(&rid);
+    crate::phone::hold_ended(app, &session, &rid);
+    let Some(line) = reply else { return };
+    if write.write_all(format!("{line}\n").as_bytes()).await.is_err() || write.flush().await.is_err() {
+        return;
+    }
+    let text = serde_json::from_str::<Value>(&line).ok().and_then(|v| v.get("reply")?.as_str().map(str::to_string));
+    next.event = Some("UserPromptSubmit".into());
+    next.prompt = text.map(|t| clip(&t, 300));
+    let _ = app.emit_to(desktop::LABEL, "agent", next);
 }
 
 /// The last reply in a transcript. The file may still be flushing when Stop

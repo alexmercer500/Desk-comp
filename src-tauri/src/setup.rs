@@ -262,6 +262,11 @@ fn agent_hooks(agent: &str, relay: &str) -> Vec<(&'static str, Value)> {
                     // other event is fire-and-forget and never holds the agent up.
                     let hook = if *event == "PermissionRequest" {
                         json!({ "type": "command", "command": cmd(""), "timeout": 120 })
+                    } else if *event == "Stop" {
+                        // Not async: while you're away the app may hold a finished turn
+                        // for a reply from the phone (up to 300 s, hook/src/main.rs).
+                        // Otherwise the relay is done within milliseconds.
+                        json!({ "type": "command", "command": cmd(""), "timeout": 330 })
                     } else {
                         json!({ "type": "command", "command": cmd(""), "timeout": 5, "async": true })
                     };

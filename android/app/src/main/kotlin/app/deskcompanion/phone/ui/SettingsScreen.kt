@@ -64,7 +64,7 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
             Card {
                 ToggleRow(
                     "Away mode",
-                    "When a task finishes, wait a few minutes for a reply from here",
+                    "When a Claude Code task finishes while nobody's at your PC, it waits up to 5 minutes for a reply from here",
                     state.awayMode,
                 ) { state.changeAwayMode(it) }
             }
@@ -73,7 +73,7 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
         item { Group("Safety") }
         item {
             Card {
-                ToggleRow("Ask for my fingerprint before Allow", "Deny never asks", state.requireUnlockForAllow) { state.changeRequireUnlockForAllow(it) }
+                ToggleRow("Ask for my fingerprint before Allow", "And before answers and replies. Deny never asks", state.requireUnlockForAllow) { state.changeRequireUnlockForAllow(it) }
             }
         }
 

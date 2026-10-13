@@ -42,7 +42,7 @@ describe("phoneView", () => {
     expect(s.approval).toEqual({ rid: "r1", tool: "Bash", action: "run", detail: "npm test", canAlways: true });
   });
 
-  it("doesn't offer it once only the terminal can answer, or for a question", () => {
+  it("doesn't offer it once only the terminal can answer, but does offer a question to answer", () => {
     t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm test", rid: "r1" }));
     t.permissionClosed("r1");
     expect(phoneView(t.snapshot())[0].approval).toBeNull();
@@ -50,6 +50,12 @@ describe("phoneView", () => {
     const q = phoneView(t.snapshot()).find((x) => x.id === "s2")!;
     expect(q.status).toBe("waiting");
     expect(q.approval).toBeNull();
+    expect(q.question).toEqual({
+      rid: "q1",
+      questions: [{ question: "Which?", header: null, multiSelect: false, options: [{ label: "A", description: null }, { label: "B", description: null }] }],
+    });
+    t.permissionClosed("q1");
+    expect(phoneView(t.snapshot()).find((x) => x.id === "s2")!.question).toBeNull();
   });
 
   it("shows a finished task with its summary and changed files", () => {

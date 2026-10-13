@@ -21,14 +21,27 @@ pub const IDLE_LIMIT: Duration = Duration::from_secs(90);
 pub const WRONG_TOKEN_DELAY: Duration = Duration::from_millis(400);
 /// Longest request id accepted back from the phone.
 const MAX_RID: usize = 512;
+/// A reply typed on the phone (the relay allows the same).
+pub const MAX_REPLY: usize = 4000;
+/// Answers to one question card: how many, and how long (the relay checks them against what was asked).
+const MAX_ANSWERS: usize = 8;
+const MAX_ANSWER_KEY: usize = 1000;
+const MAX_ANSWER: usize = 500;
 
 /// A message from the phone.
 #[derive(Debug, PartialEq)]
 pub enum FromPhone {
-    Hello { v: u64, token: String, device: String },
+    /// `away`: the user wants finished turns held for a reply (away mode on the phone).
+    Hello { v: u64, token: String, device: String, away: bool },
     /// The phone is showing this request: the agent keeps waiting for it.
     Seen { rid: String },
     Decision { rid: String, allow: bool },
+    /// Answers to a question card: question → the chosen option(s) or typed text.
+    Answer { rid: String, answers: Vec<(String, String)> },
+    /// A further prompt for a turn being held for one.
+    Reply { rid: String, text: String },
+    /// Away mode switched on the phone.
+    Away { on: bool },
     Ping,
     /// A type this version doesn't know (a newer phone): ignored.
     Other,
@@ -43,6 +56,7 @@ pub fn parse(line: &str) -> Result<FromPhone, &'static str> {
             v: o.get("v").and_then(Value::as_u64).ok_or("hello without a version")?,
             token: text("token").ok_or("hello without a token")?.to_string(),
             device: device_name(text("device").unwrap_or("")),
+            away: o.get("away").and_then(Value::as_bool).unwrap_or(false),
         }),
         Some("seen") => Ok(FromPhone::Seen { rid: request_id(text("rid"))? }),
         Some("decision") => {
@@ -54,6 +68,30 @@ pub fn parse(line: &str) -> Result<FromPhone, &'static str> {
             };
             Ok(FromPhone::Decision { rid: request_id(text("rid"))?, allow })
         }
+        Some("answer") => {
+            let given = o.get("answers").and_then(Value::as_object).ok_or("answer without answers")?;
+            if given.is_empty() || given.len() > MAX_ANSWERS {
+                return Err("wrong number of answers");
+            }
+            let mut answers = Vec::new();
+            for (question, value) in given {
+                let value = value.as_str().ok_or("an answer must be text")?;
+                if !plain(question, MAX_ANSWER_KEY) || !plain(value, MAX_ANSWER) {
+                    return Err("bad answer");
+                }
+                answers.push((question.clone(), value.to_string()));
+            }
+            Ok(FromPhone::Answer { rid: request_id(text("rid"))?, answers })
+        }
+        Some("reply") => {
+            let t = text("text").ok_or("reply without text")?.trim();
+            let ok = !t.is_empty() && t.chars().count() <= MAX_REPLY && !t.chars().any(|c| c.is_control() && c != '\n' && c != '\t');
+            if !ok {
+                return Err("bad reply");
+            }
+            Ok(FromPhone::Reply { rid: request_id(text("rid"))?, text: t.to_string() })
+        }
+        Some("away") => Ok(FromPhone::Away { on: o.get("on").and_then(Value::as_bool).ok_or("away without on")? }),
         Some("ping") => Ok(FromPhone::Ping),
         Some(_) => Ok(FromPhone::Other),
         None => Err("no type"),
@@ -69,6 +107,11 @@ fn request_id(rid: Option<&str>) -> Result<String, &'static str> {
         return Err("bad request id");
     }
     Ok(rid.to_string())
+}
+
+/// One line of text: not blank, not too long, no control characters.
+fn plain(s: &str, max: usize) -> bool {
+    !s.trim().is_empty() && s.chars().count() <= max && !s.chars().any(char::is_control)
 }
 
 /// The phone's name as the user will see it in Settings: printable, short.
@@ -192,8 +235,18 @@ mod tests {
     fn messages_from_the_phone_are_read_strictly() {
         assert_eq!(
             parse(r#"{"t":"hello","v":1,"token":"abc","device":"Pixel 7"}"#),
-            Ok(FromPhone::Hello { v: 1, token: "abc".into(), device: "Pixel 7".into() })
+            Ok(FromPhone::Hello { v: 1, token: "abc".into(), device: "Pixel 7".into(), away: false })
         );
+        assert_eq!(
+            parse(r#"{"t":"hello","v":1,"token":"abc","device":"P","away":true}"#),
+            Ok(FromPhone::Hello { v: 1, token: "abc".into(), device: "P".into(), away: true })
+        );
+        assert_eq!(
+            parse(r#"{"t":"answer","rid":"q","answers":{"Which one?":"Blue"}}"#),
+            Ok(FromPhone::Answer { rid: "q".into(), answers: vec![("Which one?".into(), "Blue".into())] })
+        );
+        assert_eq!(parse(r#"{"t":"reply","rid":"h","text":" Add a test\nplease "}"#), Ok(FromPhone::Reply { rid: "h".into(), text: "Add a test\nplease".into() }));
+        assert_eq!(parse(r#"{"t":"away","on":true}"#), Ok(FromPhone::Away { on: true }));
         assert_eq!(parse(r#"{"t":"decision","rid":"s:1:2","decision":"allow"}"#), Ok(FromPhone::Decision { rid: "s:1:2".into(), allow: true }));
         assert_eq!(parse(r#"{"t":"decision","rid":"s:1:2","decision":"deny"}"#), Ok(FromPhone::Decision { rid: "s:1:2".into(), allow: false }));
         assert_eq!(parse(r#"{"t":"seen","rid":"x"}"#), Ok(FromPhone::Seen { rid: "x".into() }));
@@ -209,10 +262,21 @@ mod tests {
             r#"{"t":"decision","rid":"","decision":"allow"}"#,
             r#"{"t":"decision","decision":"allow"}"#,
             r#"{"t":"seen","rid":"a\u0000b"}"#,
+            r#"{"t":"answer","rid":"q","answers":{}}"#,
+            r#"{"t":"answer","rid":"q","answers":{"Q":3}}"#,
+            r#"{"t":"answer","rid":"q","answers":{"Q":"  "}}"#,
+            r#"{"t":"answer","rid":"q","answers":{"Q":"a\nb"}}"#,
+            r#"{"t":"answer","answers":{"Q":"a"}}"#,
+            r#"{"t":"reply","rid":"h","text":"   "}"#,
+            r#"{"t":"reply","rid":"h","text":"a\u001bb"}"#,
+            r#"{"t":"reply","rid":"h"}"#,
+            r#"{"t":"away"}"#,
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
         let long = format!(r#"{{"t":"seen","rid":"{}"}}"#, "r".repeat(MAX_RID + 1));
+        assert!(parse(&long).is_err());
+        let long = format!(r#"{{"t":"reply","rid":"h","text":"{}"}}"#, "r".repeat(MAX_REPLY + 1));
         assert!(parse(&long).is_err());
     }
 

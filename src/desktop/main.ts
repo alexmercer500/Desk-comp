@@ -428,6 +428,10 @@ sendToPhone();
 void listen<{ rid: string; decision: Decision }>("phone:decided", ({ payload }) => {
   if (agents.answer(payload.rid, payload.decision)) c.acknowledge();
 });
+// Claude's question answered from the phone: already on its way to the agent.
+void listen<string>("phone:answered", ({ payload }) => {
+  if (agents.answered(payload)) c.acknowledge();
+});
 // Timers run out (bubbles, hover) without an event of their own.
 window.setInterval(refreshIsland, 1000);
 

@@ -47,6 +47,7 @@ import app.deskcompanion.phone.ui.DeskTheme
 import app.deskcompanion.phone.ui.HomeScreen
 import app.deskcompanion.phone.ui.NavBar
 import app.deskcompanion.phone.ui.PairScreen
+import app.deskcompanion.phone.ui.QuestionSheet
 import app.deskcompanion.phone.ui.SessionScreen
 import app.deskcompanion.phone.ui.SettingsScreen
 import app.deskcompanion.phone.ui.Tab
@@ -102,6 +103,9 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
     }
     LaunchedEffect(Unit) {
         state.onDecide = { rid, allow -> LinkHub.decide(rid, allow) }
+        state.onAnswer = { rid, answers -> LinkHub.answer(rid, answers) }
+        state.onReply = { rid, text -> LinkHub.reply(rid, text) }
+        state.onAway = { LinkHub.setAway(it) }
     }
     // Opened from a pairing link: straight to the confirmation.
     LaunchedEffect(incomingPairing.value) {
@@ -114,7 +118,7 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
     val review = incomingReview.value
     LaunchedEffect(review, state.sessions) {
         if (review != null) {
-            state.sessions.firstOrNull { it.approval?.rid == review }?.let {
+            state.sessions.firstOrNull { it.approval?.rid == review || it.question?.rid == review }?.let {
                 reviewId = it.id
                 incomingReview.value = null
             }
@@ -129,6 +133,11 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
         else askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
     val linkNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val notConnected = { Toast.makeText(ctx, "Not connected to your PC right now", Toast.LENGTH_SHORT).show() }
+    // Anything that lets an agent act (Allow, an answer, a reply): prove it's you first. Deny never asks.
+    val protect = { title: String, action: () -> Unit ->
+        if (state.live && state.requireUnlockForAllow) Unlock.ask(ctx as FragmentActivity, title, action) else action()
+    }
 
     BackHandler(enabled = reviewId == null && (pairing || openId != null || tab != Tab.Home)) {
         when {
@@ -154,14 +163,22 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                 onBack = { pairing = false; incomingPairing.value = null },
                 padding = padding,
             )
-            open != null -> SessionScreen(state, open, onBack = { openId = null }, onReview = { reviewId = it }, padding = padding)
+            open != null -> SessionScreen(
+                state, open,
+                onBack = { openId = null },
+                onReview = { reviewId = it },
+                onReply = { id, text, sent ->
+                    protect("Send your reply?") { if (state.reply(id, text)) sent() else notConnected() }
+                },
+                padding = padding,
+            )
             else -> {
                 when (tab) {
                     Tab.Home -> HomeScreen(
                         state,
                         onOpen = { openId = it },
                         onReview = { reviewId = it },
-                        onBell = { reviewId = state.sessions.firstOrNull { it.status == Status.Waiting && it.approval != null }?.id },
+                        onBell = { reviewId = state.sessions.firstOrNull { it.status == Status.Waiting && (it.approval != null || it.question != null) }?.id },
                         onLink = { pairing = true },
                         padding = padding,
                     )
@@ -190,21 +207,27 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                 session = reviewing,
                 live = state.live,
                 onAllow = {
-                    val allow = {
-                        if (state.decide(reviewing.id, allow = true)) reviewId = null
-                        else Toast.makeText(ctx, "Not connected to your PC right now", Toast.LENGTH_SHORT).show()
+                    protect("Allow ${reviewing.agent} to ${reviewing.approval.action}?") {
+                        if (state.decide(reviewing.id, allow = true)) reviewId = null else notConnected()
                     }
-                    // Allow is the one answer that lets an agent act: prove it's you first. (Deny never asks.)
-                    if (state.live && state.requireUnlockForAllow) Unlock.ask(ctx as FragmentActivity, "Allow ${reviewing.agent} to ${reviewing.approval.action}?", allow)
-                    else allow()
                 },
                 onDeny = {
-                    if (state.decide(reviewing.id, allow = false)) reviewId = null
-                    else Toast.makeText(ctx, "Not connected to your PC right now", Toast.LENGTH_SHORT).show()
+                    if (state.decide(reviewing.id, allow = false)) reviewId = null else notConnected()
                 },
                 onDismiss = { reviewId = null },
             )
-        } else if (reviewId != null && reviewing?.approval == null) {
+        } else if (reviewing?.question != null) {
+            QuestionSheet(
+                session = reviewing,
+                live = state.live,
+                onSend = { answers ->
+                    protect("Send your answer?") {
+                        if (state.answer(reviewing.id, answers)) reviewId = null else notConnected()
+                    }
+                },
+                onDismiss = { reviewId = null },
+            )
+        } else if (reviewId != null) {
             // Answered elsewhere (on the PC, in the terminal) while the sheet was open.
             LaunchedEffect(reviewId) { reviewId = null }
         }

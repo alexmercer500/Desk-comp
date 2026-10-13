@@ -3,6 +3,7 @@ package app.deskcompanion.phone.link
 import android.content.Context
 import android.os.Build
 import app.deskcompanion.phone.model.Session
+import app.deskcompanion.phone.model.Settings
 import app.deskcompanion.phone.notify.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +92,26 @@ object LinkHub {
         return true
     }
 
+    /** Answers to Claude's question card; false when not connected right now. */
+    fun answer(rid: String, answers: Map<String, String>): Boolean {
+        if (_state.value !is State.Connected || answers.isEmpty()) return false
+        scope.launch { send(Protocol.answer(rid, answers)) }
+        return true
+    }
+
+    /** A further prompt for a turn the PC is holding; false when not connected right now. */
+    fun reply(rid: String, text: String): Boolean {
+        val t = text.trim().take(Protocol.MAX_REPLY)
+        if (_state.value !is State.Connected || t.isEmpty()) return false
+        scope.launch { send(Protocol.reply(rid, t)) }
+        return true
+    }
+
+    /** Away mode changed in Settings: the PC holds finished turns only for a phone that wants it. */
+    fun setAway(on: Boolean) {
+        if (_state.value is State.Connected) scope.launch { send(Protocol.away(on)) }
+    }
+
     private fun seen(rid: String) {
         scope.launch { send(Protocol.seen(rid)) }
     }
@@ -139,7 +160,7 @@ object LinkHub {
         }
         try {
             out = sock.getOutputStream()
-            send(Protocol.hello(p.token, deviceName()))
+            send(Protocol.hello(p.token, deviceName(), Settings.shared.awayMode))
             val input = sock.getInputStream()
             while (true) {
                 val line = readLine(input) ?: return false

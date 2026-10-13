@@ -20,6 +20,12 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
         private set
     /** Sends a decision to the PC; false when it couldn't (not connected). */
     var onDecide: ((rid: String, allow: Boolean) -> Boolean)? = null
+    /** Sends answers to a question card; false when it couldn't. */
+    var onAnswer: ((rid: String, answers: Map<String, String>) -> Boolean)? = null
+    /** Sends a reply to a held turn; false when it couldn't. */
+    var onReply: ((rid: String, text: String) -> Boolean)? = null
+    /** Away mode switched (the PC is told). */
+    var onAway: ((Boolean) -> Unit)? = null
 
     fun showLive(list: List<Session>) {
         live = true
@@ -52,7 +58,7 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
     fun changeNotifyErrors(v: Boolean) { notifyErrors = v; store.notifyErrors = v }
     fun changeQuietHours(v: Boolean) { quietHours = v; store.quietHours = v }
     fun changeRequireUnlockForAllow(v: Boolean) { requireUnlockForAllow = v; store.requireUnlockForAllow = v }
-    fun changeAwayMode(v: Boolean) { awayMode = v; store.awayMode = v }
+    fun changeAwayMode(v: Boolean) { awayMode = v; store.awayMode = v; onAway?.invoke(v) }
 
     fun session(id: String): Session? = sessions.firstOrNull { it.id == id }
 
@@ -87,12 +93,26 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
         return true
     }
 
+    /** Answers to the question card a session is showing: question → choice(s) or typed text. */
+    fun answer(sessionId: String, answers: Map<String, String>): Boolean {
+        val s = session(sessionId) ?: return false
+        val q = s.question ?: return false
+        if (answers.isEmpty() || answers.values.any { it.isBlank() }) return false
+        if (live && onAnswer?.invoke(q.rid, answers) != true) return false
+        replace(s.copy(question = null, status = Status.Working, line = "Carrying on with your answer"))
+        decisions = listOf(Decision(s.project, "Answered: ${answers.values.joinToString(", ").take(80)}", true, 0)) + decisions
+        return true
+    }
+
+    /** Whether a reply from here would reach the agent right now. */
+    fun canReply(s: Session): Boolean = if (live) s.reply != null else s.status == Status.Done
+
     /** A further prompt for a finished session; the agent carries on with it. */
     fun reply(sessionId: String, text: String): Boolean {
         val s = session(sessionId) ?: return false
         val prompt = text.trim()
-        // Replies from the phone come with the next step (the PC side isn't there yet).
-        if (prompt.isEmpty() || s.status != Status.Done || live) return false
+        if (prompt.isEmpty() || !canReply(s)) return false
+        if (live && onReply?.invoke(s.reply!!.rid, prompt) != true) return false
         replace(
             s.copy(
                 status = Status.Working,
@@ -102,6 +122,7 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
                 steps = listOf(Step("You", prompt)),
                 files = emptyList(),
                 minutesAgo = 0,
+                reply = null,
             ),
         )
         return true
@@ -132,6 +153,25 @@ object DemoData {
                 Step("Edit", "src/cart.ts"),
                 Step("Bash", "npm test -- --coverage"),
             ),
+        ),
+        Session(
+            id = "s5", agent = "Claude Code", project = "mobile-app", status = Status.Waiting,
+            line = "Has a question for you", minutesAgo = 2,
+            prompt = "Add dark mode",
+            question = Question(
+                rid = "",
+                items = listOf(
+                    QuestionItem(
+                        question = "Which way should dark mode follow?",
+                        header = "Theme",
+                        options = listOf(
+                            Choice("The phone's setting", "Switches with the system"),
+                            Choice("A switch in the app", "The user picks, saved per device"),
+                        ),
+                    ),
+                ),
+            ),
+            steps = listOf(Step("Read", "src/theme.ts"), Step("AskUserQuestion", "Which way should dark mode follow?")),
         ),
         Session(
             id = "s2", agent = "Codex", project = "blog", status = Status.Working,

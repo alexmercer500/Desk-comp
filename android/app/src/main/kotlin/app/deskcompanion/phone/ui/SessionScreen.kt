@@ -48,7 +48,15 @@ import app.deskcompanion.phone.model.Step
 import androidx.compose.foundation.clickable
 
 @Composable
-fun SessionScreen(state: AppState, id: String, onBack: () -> Unit, onReview: (String) -> Unit, padding: PaddingValues) {
+fun SessionScreen(
+    state: AppState,
+    id: String,
+    onBack: () -> Unit,
+    onReview: (String) -> Unit,
+    /** Sends a reply; calls `sent` once it's on its way (after the fingerprint check, if any). */
+    onReply: (id: String, text: String, sent: () -> Unit) -> Unit,
+    padding: PaddingValues,
+) {
     val c = Desk.colors
     val s = state.session(id)
     if (s == null) {
@@ -61,7 +69,7 @@ fun SessionScreen(state: AppState, id: String, onBack: () -> Unit, onReview: (St
             contentPadding = PaddingValues(
                 start = 20.dp, end = 20.dp,
                 top = padding.calculateTopPadding() + 12.dp,
-                bottom = padding.calculateBottomPadding() + if (s.status == Status.Done) 190.dp else 40.dp,
+                bottom = padding.calculateBottomPadding() + if (s.status == Status.Done || s.reply != null) 190.dp else 40.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -96,7 +104,7 @@ fun SessionScreen(state: AppState, id: String, onBack: () -> Unit, onReview: (St
                 }
             }
         }
-        if (s.status == Status.Done) {
+        if (s.status == Status.Done || s.reply != null) {
             // A solid dock, fading in above, so the list scrolls away underneath it.
             Box(
                 Modifier
@@ -106,7 +114,11 @@ fun SessionScreen(state: AppState, id: String, onBack: () -> Unit, onReview: (St
                     .imePadding()
                     .padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = padding.calculateBottomPadding() + 12.dp),
             ) {
-                ReplyBar(away = state.awayMode, onSend = { state.reply(s.id, it) })
+                ReplyBar(
+                    hint = replyHint(state, s),
+                    open = state.canReply(s),
+                    onSend = { text, sent -> onReply(s.id, text, sent) },
+                )
             }
         }
     }
@@ -175,17 +187,28 @@ private fun FileRow(f: FileChange) {
     }
 }
 
+/** What the reply box says about whether a reply would get through. */
+private fun replyHint(state: AppState, s: Session): String {
+    val hold = s.reply
+    return when {
+        !state.live -> "A sample session: try a reply."
+        hold != null -> {
+            val left = ((hold.until - System.currentTimeMillis()) / 60_000).coerceAtLeast(0)
+            if (left >= 1) "Your PC is waiting for your reply for about $left more min." else "Your PC is waiting for your reply for a moment longer."
+        }
+        !state.awayMode -> "Away mode is off: turn it on in Settings to reply from here."
+        else -> "Replies open when a Claude Code task finishes while you're away from your PC."
+    }
+}
+
 /** A text box with a round send button, for a further prompt once a task is done. */
 @Composable
-private fun ReplyBar(away: Boolean, onSend: (String) -> Boolean, modifier: Modifier = Modifier) {
+private fun ReplyBar(hint: String, open: Boolean, onSend: (String, () -> Unit) -> Unit, modifier: Modifier = Modifier) {
     val c = Desk.colors
     var text by remember { mutableStateOf("") }
+    val ready = open && text.isNotBlank()
     Column(modifier.fillMaxWidth()) {
-        Text(
-            if (away) "Away mode is on: your reply continues this session on your computer."
-            else "Away mode is off: turn it on in Settings to reply from here.",
-            style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp),
-        )
+        Text(hint, style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(start = 12.dp, bottom = 6.dp))
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(32.dp)).background(c.surface).padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -194,7 +217,7 @@ private fun ReplyBar(away: Boolean, onSend: (String) -> Boolean, modifier: Modif
                 if (text.isEmpty()) Text("Give it a further prompt…", style = DeskType.body, color = c.inkSoft)
                 BasicTextField(
                     value = text,
-                    onValueChange = { text = it.take(2000) },
+                    onValueChange = { text = it.take(4000) },
                     textStyle = DeskType.body.copy(color = c.ink),
                     cursorBrush = SolidColor(c.ink),
                     maxLines = 4,
@@ -202,11 +225,11 @@ private fun ReplyBar(away: Boolean, onSend: (String) -> Boolean, modifier: Modif
                 )
             }
             Box(
-                Modifier.size(46.dp).clip(CircleShape).background(if (text.isBlank() || !away) c.line else c.ink)
-                    .clickable(enabled = text.isNotBlank() && away) { if (onSend(text)) text = "" },
+                Modifier.size(46.dp).clip(CircleShape).background(if (ready) c.ink else c.line)
+                    .clickable(enabled = ready) { onSend(text) { text = "" } },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = if (text.isBlank() || !away) c.inkSoft else c.onInk, modifier = Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = if (ready) c.onInk else c.inkSoft, modifier = Modifier.size(20.dp))
             }
         }
     }

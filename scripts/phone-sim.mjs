@@ -7,8 +7,13 @@
 //   node scripts/phone-sim.mjs "<pairing link>" --decide deny      answer the first request
 //   node scripts/phone-sim.mjs "<pairing link>" --token wrong      try a wrong token
 //
+//   node scripts/phone-sim.mjs "<pairing link>" --away --reply "Now add a test"
+//                                                                 reply to the first held turn
+//   node scripts/phone-sim.mjs "<pairing link>" --answer "Blue"    answer the first question (every item)
+//
 // Options: --decide allow|deny, --seen (report requests as shown), --token X,
-// --host H (instead of the link's first), --quit-after N (seconds).
+// --host H (instead of the link's first), --quit-after N (seconds), --away
+// (away mode: finished turns may be held for a reply), --reply TEXT, --answer TEXT.
 
 import tls from "node:tls";
 
@@ -32,6 +37,9 @@ const token = opt("--token") ?? q.get("token");
 const decide = opt("--decide");
 const seen = args.includes("--seen") || Boolean(decide);
 const quitAfter = Number(opt("--quit-after") ?? 0);
+const reply = opt("--reply");
+const answer = opt("--answer");
+const away = args.includes("--away") || Boolean(reply);
 
 console.log(`connecting to ${q.get("name")} at ${host}:${port}`);
 const socket = tls.connect({
@@ -51,7 +59,7 @@ socket.on("secureConnect", () => {
     process.exit(3);
   }
   console.log(`TLS ${socket.getProtocol()}, certificate pinned`);
-  send({ t: "hello", v: 1, token, device: "phone-sim" });
+  send({ t: "hello", v: 1, token, device: "phone-sim", away });
   setInterval(() => send({ t: "ping" }), 25_000).unref();
 });
 
@@ -67,7 +75,18 @@ socket.on("data", (chunk) => {
     if (m.t === "sessions") {
       console.log(`sessions (${m.sessions.length}):`);
       for (const s of m.sessions) {
-        console.log(`  ${s.project} · ${s.agent} · ${s.status} · ${s.line}${s.approval ? `  [request ${s.approval.rid}: ${s.approval.action} ${s.approval.detail}]` : ""}`);
+        console.log(`  ${s.project} · ${s.agent} · ${s.status} · ${s.line}${s.approval ? `  [request ${s.approval.rid}: ${s.approval.action} ${s.approval.detail}]` : ""}${s.question ? `  [question ${s.question.rid}: ${s.question.questions.map((x) => x.question).join(" / ")}]` : ""}${s.reply ? `  [held for a reply ${s.reply.rid} until ${new Date(s.reply.until).toLocaleTimeString()}]` : ""}`);
+        const qid = s.question?.rid;
+        if (qid && !answered.has(qid)) {
+          answered.add(qid);
+          if (seen || answer) send({ t: "seen", rid: qid });
+          if (answer) send({ t: "answer", rid: qid, answers: Object.fromEntries(s.question.questions.map((x) => [x.question, answer])) });
+        }
+        const hid = s.reply?.rid;
+        if (hid && reply && !answered.has(hid)) {
+          answered.add(hid);
+          send({ t: "reply", rid: hid, text: reply });
+        }
         const rid = s.approval?.rid;
         if (rid && !answered.has(rid)) {
           answered.add(rid);
