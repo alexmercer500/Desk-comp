@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "bubble",
+  "description": "The speech bubble: placing itself beside the character, and its clickable card.",
+  "windows": ["bubble"],
+  "permissions": ["core:default", "allow-bubble-place", "allow-bubble-card", "allow-bubble-hide"]
+}

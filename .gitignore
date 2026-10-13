@@ -1,0 +1,10 @@
+node_modules/
+dist/
+target/
+*.log
+
+# Release output (scripts/release.mjs)
+release/
+
+# Tool caches
+.impeccable/

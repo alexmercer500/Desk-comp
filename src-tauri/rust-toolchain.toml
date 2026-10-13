@@ -1,0 +1,4 @@
+# Tauri 2.12 needs Rust 1.90+. Pinned here so the machine's default toolchain stays untouched.
+[toolchain]
+channel = "1.90"
+profile = "minimal"

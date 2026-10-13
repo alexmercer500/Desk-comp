@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Desk Companion",
+  "version": "0.6.0",
+  "identifier": "app.deskcompanion.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5179",
+    "beforeBuildCommand": "npm run build && cargo build --release -p companion-hook --manifest-path src-tauri/Cargo.toml && node scripts/sign.mjs src-tauri/target/release/companion-hook.exe",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:5179; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDQkU0ODBCN0NDNUI2ODIKUldTQ3RzVjhDMGkrYkJkTytzVklPRURNQTcwUnVhczVneFUxRVVibzJ3MWo0QmhYTm9kVEg1UnUK",
+      "windows": { "installMode": "passive" }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "shortDescription": "A small character that lives in the corner of your desktop",
+    "longDescription": "Kulhi, Hexo, Glim or Billu keeps an eye on your coding agents, reminds you to take breaks, notices finished downloads and low battery, and can answer questions about your PC.",
+    "category": "Utility",
+    "resources": {
+      "target/release/companion-hook.exe": "companion-hook.exe"
+    },
+    "windows": {
+      "signCommand": "node ../scripts/sign.mjs %1",
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "windows/installer-header.bmp",
+        "sidebarImage": "windows/installer-sidebar.bmp",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ]
+  }
+}

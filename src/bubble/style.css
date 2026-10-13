@@ -1,0 +1,184 @@
+:root {
+  --card: #fffdf9;
+  --text: #2a1d16;
+  --muted: #6b5b51;
+  --border: rgba(122, 53, 25, 0.22);
+  --attention: #b8532c;
+  --success: #3f8a5a;
+  --error: #b4412a;
+  --info: #5a7fa8;
+  --code: rgba(122, 53, 25, 0.07);
+  --allow: #2f7a4b;
+  --allow-hover: #276a40;
+  --allow-text: #ffffff;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --card: #2a221e;
+    --text: #f4ece6;
+    --muted: #c2b2a7;
+    --border: rgba(244, 239, 230, 0.16);
+    --attention: #ec8a5f;
+    --success: #7cc796;
+    --error: #ef8a72;
+    --info: #9cbde0;
+    --code: rgba(244, 239, 230, 0.07);
+    --allow: #7cc796;
+    --allow-hover: #8fd4a7;
+    --allow-text: #13261a;
+    color-scheme: dark;
+  }
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  user-select: none;
+}
+
+/* The card hugs the bottom of the window, on the side nearest the character. */
+.wrap {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+.wrap[data-tail="left"] { justify-content: flex-start; }
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 310px;
+  padding: 9px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transform-origin: bottom right;
+  /* ease-out-quint: the character is springy, its bubble just settles. */
+  transition: opacity 160ms ease-out, transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.wrap[data-tail="left"] .card { transform-origin: bottom left; }
+.card.shown { opacity: 1; transform: none; }
+
+/* The readable part: a click opens the activity panel. */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.body:focus-visible, .act:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; border-radius: 6px; }
+
+/* Permission answers. Allow is the strong one; nothing is decided without a click. */
+.actions { display: flex; gap: 6px; margin-top: 7px; }
+.act {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.act:hover { background: var(--code); }
+.act.terminal { flex: 1.2; color: var(--muted); font-weight: 500; }
+.act.allow { background: var(--allow); border-color: var(--allow); color: var(--allow-text); }
+.act.allow:hover { background: var(--allow-hover); }
+.act.deny { color: var(--error); }
+.act.always { color: var(--allow); }
+.questions { max-height: 190px; overflow-y: auto; }
+
+/* Tail pointing down toward the character. */
+.card::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  right: 22px;
+  width: 11px;
+  height: 11px;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+.wrap[data-tail="left"] .card::after { right: auto; left: 22px; }
+
+/* Top mode: the card hangs just below the island, centred, without a tail. */
+.wrap[data-tail="top"] { top: 0; bottom: auto; justify-content: center; }
+.wrap[data-tail="top"] .card { transform-origin: top center; transform: translateY(-6px) scale(0.96); }
+.wrap[data-tail="top"] .card.shown { transform: none; }
+.wrap[data-tail="top"] .card::after { display: none; }
+
+.head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--info); }
+.card[data-kind="attention"] .dot { background: var(--attention); }
+.card[data-kind="success"] .dot { background: var(--success); }
+.card[data-kind="error"] .dot { background: var(--error); }
+
+.title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+/* The exact command or file (mono), or the agent's own summary. */
+.detail {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.detail.mono {
+  -webkit-line-clamp: 4;
+  margin-top: 2px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  background: var(--code);
+  color: var(--text);
+  font: 12px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.meta { font-size: 11px; color: var(--muted); }
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .wrap[data-tail="top"] .card { transition: opacity 150ms linear; transform: none; }
+}

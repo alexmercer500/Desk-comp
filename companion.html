@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Companion</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+      canvas { display: block; cursor: grab; touch-action: none; }
+      canvas.held { cursor: grabbing; }
+      /* Rui (3D) draws in his own canvas, #rui, in the 2D character's place. */
+      body[data-character="rui"] #character { display: none; }
+      .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+      [hidden] { display: none !important; }
+
+      /* On the desktop: just the character, filling the window. */
+      body[data-place="corner"] :is(.island, .inner, .head) { display: contents; }
+      body[data-place="corner"] :is(.label, .card, .rows) { display: none; }
+      body[data-place="corner"] canvas { width: 100vmin; height: 100vmin; }
+
+      /* At the top edge: one island hanging from the edge of the screen that
+         grows and shrinks (island.ts sets its size). Always dark, like a
+         notch, whatever the theme. */
+      body[data-place="top"] {
+        --ink: #f4ece6;
+        --muted: #bcada2;
+        --faint: #8f8077;
+        --line: rgba(255, 244, 235, 0.09);
+        --code: rgba(255, 244, 235, 0.07);
+        --working: #9cbde0;
+        --attention: #ec8a5f;
+        --success: #7cc796;
+        --error: #ef8a72;
+        --ease: cubic-bezier(0.22, 1, 0.36, 1);
+        font: 13px/1.4 system-ui, "Segoe UI", sans-serif;
+        color: var(--ink);
+      }
+      body[data-place="top"] .island {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        box-sizing: border-box;
+        width: 84px;
+        height: 5px;
+        background: #0f0c0b;
+        border: 1px solid var(--line);
+        border-top: 0;
+        border-radius: 0 0 20px 20px;
+        overflow: hidden;
+        cursor: pointer;
+        touch-action: none;
+        transition:
+          width 320ms var(--ease),
+          height 320ms var(--ease),
+          border-radius 320ms var(--ease);
+      }
+      body[data-place="top"] .island[data-state="tucked"] { border-radius: 0 0 5px 5px; }
+      body[data-place="top"] .island:is([data-state="list"], [data-state="notice"]) { border-radius: 0 0 24px 24px; cursor: default; }
+      /* Content keeps its final width while the island grows round it. */
+      body[data-place="top"] .inner { position: absolute; top: 0; left: 0; }
+      body[data-place="top"] .island[data-state="tucked"] .inner { opacity: 0; }
+      body[data-place="top"] .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 44px;
+        padding: 0 14px 0 12px;
+        box-sizing: border-box;
+      }
+      body[data-place="top"] canvas { flex: none; width: 40px; height: 40px; margin-top: 1px; cursor: inherit; }
+
+      .label {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        white-space: nowrap;
+        font: 600 12.5px/1 system-ui, "Segoe UI", sans-serif;
+        transition: opacity 180ms ease-out;
+      }
+      .island:is([data-state="peek"], [data-state="tucked"]) .label { opacity: 0; }
+      /* The project name stays whole (up to a point); what it's doing gives way. */
+      .label .text { flex: none; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+      .island:is([data-state="notice"], [data-state="list"]) .label .text { flex: 0 1 auto; max-width: none; color: var(--muted); }
+      .label .more { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 500; }
+      .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--working); }
+      .island[data-tone="attention"] .label .dot { background: var(--attention); }
+      .island[data-tone="success"] .label .dot { background: var(--success); }
+      .island[data-tone="error"] .label .dot { background: var(--error); }
+      .island[data-tone="attention"][data-state="status"] .label .text { color: #ffc7ad; }
+      .island[data-tone="working"] .label .dot { animation: breathe 1.6s ease-in-out infinite; }
+      @keyframes breathe { 50% { opacity: 0.35; } }
+
+      /* ── The notification card ── */
+      .card, .rows { display: none; }
+      .island[data-state="notice"] .card { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 14px; }
+      .card-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .card-text {
+        font-weight: 600;
+        font-size: 13.5px;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .card-detail {
+        color: var(--muted);
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .card-detail.mono {
+        -webkit-line-clamp: 4;
+        margin-top: 2px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: var(--code);
+        color: var(--ink);
+        font: 12px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
+        white-space: pre-wrap;
+      }
+      .card-meta { font-size: 11.5px; color: var(--faint); }
+      .actions { display: flex; gap: 6px; margin-top: 8px; }
+      .act {
+        flex: 1;
+        padding: 7px 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .act:hover { background: var(--code); }
+      .act.terminal { flex: 1.2; color: var(--muted); font-weight: 500; }
+      .act.deny { color: var(--error); }
+      .act.always { color: var(--success); }
+      .questions { max-height: 170px; overflow-y: auto; }
+      .act.allow { background: var(--success); border-color: var(--success); color: #13261a; }
+      .act.allow:hover { background: #8fd4a7; }
+      .card-body:focus-visible, .act:focus-visible, .row-item:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; border-radius: 8px; }
+
+      /* ── A finished task: bigger, like coucou's. The character larger and
+         centred, the project under it, and the news on a dark panel where a
+         few sparks drift up. ── */
+      .sparkles { display: none; }
+      .island[data-celebrate] .head {
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 2px;
+        height: auto;
+        padding: 4px 16px 8px;
+      }
+      /* The drawing leaves room round the character, so the canvas is bigger than it looks. */
+      .island[data-celebrate] canvas { width: 88px; height: 88px; margin: -12px 0 -4px; }
+      .island[data-celebrate] .label { justify-content: center; max-width: 100%; }
+      .island[data-celebrate] .label .text { color: var(--muted); }
+      .island[data-celebrate] .card {
+        position: relative;
+        margin: 0 12px 12px;
+        padding: 14px 18px 14px;
+        border-radius: 16px;
+        background: radial-gradient(120% 140% at 50% 0%, rgba(124, 199, 150, 0.14), rgba(255, 244, 235, 0.03) 60%), #16120f;
+        border: 1px solid var(--line);
+        overflow: hidden;
+        text-align: center;
+      }
+      .island[data-celebrate] .card-body { position: relative; align-items: center; text-align: center; }
+      .island[data-celebrate] .card-text { font-size: 14.5px; -webkit-line-clamp: 1; }
+      .island[data-celebrate] .card-detail { -webkit-line-clamp: 2; max-width: 460px; }
+      .island[data-celebrate] .card-meta { margin-top: 2px; }
+      .island[data-celebrate] .sparkles { display: block; position: absolute; inset: 0; pointer-events: none; }
+      .sparkles i {
+        position: absolute;
+        bottom: -14px;
+        width: 2px;
+        border-radius: 2px;
+        background: linear-gradient(to top, rgba(124, 199, 150, 0), rgba(190, 235, 205, 0.85));
+        opacity: 0;
+        animation: rise var(--d, 3.2s) linear var(--w, 0s) infinite;
+      }
+      @keyframes rise {
+        0% { transform: translateY(0); opacity: 0; }
+        15% { opacity: var(--o, 0.6); }
+        80% { opacity: var(--o, 0.6); }
+        100% { transform: translateY(calc(-1 * var(--h, 120px))); opacity: 0; }
+      }
+
+      /* ── The hover list: one row per busy session ── */
+      .island[data-state="list"] .rows { display: flex; flex-direction: column; gap: 1px; padding: 0 10px 10px; }
+      .row-item {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+        padding: 6px 8px;
+        border: 0;
+        border-radius: 10px;
+        background: none;
+        color: var(--ink);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .row-item:hover { background: var(--code); }
+      .r-dot { flex: none; align-self: center; width: 7px; height: 7px; border-radius: 50%; background: var(--working); }
+      .row-item[data-tone="attention"] .r-dot { background: var(--attention); }
+      .r-name { flex: none; max-width: 140px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .r-line { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .row-item[data-tone="attention"] .r-line { color: #ffc7ad; }
+
+      /* Measures the label's natural width so the pill can grow to fit it. */
+      .measure {
+        position: absolute;
+        visibility: hidden;
+        white-space: pre;
+        font: 600 12.5px/1 system-ui, "Segoe UI", sans-serif;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        body[data-place="top"] .island { transition: none; }
+        .island[data-tone="working"] .label .dot { animation: none; }
+        .sparkles i { animation: none; opacity: 0; }
+      }
+    </style>
+  </head>
+  <body data-place="corner">
+    <div class="island" id="island" data-state="tucked">
+      <div class="inner" id="island-inner">
+        <div class="head">
+          <canvas id="character" role="img" aria-label="Assistant is off"></canvas>
+          <span class="label" aria-hidden="true">
+            <span class="dot"></span>
+            <span class="text" id="island-text"></span>
+            <span class="more" id="island-more" hidden></span>
+          </span>
+        </div>
+        <div class="card" id="island-card" role="group" aria-live="polite">
+          <div class="sparkles" id="island-sparkles" aria-hidden="true"></div>
+          <button class="card-body" id="island-card-body" type="button">
+            <span class="card-text" id="island-card-text"></span>
+            <span class="card-detail" id="island-card-detail"></span>
+            <span class="card-meta" id="island-card-meta"></span>
+          </button>
+          <div class="questions" id="island-questions" hidden></div>
+          <div class="actions" id="island-actions" hidden>
+            <button class="act deny" type="button" data-decision="deny">Deny</button>
+            <button class="act terminal" type="button" data-decision="terminal">In terminal</button>
+            <button class="act always" type="button" data-decision="always" title="Allow, and don't ask again for this in this project">Always</button>
+            <button class="act allow" type="button" data-decision="allow">Allow</button>
+          </div>
+        </div>
+        <div class="rows" id="island-rows" aria-label="Busy sessions"></div>
+      </div>
+    </div>
+    <span class="measure" id="island-measure" aria-hidden="true"></span>
+    <div id="status" class="sr" aria-live="polite"></div>
+    <script type="module" src="/src/desktop/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bubble-hide"
+description = "Enables the bubble_hide command without any pre-configured scope."
+commands.allow = ["bubble_hide"]
+
+[[permission]]
+identifier = "deny-bubble-hide"
+description = "Denies the bubble_hide command without any pre-configured scope."
+commands.deny = ["bubble_hide"]

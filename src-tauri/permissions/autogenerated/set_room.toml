@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-room"
+description = "Enables the set_room command without any pre-configured scope."
+commands.allow = ["set_room"]
+
+[[permission]]
+identifier = "deny-set-room"
+description = "Denies the set_room command without any pre-configured scope."
+commands.deny = ["set_room"]

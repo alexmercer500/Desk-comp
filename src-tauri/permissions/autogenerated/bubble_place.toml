@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bubble-place"
+description = "Enables the bubble_place command without any pre-configured scope."
+commands.allow = ["bubble_place"]
+
+[[permission]]
+identifier = "deny-bubble-place"
+description = "Denies the bubble_place command without any pre-configured scope."
+commands.deny = ["bubble_place"]

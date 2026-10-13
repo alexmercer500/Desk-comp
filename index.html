@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Character Playground</title>
+    <link rel="stylesheet" href="/src/playground/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1><span id="char-name">Kulhi</span> <span class="muted">· character playground</span></h1>
+        <p class="muted small">Click the character to poke it (5 quick taps = dizzy). Move the mouse to steer its eyes.</p>
+      </div>
+      <div class="state" aria-live="polite">
+        <span class="state-dot"></span>
+        <span id="state-name">OFF</span>
+        <span id="state-label" class="muted small"></span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="stage-wrap" data-bg="blueprint">
+        <div class="stage">
+          <canvas id="hero" class="hero" role="img" aria-label="Assistant is off"></canvas>
+        </div>
+        <div class="previews">
+          <figure>
+            <div class="chip light"><canvas class="p120"></canvas></div>
+            <figcaption>120 px · desktop</figcaption>
+          </figure>
+          <figure>
+            <div class="chip dark"><canvas class="p120"></canvas></div>
+            <figcaption>120 px · dark wallpaper</figcaption>
+          </figure>
+          <figure>
+            <div class="chip light"><canvas class="p64"></canvas></div>
+            <figcaption>64 px · icon test</figcaption>
+          </figure>
+        </div>
+        <div class="bg-switch" role="group" aria-label="Stage background">
+          <button data-bg-set="blueprint" class="on">Blueprint</button>
+          <button data-bg-set="dark">Dark</button>
+          <button data-bg-set="wall">Wallpaper</button>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="group">
+          <h2>Character</h2>
+          <div class="row">
+            <select id="character" aria-label="Character">
+              <option value="kulhi">Kulhi · chai cup</option>
+              <option value="hexo">Hexo · hex nut</option>
+              <option value="glim">Glim · firefly</option>
+              <option value="billu">Billu · space cat</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Lifecycle</h2>
+          <div class="row">
+            <button data-act="boot" class="primary">Boot</button>
+            <button data-act="activity">Activity</button>
+            <button data-act="tap">Tap</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Input</h2>
+          <div class="row">
+            <input id="fake-input" type="text" placeholder="Focus and type here…" />
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Work</h2>
+          <div class="row">
+            <button data-act="start">Start work</button>
+            <label class="inline">
+              Timeout
+              <select id="timeout">
+                <option value="15000">15 s (search)</option>
+                <option value="none">None (agent)</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <button data-act="high">Result: high</button>
+            <button data-act="mid">Result: medium</button>
+            <button data-act="low">Result: low</button>
+            <button data-act="error" class="danger">Error</button>
+          </div>
+          <div class="row">
+            <button data-act="pick">Pick suggestion</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Notify</h2>
+          <div class="row">
+            <button data-act="notify">Notify</button>
+            <button data-act="ack">Acknowledge</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Options</h2>
+          <label class="check"><input id="fast" type="checkbox" checked /> Fast sleep timers (6 s + 4 s)</label>
+          <label class="check"><input id="reduced" type="checkbox" /> Reduced motion</label>
+        </div>
+
+        <div class="group grow">
+          <h2>Transitions</h2>
+          <ol id="log" class="log"></ol>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/playground/main.ts"></script>
+  </body>
+</html>

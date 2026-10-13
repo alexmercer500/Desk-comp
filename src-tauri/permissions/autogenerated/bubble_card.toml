@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bubble-card"
+description = "Enables the bubble_card command without any pre-configured scope."
+commands.allow = ["bubble_card"]
+
+[[permission]]
+identifier = "deny-bubble-card"
+description = "Denies the bubble_card command without any pre-configured scope."
+commands.deny = ["bubble_card"]

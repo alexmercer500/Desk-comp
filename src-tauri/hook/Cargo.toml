@@ -1,0 +1,12 @@
+[package]
+name = "companion-hook"
+version = "0.6.0"
+description = "Relay that coding agents run on each hook event; forwards it to the desktop companion"
+edition = "2021"
+
+[[bin]]
+name = "companion-hook"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"

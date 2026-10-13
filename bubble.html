@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Companion Bubble</title>
+    <link rel="stylesheet" href="/src/bubble/style.css" />
+  </head>
+  <body>
+    <div class="wrap" id="wrap" data-tail="right">
+      <div class="card" id="card" role="group" aria-live="polite">
+        <button class="body" id="body" type="button" title="Show activity">
+          <span class="head">
+            <span class="dot" aria-hidden="true"></span>
+            <span class="title" id="title"></span>
+          </span>
+          <span class="text" id="text"></span>
+          <span class="detail" id="detail"></span>
+          <span class="meta" id="meta"></span>
+        </button>
+        <div class="questions" id="questions" hidden></div>
+        <div class="actions" id="actions" hidden>
+          <button class="act deny" type="button" data-decision="deny">Deny</button>
+          <button class="act terminal" type="button" data-decision="terminal">In terminal</button>
+          <button class="act always" type="button" data-decision="always" title="Allow, and don't ask again for this in this project">Always</button>
+          <button class="act allow" type="button" data-decision="allow">Allow</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/bubble/main.ts"></script>
+  </body>
+</html>

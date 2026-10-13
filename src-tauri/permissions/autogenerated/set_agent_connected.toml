@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-agent-connected"
+description = "Enables the set_agent_connected command without any pre-configured scope."
+commands.allow = ["set_agent_connected"]
+
+[[permission]]
+identifier = "deny-set-agent-connected"
+description = "Denies the set_agent_connected command without any pre-configured scope."
+commands.deny = ["set_agent_connected"]

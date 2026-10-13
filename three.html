@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rui 3D Prototype</title>
+    <link rel="stylesheet" href="/src/three/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1>Rui <span class="muted">· 3D prototype</span></h1>
+        <p class="muted small">Click Rui to poke him (or pop his nap bubble). Move the mouse and he watches you.</p>
+      </div>
+      <div class="now"><span class="dot"></span><span id="now">idle</span></div>
+    </header>
+
+    <main class="layout">
+      <section class="stage-wrap">
+        <div class="stage" id="stage" data-bg="checker">
+          <canvas id="view" aria-label="Rui, a small yeti in a hood"></canvas>
+        </div>
+        <div class="switches">
+          <div class="seg" role="group" aria-label="Background">
+            <button data-bg="checker" class="on" title="Shows the see-through background">See-through</button>
+            <button data-bg="light">Light</button>
+            <button data-bg="dark">Dark</button>
+            <button data-bg="wall">Wallpaper</button>
+          </div>
+          <div class="seg" role="group" aria-label="Look">
+            <button data-look="toy" class="on" title="Soft vinyl and glossy plastic, studio lit">Toy</button>
+            <button data-look="anime" title="Flat cel shading with outlines">Anime</button>
+          </div>
+          <div class="seg" role="group" aria-label="Stage size">
+            <button data-size="big" class="on">Large</button>
+            <button data-size="desk">Desktop size</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="group">
+          <h2>Do something</h2>
+          <div class="grid" id="actions"></div>
+        </div>
+
+        <div class="group">
+          <h2>Colour</h2>
+          <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour theme"></div>
+          <div class="apply-row">
+            <label class="inline">Change by
+              <select id="change-style">
+                <option value="random" selected>Surprise me</option>
+                <option value="paint">Painting</option>
+                <option value="twirl">Twirl</option>
+                <option value="wardrobe">Wardrobe</option>
+              </select>
+            </label>
+            <button id="apply-theme" class="primary" disabled>Apply</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <h2>Mood</h2>
+          <div class="grid" id="moods"></div>
+        </div>
+
+        <div class="group">
+          <h2>Life</h2>
+          <label class="check"><input id="auto" type="checkbox" /> Let him do his own thing</label>
+        </div>
+
+        <div class="group">
+          <h2>Quality</h2>
+          <label class="inline">Sharpness
+            <select id="sharpness">
+              <option value="1">1× · light</option>
+              <option value="1.5">1.5×</option>
+              <option value="2" selected>2× · crisp</option>
+            </select>
+          </label>
+          <label class="inline">Shadows
+            <select id="shadows">
+              <option value="on" selected>On</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+          <label class="inline">Frame rate
+            <select id="fps">
+              <option value="60" selected>60 fps</option>
+              <option value="30">30 fps</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="group">
+          <h2>Cost</h2>
+          <dl class="perf" id="perf"></dl>
+          <p class="muted small">Measured in this browser tab. The desktop app is measured separately.</p>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/three/main.ts"></script>
+  </body>
+</html>

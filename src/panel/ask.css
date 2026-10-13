@@ -1,0 +1,120 @@
+/* The Ask tab. Shares the panel's tokens (style.css). */
+
+.setup { padding: 18px 18px 14px; overflow-y: auto; }
+.setup h2 { margin: 0 0 8px; font-size: 16px; font-weight: 650; }
+.setup p { margin: 0 0 10px; color: var(--muted); }
+.setup .fine { font-size: 11.5px; color: var(--faint); }
+
+.key-form { display: grid; gap: 6px; margin: 14px 0 10px; }
+.key-form label { font-size: 12px; font-weight: 600; }
+.key-form input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--raised);
+  color: var(--text);
+  font: 13px ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.key-form input:focus-visible, .composer textarea:focus-visible { outline: 2px solid var(--attention); outline-offset: 0; }
+.primary {
+  justify-self: start;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--attention);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) { .primary { color: #1c1410; } }
+.setup .form-error { margin: 0; color: var(--error); font-size: 12px; min-height: 1em; }
+
+/* ── Conversation ──────────────────────────────────────────────────────── */
+
+.chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.thread {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 12px 12px 4px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+}
+
+.msg { max-width: 88%; padding: 8px 11px; border-radius: 13px; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: var(--attention-bg); border-bottom-right-radius: 5px; }
+.msg.kulhi { align-self: flex-start; background: var(--raised); border: 1px solid var(--border); border-bottom-left-radius: 5px; }
+.msg.kulhi.error { color: var(--error); }
+.msg p { margin: 0 0 6px; }
+.msg p:last-child { margin-bottom: 0; }
+.msg ol, .msg ul { margin: 2px 0 6px; padding-left: 20px; }
+.msg li + li { margin-top: 3px; }
+.msg code { font: 12px ui-monospace, "Cascadia Code", Consolas, monospace; background: var(--code); padding: 1px 4px; border-radius: 4px; }
+
+/* Thinking dots. */
+.msg.pending { display: flex; gap: 4px; padding: 11px 13px; }
+.msg.pending .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); animation: think 1.2s ease-in-out infinite; }
+.msg.pending .dot:nth-child(2) { animation-delay: 0.15s; }
+.msg.pending .dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes think { 0%, 60%, 100% { opacity: 0.3; transform: none; } 30% { opacity: 1; transform: translateY(-2px); } }
+
+/* "Did you mean…" suggestions. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip {
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--attention) 45%, transparent);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.chip:hover { background: var(--attention-bg); }
+.chip:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
+
+/* ── Composer ──────────────────────────────────────────────────────────── */
+
+.composer { display: flex; align-items: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
+.composer textarea {
+  flex: 1;
+  resize: none;
+  max-height: 120px;
+  overflow-y: hidden;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.4;
+}
+.send {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--attention);
+  color: #fff;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) { .send { color: #1c1410; } }
+.send:disabled { opacity: 0.45; cursor: default; }
+.send:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+
+.shared { padding: 0 14px 10px; font-size: 11.5px; color: var(--faint); }
+.shared summary { cursor: pointer; padding: 2px 0; }
+.shared p { margin: 4px 0; }
+.shared pre { margin: 4px 0 6px; max-height: none; }
+.link { padding: 0; border: 0; background: none; color: var(--attention); font: inherit; cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) {
+  .msg.pending .dot { animation: none; opacity: 0.6; }
+}

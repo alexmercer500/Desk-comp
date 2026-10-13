@@ -1,0 +1,22 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "panel",
+  "description": "The panel: its own size, Settings, and Ask.",
+  "windows": ["panel"],
+  "permissions": [
+    "core:default",
+    "allow-panel-hide",
+    "allow-panel-fit",
+    "allow-get-prefs",
+    "allow-get-settings",
+    "allow-set-setting",
+    "allow-set-agent-connected",
+    "allow-set-autostart",
+    "allow-assistant-status",
+    "allow-assistant-set-key",
+    "allow-assistant-forget-key",
+    "allow-assistant-ask",
+    "allow-check-update",
+    "allow-install-update"
+  ]
+}

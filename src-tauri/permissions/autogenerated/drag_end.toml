@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-drag-end"
+description = "Enables the drag_end command without any pre-configured scope."
+commands.allow = ["drag_end"]
+
+[[permission]]
+identifier = "deny-drag-end"
+description = "Denies the drag_end command without any pre-configured scope."
+commands.deny = ["drag_end"]
