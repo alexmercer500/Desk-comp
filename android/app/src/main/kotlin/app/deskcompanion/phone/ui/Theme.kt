@@ -82,7 +82,7 @@ fun deskColors(accent: Color, dark: Boolean): DeskColors {
     } else {
         val base = Color(0xFF1C1A19)
         DeskColors(
-            bg = mix(accent, Color(0xFF121110), 0.08f), surface = base, ink = Color(0xFFF4F1EF), inkSoft = Color(0xFFA39C98),
+            bg = mix(accent, Color(0xFF121110), 0.08f), surface = Color(0xFF262321), ink = Color(0xFFF4F1EF), inkSoft = Color(0xFFA39C98),
             line = mix(accent, Color(0xFF2A2726), 0.15f), onInk = Color(0xFF1D1A1A), onCard = Color(0xFFF4F1EF),
             chip = mix(accent, Color(0xFF232120), 0.18f),
             blue = mix(accent, base, 0.30f), lavender = mix(accent, base, 0.16f), peach = mix(accent, base, 0.40f),

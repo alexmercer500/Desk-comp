@@ -178,7 +178,7 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChang
             checked = checked,
             onCheckedChange = null,
             colors = SwitchDefaults.colors(
-                checkedTrackColor = c.ink, checkedThumbColor = c.onInk,
+                checkedTrackColor = c.accent, checkedThumbColor = c.onAccent, checkedBorderColor = c.accent,
                 uncheckedTrackColor = c.chip, uncheckedThumbColor = c.inkSoft, uncheckedBorderColor = c.line,
             ),
         )
