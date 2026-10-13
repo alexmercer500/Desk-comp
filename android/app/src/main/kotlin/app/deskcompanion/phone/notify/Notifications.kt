@@ -16,6 +16,7 @@ import app.deskcompanion.phone.MainActivity
 import app.deskcompanion.phone.R
 import app.deskcompanion.phone.model.Approval
 import app.deskcompanion.phone.model.Session
+import app.deskcompanion.phone.model.Settings
 import app.deskcompanion.phone.model.Status
 
 /**
@@ -30,6 +31,9 @@ object Notifications {
     const val ACTION_DENY = "app.deskcompanion.phone.DENY"
     const val EXTRA_ID = "id"
     const val EXTRA_RID = "rid"
+    /** When the notification was posted: a Deny tap in the first moments is ignored (see ActionReceiver). */
+    const val EXTRA_AT = "at"
+    const val GUARD_MS = 600L
     /** Opens the app on this request's sheet. Only ever selects what to show: opening the app decides nothing. */
     const val EXTRA_REVIEW = "review"
     const val LINK_ID = 1
@@ -91,14 +95,22 @@ object Notifications {
             }
         }
         if (!canPost(ctx)) return fresh.map { it.second.rid }
+        val settings = Settings.shared
         for ((s, a) in fresh) {
-            nm.notify(idFor(a.rid), approval(ctx, s, a))
+            // Switched off: still in the app, just no ping. Requests are urgent, so quiet hours don't hold them back.
+            if (settings.notifyNeedsYou) nm.notify(idFor(a.rid), approval(ctx, s, a))
             synchronized(posted) { posted.add(a.rid) }
         }
+        val quiet = settings.quietHours && Settings.isQuiet(java.time.LocalTime.now().hour)
         for (s in now) {
             val was = before.firstOrNull { it.id == s.id }?.status ?: continue
             val busy = was == Status.Working || was == Status.Waiting
-            if (busy && (s.status == Status.Done || s.status == Status.Error)) {
+            val wanted = when (s.status) {
+                Status.Done -> settings.notifyDone
+                Status.Error -> settings.notifyErrors
+                else -> false
+            }
+            if (busy && wanted && !quiet) {
                 nm.notify(idFor("end:${s.id}"), ended(ctx, s))
             }
         }
@@ -135,7 +147,8 @@ object Notifications {
         val id = idFor(a.rid)
         val deny = PendingIntent.getBroadcast(
             ctx, id,
-            Intent(ctx, ActionReceiver::class.java).setAction(ACTION_DENY).putExtra(EXTRA_ID, id).putExtra(EXTRA_RID, a.rid),
+            Intent(ctx, ActionReceiver::class.java).setAction(ACTION_DENY).putExtra(EXTRA_ID, id).putExtra(EXTRA_RID, a.rid)
+                .putExtra(EXTRA_AT, System.currentTimeMillis()),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val open = openApp(ctx, a.rid)

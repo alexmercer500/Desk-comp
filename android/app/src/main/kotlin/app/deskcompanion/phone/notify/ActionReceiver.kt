@@ -14,6 +14,9 @@ import app.deskcompanion.phone.link.LinkHub
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Notifications.ACTION_DENY) return
+        // A tap in the first moments is most likely a stray one on a notification that just popped up.
+        val at = intent.getLongExtra(Notifications.EXTRA_AT, 0L)
+        if (at > 0 && System.currentTimeMillis() - at < Notifications.GUARD_MS) return
         NotificationManagerCompat.from(context).cancel(intent.getIntExtra(Notifications.EXTRA_ID, -1))
         val rid = intent.getStringExtra(Notifications.EXTRA_RID).orEmpty()
         val text = when {

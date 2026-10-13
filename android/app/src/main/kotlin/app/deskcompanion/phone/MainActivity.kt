@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -33,9 +32,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import app.deskcompanion.phone.link.LinkHub
 import app.deskcompanion.phone.link.Pairing
+import app.deskcompanion.phone.link.Unlock
 import app.deskcompanion.phone.model.AppState
+import app.deskcompanion.phone.model.Settings
 import app.deskcompanion.phone.model.Status
 import app.deskcompanion.phone.notify.Notifications
 import app.deskcompanion.phone.ui.ActivityScreen
@@ -49,7 +51,7 @@ import app.deskcompanion.phone.ui.SessionScreen
 import app.deskcompanion.phone.ui.SettingsScreen
 import app.deskcompanion.phone.ui.Tab
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     /** A pairing link this activity was opened with: shown for confirmation, never acted on by itself. */
     private val incomingPairing = mutableStateOf<Pairing?>(null)
     /** A request whose notification was tapped: only selects which sheet to show. */
@@ -58,6 +60,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        Settings.init(this)
         Notifications.createChannels(this)
         LinkHub.init(this)
         read(intent)
@@ -187,8 +190,13 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                 session = reviewing,
                 live = state.live,
                 onAllow = {
-                    if (state.decide(reviewing.id, allow = true)) reviewId = null
-                    else Toast.makeText(ctx, "Not connected to your PC right now", Toast.LENGTH_SHORT).show()
+                    val allow = {
+                        if (state.decide(reviewing.id, allow = true)) reviewId = null
+                        else Toast.makeText(ctx, "Not connected to your PC right now", Toast.LENGTH_SHORT).show()
+                    }
+                    // Allow is the one answer that lets an agent act: prove it's you first. (Deny never asks.)
+                    if (state.live && state.requireUnlockForAllow) Unlock.ask(ctx as FragmentActivity, "Allow ${reviewing.agent} to ${reviewing.approval.action}?", allow)
+                    else allow()
                 },
                 onDeny = {
                     if (state.decide(reviewing.id, allow = false)) reviewId = null

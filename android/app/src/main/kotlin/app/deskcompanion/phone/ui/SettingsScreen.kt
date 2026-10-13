@@ -49,13 +49,13 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
         item { Group("Tell me when") }
         item {
             Card {
-                ToggleRow("A task finishes", "With a short summary of what it did", state.notifyDone) { state.notifyDone = it }
+                ToggleRow("A task finishes", "With a short summary of what it did", state.notifyDone) { state.changeNotifyDone(it) }
                 Divider()
-                ToggleRow("An agent needs me", "Permissions and questions", state.notifyNeedsYou) { state.notifyNeedsYou = it }
+                ToggleRow("An agent needs me", "Permissions and questions", state.notifyNeedsYou) { state.changeNotifyNeedsYou(it) }
                 Divider()
-                ToggleRow("Something fails", "Errors and stops", state.notifyErrors) { state.notifyErrors = it }
+                ToggleRow("Something fails", "Errors and stops", state.notifyErrors) { state.changeNotifyErrors(it) }
                 Divider()
-                ToggleRow("Quiet hours", "Only urgent ones, 10 pm to 8 am", state.quietHours) { state.quietHours = it }
+                ToggleRow("Quiet hours", "Only urgent ones, 10 pm to 8 am", state.quietHours) { state.changeQuietHours(it) }
             }
         }
 
@@ -66,14 +66,14 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
                     "Away mode",
                     "When a task finishes, wait a few minutes for a reply from here",
                     state.awayMode,
-                ) { state.awayMode = it }
+                ) { state.changeAwayMode(it) }
             }
         }
 
         item { Group("Safety") }
         item {
             Card {
-                ToggleRow("Ask for my fingerprint before Allow", "Deny never asks", state.requireUnlockForAllow) { state.requireUnlockForAllow = it }
+                ToggleRow("Ask for my fingerprint before Allow", "Deny never asks", state.requireUnlockForAllow) { state.changeRequireUnlockForAllow(it) }
             }
         }
 

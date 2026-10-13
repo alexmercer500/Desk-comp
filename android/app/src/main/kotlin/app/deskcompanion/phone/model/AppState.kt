@@ -9,7 +9,7 @@ import androidx.compose.runtime.setValue
  * the app can be tried; once linked, [showLive] replaces them with the PC's,
  * and [decide] goes over the link ([onDecide]).
  */
-class AppState(initial: List<Session> = DemoData.sessions()) {
+class AppState(initial: List<Session> = DemoData.sessions(), private val store: Settings = Settings.shared) {
     var sessions by mutableStateOf(initial)
         private set
     var decisions by mutableStateOf(emptyList<Decision>())
@@ -32,14 +32,27 @@ class AppState(initial: List<Session> = DemoData.sessions()) {
         sessions = DemoData.sessions()
     }
 
-    // Settings (not saved yet).
-    var notifyDone by mutableStateOf(true)
-    var notifyNeedsYou by mutableStateOf(true)
-    var notifyErrors by mutableStateOf(true)
-    var quietHours by mutableStateOf(false)
-    var requireUnlockForAllow by mutableStateOf(true)
+    // Settings: kept on the phone (see Settings), mirrored here so the screens redraw.
+    var notifyDone by mutableStateOf(store.notifyDone)
+        private set
+    var notifyNeedsYou by mutableStateOf(store.notifyNeedsYou)
+        private set
+    var notifyErrors by mutableStateOf(store.notifyErrors)
+        private set
+    var quietHours by mutableStateOf(store.quietHours)
+        private set
+    var requireUnlockForAllow by mutableStateOf(store.requireUnlockForAllow)
+        private set
     /** While away, a finished task waits a few minutes for a reply from here. */
-    var awayMode by mutableStateOf(true)
+    var awayMode by mutableStateOf(store.awayMode)
+        private set
+
+    fun changeNotifyDone(v: Boolean) { notifyDone = v; store.notifyDone = v }
+    fun changeNotifyNeedsYou(v: Boolean) { notifyNeedsYou = v; store.notifyNeedsYou = v }
+    fun changeNotifyErrors(v: Boolean) { notifyErrors = v; store.notifyErrors = v }
+    fun changeQuietHours(v: Boolean) { quietHours = v; store.quietHours = v }
+    fun changeRequireUnlockForAllow(v: Boolean) { requireUnlockForAllow = v; store.requireUnlockForAllow = v }
+    fun changeAwayMode(v: Boolean) { awayMode = v; store.awayMode = v }
 
     fun session(id: String): Session? = sessions.firstOrNull { it.id == id }
 
