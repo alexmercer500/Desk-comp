@@ -36,6 +36,8 @@ pub struct PhoneInfo {
 pub struct Shared {
     /// The current `sessions` line, replaced whenever the companion page sends a new list.
     pub sessions: watch::Sender<Arc<String>>,
+    /// The current `character` line (what the PC shows), replaced when the user changes it.
+    pub character: watch::Sender<Arc<String>>,
     /// Bumped to drop every phone (Pair again, link turned off).
     pub kick: watch::Sender<u64>,
     pub phones: Mutex<Vec<PhoneInfo>>,
@@ -47,6 +49,7 @@ impl Shared {
     pub fn new() -> Arc<Shared> {
         Arc::new(Shared {
             sessions: watch::channel(Arc::new(proto::sessions(&serde_json::json!([])))).0,
+            character: watch::channel(Arc::new(proto::character("kulhi", "toy", "cream"))).0,
             kick: watch::channel(0).0,
             phones: Mutex::new(Vec::new()),
             connections: AtomicUsize::new(0),
@@ -81,6 +84,8 @@ pub trait Host: Send + Sync + 'static {
     fn answer(&self, rid: &str, answers: &[(String, String)]) -> bool;
     /// A further prompt for a held turn; false when it's no longer held.
     fn reply(&self, rid: &str, text: &str) -> bool;
+    /// The user picked a character on the phone; false when it isn't a known one.
+    fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool;
     /// The list of phones changed.
     fn phones_changed(&self);
 }
@@ -181,8 +186,12 @@ where
 
     let mut sessions = shared.sessions.subscribe();
     let mut kick = shared.kick.subscribe();
+    let mut character = shared.character.subscribe();
     let first = sessions.borrow_and_update().clone();
-    let mut ok = send(&mut write, &proto::welcome(name, host.approvals())).await.is_ok() && send(&mut write, &first).await.is_ok();
+    let look = character.borrow_and_update().clone();
+    let mut ok = send(&mut write, &proto::welcome(name, host.approvals())).await.is_ok()
+        && send(&mut write, &look).await.is_ok()
+        && send(&mut write, &first).await.is_ok();
     let mut deadline = tokio::time::Instant::now() + proto::IDLE_LIMIT;
     while ok {
         tokio::select! {
@@ -204,6 +213,11 @@ where
                         let done = host.reply(&rid, &text);
                         Some(proto::decided(&rid, done))
                     }
+                    Ok(FromPhone::Character { id, look, theme }) => {
+                        // The change comes back to every phone through the `character` channel.
+                        host.set_character(&id, look.as_deref(), theme.as_deref());
+                        None
+                    }
                     Ok(FromPhone::Away { on }) => {
                         let mut phones = shared.phones.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(p) = phones.iter_mut().find(|p| p.id == id) {
@@ -217,6 +231,11 @@ where
                 if let Some(reply) = reply {
                     ok = send(&mut write, &reply).await.is_ok();
                 }
+            }
+            changed = character.changed() => {
+                if changed.is_err() { break }
+                let line = character.borrow_and_update().clone();
+                ok = send(&mut write, &line).await.is_ok();
             }
             changed = sessions.changed() => {
                 if changed.is_err() { break }
@@ -289,6 +308,7 @@ mod tests {
         seen: Mutex<Vec<String>>,
         answers: Mutex<Vec<(String, Vec<(String, String)>)>>,
         replies: Mutex<Vec<(String, String)>>,
+        characters: Mutex<Vec<(String, Option<String>, Option<String>)>>,
     }
     impl Host for FakeHost {
         fn approvals(&self) -> bool {
@@ -308,6 +328,10 @@ mod tests {
         fn reply(&self, rid: &str, text: &str) -> bool {
             self.replies.lock().unwrap().push((rid.into(), text.into()));
             rid == "held"
+        }
+        fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool {
+            self.characters.lock().unwrap().push((id.into(), look.map(Into::into), theme.map(Into::into)));
+            id != "bogus"
         }
         fn phones_changed(&self) {}
     }
@@ -336,6 +360,7 @@ mod tests {
 
             w.write_all(b"{\"t\":\"hello\",\"v\":1,\"token\":\"secret\",\"device\":\"Pixel\"}\n").await.unwrap();
             assert_eq!(read_line(&mut r).await["t"], "welcome");
+            assert_eq!(read_line(&mut r).await["t"], "character");
             assert_eq!(read_line(&mut r).await["sessions"][0]["id"], "s1");
             assert_eq!(shared.phones().len(), 1);
             assert_eq!(shared.phones()[0].device, "Pixel");
@@ -351,6 +376,13 @@ mod tests {
             assert_eq!(read_line(&mut r).await["ok"], false);
             assert_eq!(*host.seen.lock().unwrap(), vec!["waiting".to_string()]);
             assert_eq!(*host.decisions.lock().unwrap(), vec![("waiting".to_string(), false), ("gone".to_string(), true)]);
+
+            // Picking a character on the phone goes to the host; a change on the PC reaches the phone.
+            w.write_all(b"{\"t\":\"character\",\"id\":\"glim\"}\n").await.unwrap();
+            shared.character.send_replace(Arc::new(proto::character("glim", "toy", "cream")));
+            let c = read_line(&mut r).await;
+            assert_eq!((c["t"].as_str(), c["id"].as_str()), (Some("character"), Some("glim")));
+            assert_eq!(host.characters.lock().unwrap()[0].0, "glim");
 
             // Answers and replies go to the host; away mode is kept per phone.
             assert!(!shared.any_away());

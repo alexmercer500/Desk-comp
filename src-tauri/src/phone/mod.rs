@@ -82,6 +82,11 @@ impl Host for AppHost {
     fn reply(&self, rid: &str, text: &str) -> bool {
         crate::agents::reply_from_phone(&self.0, rid, text)
     }
+    fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool {
+        // Same checks as picking it in Settings: unknown names are refused.
+        let set = |key: &str, v: &str| crate::system::update(&self.0, key, &Value::String(v.to_string())).is_ok();
+        set("character", id) && look.is_none_or(|l| set("ruiLook", l)) && theme.is_none_or(|t| set("ruiTheme", t))
+    }
     fn phones_changed(&self) {
         let _ = self.0.emit("phone-status", status_of(&self.0));
     }
@@ -158,8 +163,22 @@ fn publish(link: &PhoneLink) -> Result<(), String> {
     Ok(())
 }
 
+/// The character (or Rui's look or colour) changed on the PC: tell the phones.
+pub fn character_changed(app: &AppHandle) {
+    let p = crate::system::current(app);
+    let line = proto::character(&p.character, &p.rui_look, &p.rui_theme);
+    app.state::<PhoneLink>().shared.character.send_if_modified(|current| {
+        if **current == line {
+            return false;
+        }
+        *current = Arc::new(line);
+        true
+    });
+}
+
 /// Starts or stops the link to match the setting. Called at start-up and when it changes.
 pub fn apply(app: &AppHandle) {
+    character_changed(app);
     if crate::system::current(app).phone_link {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {

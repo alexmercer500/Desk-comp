@@ -60,7 +60,7 @@ fun ApprovalSheet(session: Session, live: Boolean, onAllow: () -> Unit, onDeny: 
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).navigationBarsPadding().padding(bottom = 20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(56.dp).clip(CircleShape).background(c.peach), contentAlignment = Alignment.Center) {
-                    MoodOrb(Status.Waiting, size = 46.dp, fill = c.face, stroke = c.faceInk)
+                    MoodOrb(Status.Waiting, size = 46.dp)
                 }
                 Spacer(Modifier.width(14.dp))
                 Column {

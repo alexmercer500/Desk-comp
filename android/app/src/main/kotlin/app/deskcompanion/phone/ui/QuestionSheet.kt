@@ -90,7 +90,7 @@ fun QuestionSheet(session: Session, live: Boolean, onSend: (Map<String, String>)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(56.dp).clip(CircleShape).background(c.lavender), contentAlignment = Alignment.Center) {
-                    MoodOrb(Status.Waiting, size = 46.dp, fill = c.face, stroke = c.faceInk)
+                    MoodOrb(Status.Waiting, size = 46.dp)
                 }
                 Spacer(Modifier.width(14.dp))
                 Column {

@@ -75,7 +75,7 @@ fun PairScreen(start: Pairing?, onPair: (Pairing) -> Unit, onBack: () -> Unit, p
         if (p != null) {
             // The confirmation.
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(c.blue).padding(22.dp)) {
-                MoodOrb(Status.Done, size = 64.dp, fill = c.face, stroke = c.faceInk)
+                MoodOrb(Status.Done, size = 64.dp)
                 Spacer(Modifier.height(14.dp))
                 Text("Link to ${p.name}?", style = DeskType.title, color = c.onCard)
                 Spacer(Modifier.height(6.dp))

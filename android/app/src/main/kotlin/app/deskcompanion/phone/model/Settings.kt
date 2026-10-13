@@ -6,7 +6,23 @@ import android.content.Context
  * The switches in Settings, kept on this phone. Notifications read them too
  * (they can fire with the app closed), so [shared] is set once at start-up.
  */
-class Settings(private val read: (String, Boolean) -> Boolean, private val write: (String, Boolean) -> Unit) {
+class Settings(
+    private val read: (String, Boolean) -> Boolean,
+    private val write: (String, Boolean) -> Unit,
+    private val readText: (String, String) -> String = { _, d -> d },
+    private val writeText: (String, String) -> Unit = { _, _ -> },
+) {
+    /** The character last shown (the PC's choice), so the app opens in its colours. */
+    var character: String
+        get() = readText("character", "kulhi")
+        set(v) = writeText("character", v)
+    var ruiLook: String
+        get() = readText("ruiLook", "toy")
+        set(v) = writeText("ruiLook", v)
+    var ruiTheme: String
+        get() = readText("ruiTheme", "cream")
+        set(v) = writeText("ruiTheme", v)
+
     var notifyDone: Boolean
         get() = read("notifyDone", true)
         set(v) = write("notifyDone", v)
@@ -30,7 +46,8 @@ class Settings(private val read: (String, Boolean) -> Boolean, private val write
         /** Settings that live only in memory (tests, previews). */
         fun memory(): Settings {
             val m = mutableMapOf<String, Boolean>()
-            return Settings({ k, d -> m[k] ?: d }, { k, v -> m[k] = v })
+            val t = mutableMapOf<String, String>()
+            return Settings({ k, d -> m[k] ?: d }, { k, v -> m[k] = v }, { k, d -> t[k] ?: d }, { k, v -> t[k] = v })
         }
 
         @Volatile
@@ -39,7 +56,10 @@ class Settings(private val read: (String, Boolean) -> Boolean, private val write
 
         fun init(ctx: Context): Settings {
             val prefs = ctx.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            shared = Settings({ k, d -> prefs.getBoolean(k, d) }, { k, v -> prefs.edit().putBoolean(k, v).apply() })
+            shared = Settings(
+                { k, d -> prefs.getBoolean(k, d) }, { k, v -> prefs.edit().putBoolean(k, v).apply() },
+                { k, d -> prefs.getString(k, d) ?: d }, { k, v -> prefs.edit().putString(k, v).apply() },
+            )
             return shared
         }
 

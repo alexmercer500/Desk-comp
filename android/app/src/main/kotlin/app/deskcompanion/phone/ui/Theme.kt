@@ -9,6 +9,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -17,9 +18,14 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import app.deskcompanion.phone.R
+import app.deskcompanion.phone.model.Characters
+import app.deskcompanion.phone.model.Look
 import app.deskcompanion.phone.model.Status
 
-/** The app's colours: calm surfaces, a few soft pastels for cards, near-black for buttons. */
+/**
+ * The app's colours. Everything takes its tint from the chosen character's
+ * accent (see [deskColors]); cards for what needs you are the accent itself.
+ */
 @Immutable
 class DeskColors(
     val bg: Color,
@@ -29,48 +35,64 @@ class DeskColors(
     val line: Color,
     /** Text on an [ink] button. */
     val onInk: Color,
-    /** Text on a pastel card. */
+    /** Text on a tinted card. */
     val onCard: Color,
     val chip: Color,
+    /** Tints of the accent: working, idle, "needs you" (small spots), and the two status colours. */
     val blue: Color,
     val lavender: Color,
     val peach: Color,
     val mint: Color,
     val rose: Color,
+    /** The character's colour, and text on it. */
+    val accent: Color,
+    val onAccent: Color,
+    /** Buttons sitting on a card. */
+    val cardButton: Color,
+    val onCardButton: Color,
     val dark: Boolean,
 ) {
-    /** Faces are always light with dark lines, and buttons on a pastel card always near-black, in either theme. */
-    val face: Color get() = Color(0xFFFFFFFF)
-    val faceInk: Color get() = Color(0xFF14151A)
-    val cardButton: Color get() = Color(0xFF14151A)
-    val onCardButton: Color get() = Color(0xFFFFFFFF)
-
-    /** The pastel for a session's card. */
+    /** The card for a session: the accent itself when it needs you, a tint otherwise. */
     fun cardFor(s: Status): Color = when (s) {
         Status.Working -> blue
-        Status.Waiting -> peach
+        Status.Waiting -> accent
         Status.Done -> mint
         Status.Error -> rose
         Status.Idle -> lavender
     }
+
+    /** Text on that card. */
+    fun onCardFor(s: Status): Color = if (s == Status.Waiting) onAccent else onCard
 }
 
-val LightDesk = DeskColors(
-    bg = Color(0xFFF4F6FB), surface = Color(0xFFFFFFFF), ink = Color(0xFF14151A), inkSoft = Color(0xFF6B6F7B),
-    line = Color(0xFFE6E8F0), onInk = Color(0xFFFFFFFF), onCard = Color(0xFF14151A), chip = Color(0xFFEBEEF7),
-    blue = Color(0xFFA7BBFA), lavender = Color(0xFFD9CCFA), peach = Color(0xFFFFD2AB), mint = Color(0xFFC3EDD6),
-    rose = Color(0xFFF9C9DA), dark = false,
-)
+private fun mix(a: Color, b: Color, amountOfA: Float) = lerp(b, a, amountOfA)
 
-val DarkDesk = DeskColors(
-    bg = Color(0xFF101116), surface = Color(0xFF1A1B22), ink = Color(0xFFF2F3F8), inkSoft = Color(0xFF9A9EAD),
-    line = Color(0xFF2A2C36), onInk = Color(0xFF14151A), onCard = Color(0xFF14151A), chip = Color(0xFF23252F),
-    // The same pastels, a touch softer, on near-black: dark text on light cards.
-    blue = Color(0xFF9AAEEE), lavender = Color(0xFFCBBEF0), peach = Color(0xFFF2C49E), mint = Color(0xFFB5DFC8),
-    rose = Color(0xFFEDBCCD), dark = true,
-)
+/** The palette for a character's accent: a warm neutral base lightly tinted by it, or the dark version. */
+fun deskColors(accent: Color, dark: Boolean): DeskColors {
+    val white = Color(0xFFFFFFFF)
+    return if (!dark) {
+        DeskColors(
+            bg = mix(accent, Color(0xFFFBFAF9), 0.07f), surface = white, ink = Color(0xFF1D1A1A), inkSoft = Color(0xFF7A7370),
+            line = mix(accent, Color(0xFFE8E4E2), 0.14f), onInk = white, onCard = Color(0xFF1D1A1A),
+            chip = mix(accent, white, 0.10f),
+            blue = mix(accent, white, 0.28f), lavender = mix(accent, white, 0.10f), peach = mix(accent, white, 0.32f),
+            mint = Color(0xFFCBEBDA), rose = Color(0xFFF8D2D2),
+            accent = accent, onAccent = white, cardButton = Color(0xFF1D1A1A), onCardButton = white, dark = false,
+        )
+    } else {
+        val base = Color(0xFF1C1A19)
+        DeskColors(
+            bg = mix(accent, Color(0xFF121110), 0.08f), surface = base, ink = Color(0xFFF4F1EF), inkSoft = Color(0xFFA39C98),
+            line = mix(accent, Color(0xFF2A2726), 0.15f), onInk = Color(0xFF1D1A1A), onCard = Color(0xFFF4F1EF),
+            chip = mix(accent, Color(0xFF232120), 0.18f),
+            blue = mix(accent, base, 0.30f), lavender = mix(accent, base, 0.16f), peach = mix(accent, base, 0.40f),
+            mint = Color(0xFF24473A), rose = Color(0xFF4F2A2E),
+            accent = accent, onAccent = white, cardButton = Color(0xFFF4F1EF), onCardButton = Color(0xFF1D1A1A), dark = true,
+        )
+    }
+}
 
-val LocalDesk = staticCompositionLocalOf { LightDesk }
+val LocalDesk = staticCompositionLocalOf { deskColors(Characters.accent("kulhi", "cream"), dark = false) }
 
 /** Shorthand: `Desk.colors.ink`. */
 object Desk {
@@ -107,7 +129,7 @@ object DeskType {
 @Composable
 fun DeskTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
-    val c = if (dark) DarkDesk else LightDesk
+    val c = deskColors(Look.accent, dark)
     val scheme = if (dark) {
         darkColorScheme(background = c.bg, surface = c.surface, onSurface = c.ink, primary = c.ink, onPrimary = c.onInk)
     } else {

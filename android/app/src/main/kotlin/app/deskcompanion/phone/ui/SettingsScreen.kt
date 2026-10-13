@@ -1,6 +1,7 @@
 package app.deskcompanion.phone.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.deskcompanion.phone.model.AppState
+import app.deskcompanion.phone.model.Characters
+import app.deskcompanion.phone.model.Look
 import app.deskcompanion.phone.model.Status
 import app.deskcompanion.phone.link.LinkHub
 
@@ -45,6 +48,9 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
         item { Text("Settings", style = DeskType.display, color = c.ink, modifier = Modifier.padding(top = 6.dp)) }
 
         item { ComputerCard(link, onLink, onUnlink) }
+
+        item { Group("Character") }
+        item { CharacterPicker() }
 
         item { Group("Tell me when") }
         item {
@@ -126,7 +132,7 @@ private fun ComputerCard(link: LinkHub.State, onLink: () -> Unit, onUnlink: () -
                 Text(detail, style = DeskType.small, color = c.onCard.copy(alpha = 0.75f))
             }
             Spacer(Modifier.width(12.dp))
-            MoodOrb(mood, size = 64.dp, fill = c.face, stroke = c.faceInk)
+            MoodOrb(mood, size = 64.dp)
         }
         Spacer(Modifier.height(16.dp))
         val unpaired = link is LinkHub.State.Unpaired
@@ -176,5 +182,58 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChang
                 uncheckedTrackColor = c.chip, uncheckedThumbColor = c.inkSoft, uncheckedBorderColor = c.line,
             ),
         )
+    }
+}
+
+/** Your character: picked here or on the PC, the same one in both places. Rui also has a look and a colour. */
+@Composable
+private fun CharacterPicker() {
+    val c = Desk.colors
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (ch in Characters.all) {
+                val on = Look.character == ch.id
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (on) c.accent.copy(alpha = 0.16f) else c.surface)
+                        .border(if (on) 2.dp else 1.dp, if (on) c.accent else c.line, RoundedCornerShape(20.dp))
+                        .clickable(role = Role.RadioButton) { LinkHub.pickCharacter(ch.id) }
+                        .padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    CharacterPicture(ch.id, Status.Idle, 44.dp)
+                    Text(ch.name, style = DeskType.label, color = c.ink, maxLines = 1)
+                }
+            }
+        }
+        if (Look.character == "rui") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                for (look in Characters.ruiLooks) {
+                    Text(
+                        look.replaceFirstChar { it.uppercase() }, style = DeskType.label,
+                        color = if (Look.ruiLook == look) c.onAccent else c.ink,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (Look.ruiLook == look) c.accent else c.surface)
+                            .clickable { LinkHub.pickCharacter("rui", look = look) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                }
+                Spacer(Modifier.width(6.dp))
+                for (theme in Characters.ruiThemes) {
+                    Box(
+                        Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(Characters.accent("rui", theme))
+                            .border(if (Look.ruiTheme == theme) 3.dp else 1.dp, if (Look.ruiTheme == theme) c.ink else c.line, CircleShape)
+                            .clickable { LinkHub.pickCharacter("rui", theme = theme) },
+                    )
+                }
+            }
+        }
+        Text("Changes on your PC too, and the app takes this character's colour.", style = DeskType.small, color = c.inkSoft)
     }
 }

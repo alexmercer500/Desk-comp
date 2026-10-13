@@ -42,6 +42,8 @@ pub enum FromPhone {
     Reply { rid: String, text: String },
     /// Away mode switched on the phone.
     Away { on: bool },
+    /// The user picked a character on the phone (Rui's look and colour only when it is Rui).
+    Character { id: String, look: Option<String>, theme: Option<String> },
     Ping,
     /// A type this version doesn't know (a newer phone): ignored.
     Other,
@@ -90,6 +92,15 @@ pub fn parse(line: &str) -> Result<FromPhone, &'static str> {
                 return Err("bad reply");
             }
             Ok(FromPhone::Reply { rid: request_id(text("rid"))?, text: t.to_string() })
+        }
+        Some("character") => {
+            // Only short plain names; the app checks them against its own lists.
+            let name = |k: &str| text(k).filter(|s| !s.is_empty() && s.len() <= 16 && s.chars().all(|c| c.is_ascii_lowercase()));
+            Ok(FromPhone::Character {
+                id: name("id").ok_or("character without an id")?.to_string(),
+                look: name("look").map(str::to_string),
+                theme: name("theme").map(str::to_string),
+            })
         }
         Some("away") => Ok(FromPhone::Away { on: o.get("on").and_then(Value::as_bool).ok_or("away without on")? }),
         Some("ping") => Ok(FromPhone::Ping),
@@ -211,6 +222,11 @@ pub fn decided(rid: &str, ok: bool) -> String {
     line(json!({ "t": "decided", "rid": rid, "ok": ok }))
 }
 
+/// The character in use on the PC (and Rui's look and colour), for the phone's colours and pictures.
+pub fn character(id: &str, look: &str, theme: &str) -> String {
+    line(json!({ "t": "character", "id": id, "look": look, "theme": theme }))
+}
+
 pub fn pong() -> String {
     line(json!({ "t": "pong" }))
 }
@@ -247,6 +263,14 @@ mod tests {
         );
         assert_eq!(parse(r#"{"t":"reply","rid":"h","text":" Add a test\nplease "}"#), Ok(FromPhone::Reply { rid: "h".into(), text: "Add a test\nplease".into() }));
         assert_eq!(parse(r#"{"t":"away","on":true}"#), Ok(FromPhone::Away { on: true }));
+        assert_eq!(
+            parse(r#"{"t":"character","id":"rui","look":"anime","theme":"mint"}"#),
+            Ok(FromPhone::Character { id: "rui".into(), look: Some("anime".into()), theme: Some("mint".into()) })
+        );
+        assert_eq!(parse(r#"{"t":"character","id":"kulhi"}"#), Ok(FromPhone::Character { id: "kulhi".into(), look: None, theme: None }));
+        for bad in [r#"{"t":"character"}"#, r#"{"t":"character","id":"../x"}"#, r#"{"t":"character","id":"Kulhi"}"#, r#"{"t":"character","id":""}"#] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
         assert_eq!(parse(r#"{"t":"decision","rid":"s:1:2","decision":"allow"}"#), Ok(FromPhone::Decision { rid: "s:1:2".into(), allow: true }));
         assert_eq!(parse(r#"{"t":"decision","rid":"s:1:2","decision":"deny"}"#), Ok(FromPhone::Decision { rid: "s:1:2".into(), allow: false }));
         assert_eq!(parse(r#"{"t":"seen","rid":"x"}"#), Ok(FromPhone::Seen { rid: "x".into() }));
@@ -333,7 +357,7 @@ mod tests {
 
     #[test]
     fn replies_are_single_lines() {
-        for l in [welcome("PC", true), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([]))] {
+        for l in [welcome("PC", true), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([])), character("rui", "toy", "cream")] {
             assert!(l.ends_with('\n'));
             assert_eq!(l.matches('\n').count(), 1);
             assert!(serde_json::from_str::<Value>(l.trim()).is_ok());

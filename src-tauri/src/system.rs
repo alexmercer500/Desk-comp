@@ -192,6 +192,9 @@ pub fn update(app: &AppHandle, key: &str, value: &Value) -> Result<Prefs, String
     if next.phone_link != before.phone_link {
         crate::phone::apply(app);
     }
+    if (&next.character, &next.rui_look, &next.rui_theme) != (&before.character, &before.rui_look, &before.rui_theme) {
+        crate::phone::character_changed(app);
+    }
     broadcast(app);
     Ok(next)
 }

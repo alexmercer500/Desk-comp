@@ -167,15 +167,15 @@ fun SessionCard(session: Session, onClick: () -> Unit, modifier: Modifier = Modi
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MoodOrb(session.status, size = 52.dp, fill = c.face, stroke = c.faceInk)
+        MoodOrb(session.status, size = 52.dp)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(session.project, style = DeskType.heading, color = c.onCard, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(session.project, style = DeskType.heading, color = c.onCardFor(session.status), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
             Text(
                 "${session.agent} · ${statusWord(session.status)}",
                 style = DeskType.small,
-                color = c.onCard.copy(alpha = 0.7f),
+                color = c.onCardFor(session.status).copy(alpha = 0.7f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -198,7 +198,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
 fun NavBar(selected: Tab, onSelect: (Tab) -> Unit, badge: Int, modifier: Modifier = Modifier) {
     val c = Desk.colors
     // Always the dark ink pill, as in the references; icons flip with the theme.
-    val pill = if (c.dark) Color(0xFF2B2D38) else Color(0xFF14151A)
+    val pill = if (c.dark) Color(0xFF2B2826) else Color(0xFF1D1A1A)
     Row(
         modifier
             .clip(RoundedCornerShape(34.dp))
@@ -213,12 +213,12 @@ fun NavBar(selected: Tab, onSelect: (Tab) -> Unit, badge: Int, modifier: Modifie
                 Modifier
                     .size(width = 74.dp, height = 52.dp)
                     .clip(RoundedCornerShape(26.dp))
-                    .background(if (on) c.blue else Color.Transparent)
+                    .background(if (on) c.accent else Color.Transparent)
                     .clickable(role = Role.Tab, onClick = { onSelect(tab) })
                     .semantics { contentDescription = tab.label },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(tab.icon, contentDescription = null, tint = if (on) Color(0xFF14151A) else Color.White.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
+                Icon(tab.icon, contentDescription = null, tint = if (on) c.onAccent else Color.White.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
                 if (tab == Tab.Home && badge > 0) {
                     Box(
                         Modifier

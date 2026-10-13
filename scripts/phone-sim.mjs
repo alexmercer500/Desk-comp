@@ -13,7 +13,8 @@
 //
 // Options: --decide allow|deny, --seen (report requests as shown), --token X,
 // --host H (instead of the link's first), --quit-after N (seconds), --away
-// (away mode: finished turns may be held for a reply), --reply TEXT, --answer TEXT.
+// (away mode: finished turns may be held for a reply), --reply TEXT, --answer TEXT,
+// --character ID (pick a character from the "phone"; for Rui also --look, --theme).
 
 import tls from "node:tls";
 
@@ -39,6 +40,7 @@ const seen = args.includes("--seen") || Boolean(decide);
 const quitAfter = Number(opt("--quit-after") ?? 0);
 const reply = opt("--reply");
 const answer = opt("--answer");
+const character = opt("--character");
 const away = args.includes("--away") || Boolean(reply);
 
 console.log(`connecting to ${q.get("name")} at ${host}:${port}`);
@@ -60,6 +62,7 @@ socket.on("secureConnect", () => {
   }
   console.log(`TLS ${socket.getProtocol()}, certificate pinned`);
   send({ t: "hello", v: 1, token, device: "phone-sim", away });
+  if (character) setTimeout(() => send({ t: "character", id: character, look: opt("--look"), theme: opt("--theme") }), 1500);
   setInterval(() => send({ t: "ping" }), 25_000).unref();
 });
 

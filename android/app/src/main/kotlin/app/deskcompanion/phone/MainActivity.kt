@@ -37,6 +37,7 @@ import app.deskcompanion.phone.link.LinkHub
 import app.deskcompanion.phone.link.Pairing
 import app.deskcompanion.phone.link.Unlock
 import app.deskcompanion.phone.model.AppState
+import app.deskcompanion.phone.model.Look
 import app.deskcompanion.phone.model.Settings
 import app.deskcompanion.phone.model.Status
 import app.deskcompanion.phone.notify.Notifications
@@ -61,7 +62,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        Settings.init(this)
+        Settings.init(this).let { Look.show(it.character, it.ruiLook, it.ruiTheme) }
         Notifications.createChannels(this)
         LinkHub.init(this)
         read(intent)

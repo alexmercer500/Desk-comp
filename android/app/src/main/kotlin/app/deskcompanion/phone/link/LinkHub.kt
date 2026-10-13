@@ -2,6 +2,7 @@ package app.deskcompanion.phone.link
 
 import android.content.Context
 import android.os.Build
+import app.deskcompanion.phone.model.Look
 import app.deskcompanion.phone.model.Session
 import app.deskcompanion.phone.model.Settings
 import app.deskcompanion.phone.notify.Notifications
@@ -83,6 +84,21 @@ object LinkHub {
         _state.value = State.Unpaired
         Notifications.clearLink(ctx)
         LinkService.stop(ctx)
+    }
+
+    /** The user picked a character here: shown at once, and the PC is told (it checks the name and switches too). */
+    fun pickCharacter(id: String, look: String? = null, theme: String? = null) {
+        showCharacter(id, look, theme)
+        if (_state.value is State.Connected) scope.launch { send(Protocol.character(id, look, theme)) }
+    }
+
+    private fun showCharacter(id: String, look: String?, theme: String?) {
+        Look.show(id, look, theme)
+        Settings.shared.run {
+            character = Look.character
+            ruiLook = Look.ruiLook
+            ruiTheme = Look.ruiTheme
+        }
     }
 
     /** Allow or Deny; false when not connected right now. */
@@ -170,6 +186,7 @@ object LinkHub {
                         _state.value = State.Connected(m.name, m.approvals)
                     }
                     is Protocol.FromPc.Sessions -> onSessions(m.sessions)
+                    is Protocol.FromPc.Character -> showCharacter(m.id, m.look, m.theme)
                     is Protocol.FromPc.Error -> {
                         if (m.code == "token") return true
                         throw IOException(m.message.ifEmpty { m.code })

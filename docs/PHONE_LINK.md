@@ -41,6 +41,7 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
 | `answer` | `rid`, `answers` = {question: answer} | answers to a question card: 1–8, each one line of at most 500 characters (an option's label, several joined by ", ", or typed text) |
 | `reply` | `rid`, `text` | a further prompt for a held turn (`reply` on its session), up to 4000 characters; line breaks allowed |
 | `away` | `on` | away mode switched on the phone |
+| `character` | `id`, `look`?, `theme`? | the user picked a character on the phone (Rui's look and colour only for Rui). The PC checks the names against its own lists; unknown ones change nothing |
 | `ping` | | every 25 s; the PC drops a phone silent for 90 s |
 
 ### PC → phone
@@ -51,6 +52,7 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
 | `error` | `code` = `token` \| `version` \| `busy` \| `hello`, `message` | then the PC closes |
 | `sessions` | `sessions`: [Session] | the whole list, sent on connect and whenever it changes |
 | `decided` | `rid`, `ok` | answer to `decision`, `answer` or `reply`: `ok` false when the request was already gone (answered elsewhere, timed out, no longer held) |
+| `character` | `id`, `look`, `theme` | the character in use on the PC, sent after `welcome` and whenever it changes (from either side) |
 | `pong` | | |
 
 ### Session

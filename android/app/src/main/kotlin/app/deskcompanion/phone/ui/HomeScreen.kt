@@ -94,7 +94,7 @@ private fun Header(state: AppState, onBell: () -> Unit) {
     val c = Desk.colors
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(52.dp).clip(CircleShape).background(c.blue), contentAlignment = Alignment.Center) {
-            MoodOrb(if (state.waitingCount > 0) Status.Waiting else Status.Working, size = 42.dp, fill = c.face, stroke = c.faceInk)
+            MoodOrb(if (state.waitingCount > 0) Status.Waiting else Status.Working, size = 42.dp)
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -126,24 +126,23 @@ private fun HeroCard(s: Session, state: AppState, onOpen: (String) -> Unit, onRe
         // The face peeks in from the bottom corner, cropped by the card.
         MoodOrb(
             s.status, size = 112.dp,
-            fill = c.face.copy(alpha = 0.85f), stroke = c.faceInk,
             modifier = Modifier.align(Alignment.BottomEnd).offset(x = 30.dp, y = 34.dp),
         )
         Column(Modifier.align(Alignment.TopEnd), horizontalAlignment = Alignment.CenterHorizontally) {
             Ring(
                 progress = state.doneToday.toFloat() / state.totalToday.coerceAtLeast(1),
                 label = "${state.doneToday}/${state.totalToday}",
-                color = c.onCard, track = c.onCard.copy(alpha = 0.15f), size = 50.dp,
+                color = c.onCardFor(s.status), track = c.onCardFor(s.status).copy(alpha = 0.15f), size = 50.dp,
             )
             Spacer(Modifier.height(4.dp))
-            Text("done today", style = DeskType.label, color = c.onCard.copy(alpha = 0.6f))
+            Text("done today", style = DeskType.label, color = c.onCardFor(s.status).copy(alpha = 0.6f))
         }
         Column(Modifier.padding(end = 96.dp)) {
-            Text(statusWord(s.status).uppercase(), style = DeskType.label, color = c.onCard.copy(alpha = 0.7f))
+            Text(statusWord(s.status).uppercase(), style = DeskType.label, color = c.onCardFor(s.status).copy(alpha = 0.7f))
             Spacer(Modifier.height(8.dp))
-            Text(s.project, style = DeskType.title, color = c.onCard, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(s.project, style = DeskType.title, color = c.onCardFor(s.status), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
-            Text("${s.agent} · ${s.line}", style = DeskType.body, color = c.onCard.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("${s.agent} · ${s.line}", style = DeskType.body, color = c.onCardFor(s.status).copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(20.dp))
             val review = s.status == Status.Waiting
             PillButton(
@@ -163,7 +162,7 @@ private fun EmptyCard(live: Boolean) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(34.dp)).background(c.lavender).padding(24.dp),
         horizontalAlignment = Alignment.Start,
     ) {
-        MoodOrb(Status.Idle, size = 72.dp, fill = c.face, stroke = c.faceInk)
+        MoodOrb(Status.Idle, size = 72.dp)
         Spacer(Modifier.height(14.dp))
         Text(if (live) "All quiet" else "No agents yet", style = DeskType.title, color = c.onCard)
         Spacer(Modifier.height(4.dp))

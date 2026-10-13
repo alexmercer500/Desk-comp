@@ -25,6 +25,8 @@ Making the agent side stronger, using ideas from coucou. Not released yet; the v
 - **Answer Claude's questions from your phone.** Claude Code's multiple-choice questions reach the phone as a notification; pick an option (or several, or type your own) and the answer goes to Claude exactly like one picked on the PC.
 - **Reply from your phone when a task finishes.** While you're away from the PC (a linked phone has **Away mode** on and nobody has touched the PC for a minute), a finished Claude Code task waits up to 5 minutes for a reply. Type one in the app, or right in the notification, and Claude carries on with it. Touch the keyboard or mouse and it ends as usual at once. For this, Claude Code's Stop hook now runs in step with Claude (it returns in a few milliseconds when there's nothing to wait for).
 
+- **Your character on your phone.** The Android app now shows the character you picked on the PC (Kulhi, Hexo, Glim, Billu or Rui) in the mood of each session, and takes its colours from that character. Pick another on the phone (Settings → Character, with Rui's look and colour) and it changes on the PC too, and the other way round.
+
 ## 0.6.0 (12 October 2026)
 
 Everything from the 0.5.0 previews below, in one version: Rui, more coding agents and IDEs, and a better "done". It's numbered 0.6.0 rather than 0.5.0 because of how much it adds. Updating from 0.4.1 or any 0.5.0 preview keeps your settings and connected agents.

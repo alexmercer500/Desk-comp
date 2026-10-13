@@ -132,18 +132,18 @@ private fun StatusCard(s: Session, onReview: (String) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(statusWord(s.status).uppercase(), style = DeskType.label, color = c.onCard.copy(alpha = 0.7f))
+            Text(statusWord(s.status).uppercase(), style = DeskType.label, color = c.onCardFor(s.status).copy(alpha = 0.7f))
             Spacer(Modifier.height(6.dp))
-            Text(s.line, style = DeskType.heading, color = c.onCard)
+            Text(s.line, style = DeskType.heading, color = c.onCardFor(s.status))
             Spacer(Modifier.height(4.dp))
-            Text("${s.agent} · ${agoOf(s)}", style = DeskType.small, color = c.onCard.copy(alpha = 0.7f))
+            Text("${s.agent} · ${agoOf(s)}", style = DeskType.small, color = c.onCardFor(s.status).copy(alpha = 0.7f))
             if (s.status == Status.Waiting) {
                 Spacer(Modifier.height(16.dp))
                 PillButton("Review", onClick = { onReview(s.id) }, modifier = Modifier.width(120.dp), container = c.cardButton, contentColor = c.onCardButton)
             }
         }
         Spacer(Modifier.width(12.dp))
-        MoodOrb(s.status, size = 84.dp, fill = c.face, stroke = c.faceInk)
+        MoodOrb(s.status, size = 84.dp)
     }
 }
 
