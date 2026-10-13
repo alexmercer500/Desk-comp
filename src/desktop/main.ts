@@ -21,6 +21,7 @@ import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
 import { AgentTracker, type AgentEvent, type DayStats, type Decision, type StatsStore } from "./agents";
 import { Companion, allowed, type Prefs, type SystemEvent } from "./companion";
 import { Island, agentRows, agentStatus } from "./island";
+import { phoneView } from "./phone";
 import { playFor } from "./sounds";
 import type { RuiStage } from "../three/stage";
 import { isLook, isTheme } from "../three/palette";
@@ -228,6 +229,7 @@ const island = new Island(
     },
     answer: (rid, decision) => void answerPermission(rid, decision),
     questionAnswered: (rid, answers) => void answerQuestion(rid, answers),
+    cardShown: (rid) => void invoke("permission_shown", { rid }).catch(() => {}),
     rowClicked: (session) => void openPanel(session),
     // Tucked away to a thin tab: nothing to see, so nothing to draw.
     shape: (state) => {
@@ -287,6 +289,7 @@ void listen<{ title: string; text: string; kind: BubbleMessage["kind"]; action?:
 void listen<Prefs>("prefs", ({ payload }) => {
   const before = prefs;
   prefs = payload;
+  if (payload.phoneLink && !before.phoneLink) sendToPhone();
   if (stage) {
     if (isLook(payload.ruiLook)) stage.setLook(payload.ruiLook);
     // A new colour: he changes into it with a little scene.
@@ -382,6 +385,9 @@ async function answerPermission(rid: string, decision: Decision) {
     agents.permissionClosed(rid); // too late: the terminal has it now
   }
 }
+// The bubble put a permission or question card on screen; without this the
+// agent is let go after a moment and asks in its terminal (agents.rs).
+void listen<string>("permission:shown", ({ payload }) => void invoke("permission_shown", { rid: payload }).catch(() => {}));
 // The relay stopped waiting: answered in the terminal, or out of time.
 void listen<string>("permission-closed", ({ payload }) => agents.permissionClosed(payload));
 
@@ -399,7 +405,29 @@ const sendSessions = () => {
 agents.onChange = () => {
   if (panelOpen) sendSessions();
   refreshIsland();
+  sendToPhone();
 };
+
+// ── Phone link (src-tauri/src/phone) ─────────────────────────────────────────
+
+let phoneTimer = 0;
+/** The session list for paired phones, a moment after the last change (bursts of steps arrive together). */
+function sendToPhone() {
+  if (!prefs.phoneLink) return;
+  window.clearTimeout(phoneTimer);
+  phoneTimer = window.setTimeout(() => {
+    void invoke("phone_sessions", { sessions: phoneView(agents.snapshot()) }).catch(() => {});
+  }, 250);
+}
+// "3 min ago" on the phone comes from updatedAt; a fresh list now and then keeps
+// the rest (a request that timed out, a session that went quiet) up to date too.
+window.setInterval(sendToPhone, 30_000);
+sendToPhone();
+
+// Allow / Deny from the phone: already on its way to the agent; close the card here.
+void listen<{ rid: string; decision: Decision }>("phone:decided", ({ payload }) => {
+  if (agents.answer(payload.rid, payload.decision)) c.acknowledge();
+});
 // Timers run out (bubbles, hover) without an event of their own.
 window.setInterval(refreshIsland, 1000);
 

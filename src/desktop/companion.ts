@@ -48,6 +48,8 @@ export interface Prefs {
   ruiTheme?: string;
   /** On battery power, a 2D character stands in for Rui. */
   ruiFlatOnBattery?: boolean;
+  /** A paired phone sees the sessions and can answer requests (phone link). */
+  phoneLink?: boolean;
 }
 
 export interface CompanionCharacter {

@@ -2,7 +2,7 @@
 //!
 //! Reads the hook JSON on stdin, keeps only the fields the companion shows
 //! (event, project folder, tool and what it touches, the prompt, messages),
-//! and writes them as one line to the named pipe `\\.\pipe\desk-companion`.
+//! and writes them as one line to the named pipe `\\.\pipe\desk-companion-<user's SID>` (pipe_name.rs).
 //! Never file contents or tool output. Everything stays on this machine.
 //!
 //! Agents speak slightly different dialects (event names, field names, tool
@@ -35,7 +35,7 @@ use std::time::Duration;
 
 use serde_json::{json, Map, Value};
 
-const PIPE: &str = r"\\.\pipe\desk-companion";
+mod pipe_name;
 /// Whole budget for delivering one event.
 const DEADLINE: Duration = Duration::from_millis(400);
 /// How long a permission or question may wait for the user before the
@@ -51,6 +51,10 @@ const MAX_DETAIL: usize = 600;
 const MAX_PROMPT: usize = 300;
 /// The agent's own "what I did", when it sends one.
 const MAX_SUMMARY: usize = 1200;
+/// Edit text forwarded for the live diff: per string, and per event. Anything
+/// bigger is left out (the app then shows the file without a diff).
+const MAX_EDIT_TEXT: usize = 48 * 1024;
+const MAX_EDIT_TOTAL: usize = 160 * 1024;
 /// Longest answer line we accept from the app (question answers are JSON).
 const MAX_ANSWER: u64 = 16 * 1024;
 
@@ -325,10 +329,15 @@ fn reply_permission(decision: &str, hook: &Map<String, Value>) -> Option<String>
     Some(json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision } }).to_string())
 }
 
+/// Longest answer typed by hand ("Other…").
+const MAX_OTHER: usize = 500;
+
 /// Answers to Claude Code's question, from the app as `{"answers":{question: answer}}`.
-/// Every answer must be one of the offered options (several, comma-separated,
-/// where more than one may be picked) for a question that was asked; anything
-/// else prints nothing and the question stays in the terminal.
+/// Each must be for a question that was asked. An answer is the offered
+/// option(s) (several, comma-separated, where more than one may be picked) or,
+/// as Claude Code always allows, something the person typed ("Other…"): any
+/// text up to MAX_OTHER characters with no control characters. Anything else
+/// prints nothing and the question stays in the terminal.
 fn reply_question(answer: &str, hook: &Map<String, Value>) -> Option<String> {
     let given = serde_json::from_str::<Value>(answer.trim()).ok()?;
     let given = given.get("answers")?.as_object()?;
@@ -338,11 +347,9 @@ fn reply_question(answer: &str, hook: &Map<String, Value>) -> Option<String> {
         return None;
     }
     for (question, value) in given {
-        let q = asked.iter().find(|q| q.get("question").and_then(Value::as_str) == Some(question.as_str()))?;
-        let labels: Vec<&str> = q.get("options")?.as_array()?.iter().filter_map(|o| o.get("label")?.as_str()).collect();
-        let multi = q.get("multiSelect").and_then(Value::as_bool).unwrap_or(false);
-        let picked: Vec<&str> = if multi { value.as_str()?.split(", ").collect() } else { vec![value.as_str()?] };
-        if picked.is_empty() || !picked.iter().all(|p| labels.contains(p)) {
+        asked.iter().find(|q| q.get("question").and_then(Value::as_str) == Some(question.as_str()))?;
+        let text = value.as_str()?;
+        if text.trim().is_empty() || text.chars().count() > MAX_OTHER || text.chars().any(char::is_control) {
             return None;
         }
     }
@@ -359,7 +366,7 @@ fn reply_question(answer: &str, hook: &Map<String, Value>) -> Option<String> {
 #[cfg(windows)]
 fn talk(line: &str, wait_for_answer: bool) -> std::io::Result<Option<String>> {
     use std::io::{BufRead, BufReader, Write};
-    let mut pipe = std::fs::OpenOptions::new().read(true).write(true).open(PIPE)?;
+    let mut pipe = std::fs::OpenOptions::new().read(true).write(true).open(pipe_name::pipe_name())?;
     // Anything could have opened a pipe with this name first. Only the real
     // companion gets the event, and only its answer is ever used.
     if !genuine(&pipe) {
@@ -542,6 +549,9 @@ fn summarize(hook: &Map<String, Value>, agent: &str, event: Option<&str>, tool: 
     // Gemini's permission notification, in Claude Code's words.
     let kind = text(&["notification_type", "notificationType"], 64).map(|k| if k == "ToolPermission" { "permission_prompt".into() } else { k });
 
+    // Only once the tool has run, so a refused edit never shows up as a change.
+    let edits = (event == Some("PostToolUse") && detail.is_some()).then(|| input.as_ref().and_then(edit_parts)).flatten();
+
     json!({
         "agent": agent,
         "event": event,
@@ -555,7 +565,40 @@ fn summarize(hook: &Map<String, Value>, agent: &str, event: Option<&str>, tool: 
         "kind": kind,
         "summary": summary,
         "transcript": transcript,
+        "edits": edits,
     })
+}
+
+/// What an edit tool changed, as `[{old, new}]`: `old` is null for a whole-file write.
+/// Covers Claude Code's Edit / MultiEdit / Write and the same shapes other agents use.
+fn edit_parts(t: &Map<String, Value>) -> Option<Value> {
+    const OLD: &[&str] = &["old_string", "oldString", "old_str", "oldText"];
+    const NEW: &[&str] = &["new_string", "newString", "new_str", "newText"];
+    const FULL: &[&str] = &["content", "file_text", "contents"];
+    fn first<'a>(m: &'a Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
+        keys.iter().find_map(|k| m.get(*k).and_then(Value::as_str))
+    }
+    let mut parts: Vec<(Option<&str>, &str)> = Vec::new();
+    if let Some(list) = t.get("edits").and_then(Value::as_array) {
+        for e in list {
+            let e = e.as_object()?;
+            parts.push((first(e, OLD), first(e, NEW)?));
+        }
+    } else if let Some(new) = first(t, NEW) {
+        parts.push((first(t, OLD), new));
+    } else if let Some(full) = first(t, FULL) {
+        parts.push((None, full));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let size = |(o, n): &(Option<&str>, &str)| o.map_or(0, str::len) + n.len();
+    if parts.iter().map(size).sum::<usize>() > MAX_EDIT_TOTAL
+        || parts.iter().any(|(o, n)| n.len() > MAX_EDIT_TEXT || o.is_some_and(|o| o.len() > MAX_EDIT_TEXT))
+    {
+        return None;
+    }
+    Some(Value::Array(parts.iter().map(|(o, n)| json!({ "old": o, "new": n })).collect()))
 }
 
 fn short(s: &str, max: usize) -> String {
@@ -573,6 +616,29 @@ mod tests {
 
     fn obj(s: &str) -> Map<String, Value> {
         serde_json::from_str::<Value>(s).unwrap().as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn edits_are_forwarded_only_after_the_tool_ran() {
+        let edit = r#"{"hook_event_name":"X","tool_name":"Edit","tool_input":{"file_path":"C:/p/a.ts","old_string":"a","new_string":"b"}}"#;
+        let after = summarize(&obj(edit), "claude-code", Some("PostToolUse"), Some("Edit"));
+        assert_eq!(after["edits"], json!([{ "old": "a", "new": "b" }]));
+        let before = summarize(&obj(edit), "claude-code", Some("PreToolUse"), Some("Edit"));
+        assert!(before["edits"].is_null());
+    }
+
+    #[test]
+    fn multi_edits_and_writes_are_understood_and_big_ones_dropped() {
+        let multi = obj(r#"{"tool_name":"MultiEdit","tool_input":{"file_path":"a","edits":[{"old_string":"x","new_string":"y"},{"old_string":"p","new_string":"q"}]}}"#);
+        let e = summarize(&multi, "claude-code", Some("PostToolUse"), Some("MultiEdit"));
+        assert_eq!(e["edits"].as_array().unwrap().len(), 2);
+        let write = obj(r#"{"tool_name":"Write","tool_input":{"file_path":"a","content":"hello"}}"#);
+        let w = summarize(&write, "claude-code", Some("PostToolUse"), Some("Write"));
+        assert_eq!(w["edits"], json!([{ "old": null, "new": "hello" }]));
+        let big = format!(r#"{{"tool_name":"Write","tool_input":{{"file_path":"a","content":"{}"}}}}"#, "z".repeat(MAX_EDIT_TEXT + 1));
+        assert!(summarize(&obj(&big), "claude-code", Some("PostToolUse"), Some("Write"))["edits"].is_null());
+        let shell = obj(r#"{"tool_name":"Bash","tool_input":{"command":"ls"}}"#);
+        assert!(summarize(&shell, "claude-code", Some("PostToolUse"), Some("Bash"))["edits"].is_null());
     }
 
     #[test]
@@ -612,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn question_answers_must_be_offered_options() {
+    fn question_answers_are_offered_options_or_typed_text() {
         let hook = obj(
             r#"{"hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[
                 {"question":"Which framework?","header":"Framework","multiSelect":false,"options":[{"label":"React"},{"label":"Vue"}]},
@@ -624,14 +690,23 @@ mod tests {
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(out["hookSpecificOutput"]["updatedInput"]["answers"]["Which framework?"], "Vue");
         assert_eq!(out["hookSpecificOutput"]["updatedInput"]["questions"][0]["header"], "Framework");
+        // Something typed by hand ("Other…") is an answer too.
+        let typed = reply_question(r#"{"answers":{"Which framework?":"Svelte, with SSR"}}"#, &hook).unwrap();
+        let typed: Value = serde_json::from_str(&typed).unwrap();
+        assert_eq!(typed["hookSpecificOutput"]["updatedInput"]["answers"]["Which framework?"], "Svelte, with SSR");
+        let long = format!(r#"{{"answers":{{"Which framework?":"{}"}}}}"#, "x".repeat(MAX_OTHER + 1));
         for bad in [
             "",
             "allow",
             r#"{"answers":{}}"#,
-            r#"{"answers":{"Which framework?":"Angular"}}"#,
             r#"{"answers":{"Something else?":"React"}}"#,
-            r#"{"answers":{"Which framework?":"React, Vue"}}"#,
+            r#"{"answers":{"Which framework?":""}}"#,
+            r#"{"answers":{"Which framework?":"   "}}"#,
+            r#"{"answers":{"Which framework?":"ab"}}"#,
+            r#"{"answers":{"Which framework?":"line one
+line two"}}"#,
             r#"{"answers":{"Which framework?":3}}"#,
+            long.as_str(),
         ] {
             assert_eq!(reply_question(bad, &hook), None, "{bad:?}");
         }

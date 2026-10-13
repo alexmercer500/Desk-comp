@@ -17,6 +17,9 @@
     "allow-assistant-forget-key",
     "allow-assistant-ask",
     "allow-check-update",
-    "allow-install-update"
+    "allow-install-update",
+    "allow-phone-status",
+    "allow-phone-pairing",
+    "allow-phone-pair-again"
   ]
 }

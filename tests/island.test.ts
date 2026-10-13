@@ -21,6 +21,7 @@ const turn = (steps: { tool: string; detail: string | null }[]) => ({
   endedAt: null,
   steps: steps.map((s) => ({ ...s, at: 0 })),
   files: [],
+  changes: [],
   commands: 0,
   summary: null,
   outcome: "working" as const,

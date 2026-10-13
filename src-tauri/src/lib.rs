@@ -6,6 +6,8 @@ mod agents;
 mod assistant;
 mod desktop;
 mod focus;
+mod phone;
+mod secrets;
 mod setup;
 mod system;
 mod tray;
@@ -23,6 +25,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(desktop::Desk::default())
         .manage(agents::Pending::default())
+        .manage(agents::Shown::default())
+        .manage(phone::PhoneLink::default())
         .invoke_handler(tauri::generate_handler![
             desktop::set_hit_rect,
             desktop::drag_begin,
@@ -43,6 +47,11 @@ pub fn run() {
             system::set_autostart,
             agents::answer_permission,
             agents::answer_question,
+            agents::permission_shown,
+            phone::phone_status,
+            phone::phone_pairing,
+            phone::phone_pair_again,
+            phone::phone_sessions,
             focus::focus_session,
             assistant::assistant_status,
             assistant::assistant_set_key,
@@ -64,6 +73,8 @@ pub fn run() {
             agents::spawn(handle.clone());
             system::spawn(handle.clone());
             updates::spawn(handle.clone());
+            // Listen for a paired phone, if the link is on.
+            phone::apply(handle);
             Ok(())
         })
         .run(tauri::generate_context!())

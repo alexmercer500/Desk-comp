@@ -1,0 +1,150 @@
+package app.deskcompanion.phone.model
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+/**
+ * Everything the screens show. Until a PC is linked it holds sample sessions so
+ * the app can be tried; once linked, [showLive] replaces them with the PC's,
+ * and [decide] goes over the link ([onDecide]).
+ */
+class AppState(initial: List<Session> = DemoData.sessions()) {
+    var sessions by mutableStateOf(initial)
+        private set
+    var decisions by mutableStateOf(emptyList<Decision>())
+        private set
+    var filter by mutableStateOf(Filter.All)
+    /** Showing a linked PC's sessions (not the samples). */
+    var live by mutableStateOf(false)
+        private set
+    /** Sends a decision to the PC; false when it couldn't (not connected). */
+    var onDecide: ((rid: String, allow: Boolean) -> Boolean)? = null
+
+    fun showLive(list: List<Session>) {
+        live = true
+        sessions = list
+    }
+
+    fun showSamples() {
+        if (!live) return
+        live = false
+        sessions = DemoData.sessions()
+    }
+
+    // Settings (not saved yet).
+    var notifyDone by mutableStateOf(true)
+    var notifyNeedsYou by mutableStateOf(true)
+    var notifyErrors by mutableStateOf(true)
+    var quietHours by mutableStateOf(false)
+    var requireUnlockForAllow by mutableStateOf(true)
+    /** While away, a finished task waits a few minutes for a reply from here. */
+    var awayMode by mutableStateOf(true)
+
+    fun session(id: String): Session? = sessions.firstOrNull { it.id == id }
+
+    val visible: List<Session>
+        get() = sessions.filter { filter.matches(it) }.sortedWith(order)
+
+    /** What most needs the user, for the big card on Home. */
+    val hero: Session?
+        get() = sessions.minWithOrNull(order)
+
+    /** What needs you first, then the most recent. */
+    private val order = compareBy<Session>({ rank(it.status) }, { it.minutesAgo }, { -it.updatedAt })
+
+    val waitingCount: Int get() = sessions.count { it.status == Status.Waiting }
+    val doneToday: Int get() = sessions.count { it.status == Status.Done }
+    val totalToday: Int get() = sessions.size
+
+    /** Allow or Deny the request a session is holding open. */
+    /** False when it couldn't be sent (the link is down); the request stays. */
+    fun decide(sessionId: String, allow: Boolean): Boolean {
+        val s = session(sessionId) ?: return false
+        val request = s.approval ?: return false // already answered (here or in the terminal)
+        if (live && onDecide?.invoke(request.rid, allow) != true) return false
+        replace(
+            s.copy(
+                approval = null,
+                status = if (allow) Status.Working else Status.Idle,
+                line = if (allow) "Carrying on" else "Denied. Waiting for the agent",
+            ),
+        )
+        decisions = listOf(Decision(s.project, "${request.action} ${request.detail}", allow, 0)) + decisions
+        return true
+    }
+
+    /** A further prompt for a finished session; the agent carries on with it. */
+    fun reply(sessionId: String, text: String): Boolean {
+        val s = session(sessionId) ?: return false
+        val prompt = text.trim()
+        // Replies from the phone come with the next step (the PC side isn't there yet).
+        if (prompt.isEmpty() || s.status != Status.Done || live) return false
+        replace(
+            s.copy(
+                status = Status.Working,
+                line = "Working on your reply",
+                prompt = prompt,
+                summary = null,
+                steps = listOf(Step("You", prompt)),
+                files = emptyList(),
+                minutesAgo = 0,
+            ),
+        )
+        return true
+    }
+
+    private fun replace(updated: Session) {
+        sessions = sessions.map { if (it.id == updated.id) updated else it }
+    }
+
+    private fun rank(s: Status) = when (s) {
+        Status.Waiting -> 0
+        Status.Error -> 1
+        Status.Working -> 2
+        Status.Done -> 3
+        Status.Idle -> 4
+    }
+}
+
+object DemoData {
+    fun sessions(): List<Session> = listOf(
+        Session(
+            id = "s1", agent = "Claude Code", project = "shop-app", status = Status.Waiting,
+            line = "Wants to run a command", minutesAgo = 1,
+            prompt = "Fix the rounding in the cart total",
+            approval = Approval(tool = "Bash", action = "run", detail = "npm test -- --coverage", canAlways = true),
+            steps = listOf(
+                Step("Read", "src/cart.ts"),
+                Step("Edit", "src/cart.ts"),
+                Step("Bash", "npm test -- --coverage"),
+            ),
+        ),
+        Session(
+            id = "s2", agent = "Codex", project = "blog", status = Status.Working,
+            line = "Editing posts/index.tsx", minutesAgo = 3,
+            prompt = "Add a reading time to each post",
+            steps = listOf(Step("Read", "posts/index.tsx"), Step("Edit", "posts/index.tsx")),
+        ),
+        Session(
+            id = "s3", agent = "Claude Code", project = "api-gateway", status = Status.Done,
+            line = "Added rate limiting to /v1/orders", minutesAgo = 12,
+            prompt = "Add rate limiting to the orders endpoint",
+            summary = "Added a token-bucket limiter (60 requests a minute per key) to /v1/orders and a test for the 429 case. All 48 tests pass.",
+            files = listOf(FileChange("src/limiter.ts", 64, 0), FileChange("src/routes/orders.ts", 9, 2), FileChange("test/orders.test.ts", 31, 4)),
+            steps = listOf(
+                Step("Read", "src/routes/orders.ts"),
+                Step("Write", "src/limiter.ts"),
+                Step("Edit", "src/routes/orders.ts"),
+                Step("Bash", "npm test"),
+            ),
+        ),
+        Session(
+            id = "s4", agent = "Gemini CLI", project = "docs-site", status = Status.Error,
+            line = "Stopped with an error", minutesAgo = 25,
+            prompt = "Migrate the docs to the new theme",
+            summary = "The build failed: Cannot find module 'theme-next'.",
+            steps = listOf(Step("Edit", "docusaurus.config.js"), Step("Bash", "npm run build", failed = true)),
+        ),
+    )
+}

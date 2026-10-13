@@ -9,6 +9,7 @@
 // any, and its last few finished tasks with the agent's own summary.
 
 import type { BubbleMessage, Question } from "../bubble/types";
+import { addToChange, diffText, type Change } from "./diff";
 import { baseName, dotted, elapsed, firstLine, plainText, plural, relativeTo } from "./format";
 
 /** One hook event, as the relay summarises it. */
@@ -33,6 +34,8 @@ export interface AgentEvent {
   questions?: Question[] | null;
   /** The relay's parent processes, nearest first: the agent's window is among them. */
   procs?: number[] | null;
+  /** What an edit tool changed (sent after it ran): `old` is null for a whole-file write. */
+  edits?: { old: string | null; new: string }[] | null;
 }
 
 export type Decision = "allow" | "always" | "deny" | "terminal";
@@ -67,6 +70,8 @@ export interface Turn {
   steps: Step[];
   /** Files edited or written, relative to the project. */
   files: string[];
+  /** The same files with their line changes, for the diff view. */
+  changes: Change[];
   commands: number;
   summary: string | null;
   outcome: "working" | "done" | "error" | "cancelled";
@@ -135,6 +140,8 @@ const MAX_NUDGES = 3;
 const QUIET_AFTER_FINISH_MS = 90_000;
 /** Steps kept per task, finished tasks kept per session. */
 const MAX_STEPS = 40;
+/** Files with a stored diff per task. */
+const MAX_CHANGES = 50;
 const MAX_HISTORY = 5;
 
 export const AGENT_NAMES: Record<string, string> = {
@@ -315,6 +322,7 @@ export class AgentTracker {
       const turn = (s.current ??= newTurn(null, now));
       if ((name === "PreToolUse" || name === "ToolUsed") && e.tool) this.recordStep(s, turn, e, now);
       if (name === "ToolUsed" && e.tool && e.error) turn.steps[turn.steps.length - 1].failed = true;
+      if (name === "PostToolUse" && e.edits?.length && e.detail) this.recordChange(s, turn, e.edits, relativeTo(s.cwd, e.detail));
       if (name === "PostToolUseFailure") {
         const last = [...turn.steps].reverse().find((st) => st.tool === e.tool);
         if (last) last.failed = true;
@@ -420,6 +428,18 @@ export class AgentTracker {
     if (turn.steps.length > MAX_STEPS) turn.steps.shift();
     if (EDIT_TOOLS.test(tool) && detail && !turn.files.includes(detail)) turn.files.push(detail);
     if (tool === "Bash") turn.commands++;
+  }
+
+  /** Adds an edit's line changes to its file's entry in the task. */
+  private recordChange(_s: Session, turn: Turn, edits: NonNullable<AgentEvent["edits"]>, path: string) {
+    let change = turn.changes.find((c) => c.path === path);
+    if (!change) {
+      if (turn.changes.length >= MAX_CHANGES) return;
+      change = { path, add: 0, del: 0, hunks: [] };
+      turn.changes.push(change);
+    }
+    for (const part of edits) addToChange(change, diffText(part.old, part.new));
+    if (!turn.files.includes(path)) turn.files.push(path);
   }
 
   private askPermission(id: string, s: Session, e: AgentEvent) {
@@ -552,7 +572,7 @@ export class AgentTracker {
 const permissionId = (session: string) => `permission:${session}`;
 
 const newTurn = (prompt: string | null, now: number): Turn => ({
-  prompt, startedAt: now, endedAt: null, steps: [], files: [], commands: 0, summary: null, outcome: "working",
+  prompt, startedAt: now, endedAt: null, steps: [], files: [], changes: [], commands: 0, summary: null, outcome: "working",
 });
 
 const emptyDay = (now: number): DayStats => ({ date: localDate(now), done: 0, failed: 0, asks: 0, workMs: 0 });
@@ -571,9 +591,17 @@ export function turnMeta(t: Turn): string {
   return dotted(
     took,
     t.files.length > 0 && `${plural(t.files.length, "file")} edited`,
+    lineTotals(t.changes),
     t.commands > 0 && plural(t.commands, "command"),
     t.files.length === 0 && t.commands === 0 && t.steps.length > 0 && plural(t.steps.length, "step"),
   );
+}
+
+/** "+42 −7" for the lines changed across a task's files, or false when nothing is known. */
+export function lineTotals(changes: Change[]): string | false {
+  const add = changes.reduce((n, c) => n + c.add, 0);
+  const del = changes.reduce((n, c) => n + c.del, 0);
+  return add + del > 0 && `+${add} −${del}`;
 }
 
 /** Present-tense line for what a step is doing, e.g. "Editing cart.ts". */

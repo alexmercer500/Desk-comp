@@ -416,108 +416,18 @@ mod tests {
     }
 }
 
-// ── Windows Credential Manager ────────────────────────────────────────────────
+// ── Windows Credential Manager (secrets.rs) ───────────────────────────────────
 
-#[cfg(windows)]
 mod credential {
-    use std::ffi::c_void;
-
     use super::CREDENTIAL;
 
-    const CRED_TYPE_GENERIC: u32 = 1;
-    const CRED_PERSIST_LOCAL_MACHINE: u32 = 2;
-
-    #[repr(C)]
-    struct FileTime {
-        low: u32,
-        high: u32,
-    }
-
-    #[repr(C)]
-    struct CredentialW {
-        flags: u32,
-        kind: u32,
-        target_name: *mut u16,
-        comment: *mut u16,
-        last_written: FileTime,
-        blob_size: u32,
-        blob: *mut u8,
-        persist: u32,
-        attribute_count: u32,
-        attributes: *mut c_void,
-        target_alias: *mut u16,
-        user_name: *mut u16,
-    }
-
-    #[link(name = "advapi32")]
-    extern "system" {
-        fn CredWriteW(credential: *const CredentialW, flags: u32) -> i32;
-        fn CredReadW(target: *const u16, kind: u32, flags: u32, credential: *mut *mut CredentialW) -> i32;
-        fn CredDeleteW(target: *const u16, kind: u32, flags: u32) -> i32;
-        fn CredFree(buffer: *mut c_void);
-    }
-
-    fn target() -> Vec<u16> {
-        CREDENTIAL.encode_utf16().chain(std::iter::once(0)).collect()
-    }
-
     pub fn write(secret: &str) -> std::io::Result<()> {
-        let mut name = target();
-        let mut user: Vec<u16> = "api-key".encode_utf16().chain(std::iter::once(0)).collect();
-        let mut blob = secret.as_bytes().to_vec();
-        let cred = CredentialW {
-            flags: 0,
-            kind: CRED_TYPE_GENERIC,
-            target_name: name.as_mut_ptr(),
-            comment: std::ptr::null_mut(),
-            last_written: FileTime { low: 0, high: 0 },
-            blob_size: blob.len() as u32,
-            blob: blob.as_mut_ptr(),
-            persist: CRED_PERSIST_LOCAL_MACHINE,
-            attribute_count: 0,
-            attributes: std::ptr::null_mut(),
-            target_alias: std::ptr::null_mut(),
-            user_name: user.as_mut_ptr(),
-        };
-        // SAFETY: every pointer refers to a live buffer for the duration of the call.
-        if unsafe { CredWriteW(&cred, 0) } != 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
-        }
+        crate::secrets::write(CREDENTIAL, "api-key", secret.as_bytes())
     }
-
     pub fn read() -> Option<String> {
-        let name = target();
-        let mut out: *mut CredentialW = std::ptr::null_mut();
-        // SAFETY: on success Windows hands us a buffer we must release with CredFree.
-        if unsafe { CredReadW(name.as_ptr(), CRED_TYPE_GENERIC, 0, &mut out) } == 0 || out.is_null() {
-            return None;
-        }
-        let secret = unsafe {
-            let c = &*out;
-            let bytes = std::slice::from_raw_parts(c.blob, c.blob_size as usize);
-            let s = String::from_utf8(bytes.to_vec()).ok();
-            CredFree(out.cast());
-            s
-        };
-        secret.filter(|s| !s.is_empty())
+        crate::secrets::read(CREDENTIAL).and_then(|b| String::from_utf8(b).ok()).filter(|s| !s.is_empty())
     }
-
     pub fn delete() {
-        let name = target();
-        // SAFETY: plain call with a valid, NUL-terminated name.
-        unsafe { CredDeleteW(name.as_ptr(), CRED_TYPE_GENERIC, 0) };
+        crate::secrets::delete(CREDENTIAL)
     }
-}
-
-#[cfg(not(windows))]
-mod credential {
-    pub fn write(_secret: &str) -> std::io::Result<()> {
-        Err(std::io::Error::other("secret storage comes with the macOS/Linux port"))
-    }
-    pub fn read() -> Option<String> {
-        None
-    }
-    pub fn delete() {}
 }

@@ -13,6 +13,7 @@
 // side sizes the window (desktop.rs, ISLAND_W × ISLAND_H) and keeps it on the
 // top edge; this decides what the island shows and how big it is.
 
+import { ClickGuard } from "../bubble/guard";
 import { renderQuestions, type Answers } from "../bubble/question";
 import type { BubbleKind, BubbleMessage } from "../bubble/types";
 import { describeStep, type Decision, type SessionView } from "./agents";
@@ -136,6 +137,8 @@ export interface IslandHandlers {
   answer(rid: string, decision: Decision): void;
   /** Options picked for Claude Code's question. */
   questionAnswered(rid: string, answers: Answers): void;
+  /** A permission or question card is on screen with its buttons (the agent waits only for those). */
+  cardShown(rid: string): void;
   /** A row of the hover list. */
   rowClicked(sessionId: string): void;
   /** The island changed shape (tucked away: nothing to draw). */
@@ -159,6 +162,7 @@ export class Island {
   private passing: BubbleMessage | null = null;
   private passingTimer = 0;
   private shown: BubbleMessage | null = null;
+  private guard = new ClickGuard();
 
   constructor(
     private el: HTMLElement,
@@ -175,7 +179,8 @@ export class Island {
     parts.actions.addEventListener("click", (e) => {
       const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-decision]");
       const rid = this.notice()?.request;
-      if (button && rid) on.answer(rid, button.dataset.decision as Decision);
+      // Buttons that just appeared under the cursor don't take clicks for a moment.
+      if (button && rid && this.guard.ready(rid)) on.answer(rid, button.dataset.decision as Decision);
     });
     parts.rows.addEventListener("click", (e) => {
       const row = (e.target as HTMLElement).closest<HTMLElement>("[data-id]");
@@ -215,7 +220,12 @@ export class Island {
     if (msg.sticky) {
       this.pinned.delete(msg.id); // re-added last: it's the newest
       this.pinned.set(msg.id, msg);
-      if (this.passing?.id === msg.id) this.passing = null;
+      // A new request goes in front of a passing notification: the agent only
+      // waits for a card that's actually on screen.
+      if (this.passing?.id === msg.id || (msg.request && this.shown?.request !== msg.request)) {
+        this.passing = null;
+        window.clearTimeout(this.passingTimer);
+      }
     } else {
       this.passing = msg;
       this.armPassing(msg.detail ? NOTICE_MS_DETAIL : NOTICE_MS);
@@ -299,8 +309,13 @@ export class Island {
     this.el.dataset.tone = msg ? toneOf(msg.kind) : (s?.tone ?? "");
     this.el.toggleAttribute("data-celebrate", next === "notice" && celebrates(msg));
 
+    const newRequest = Boolean(msg?.request) && this.shown?.request !== msg?.request;
     if (msg !== this.shown) this.fillCard(msg);
     this.shown = msg;
+    if (newRequest && next === "notice") {
+      this.guard.arm(msg!.request!);
+      this.on.cardShown(msg!.request!);
+    }
     if (next === "list") this.fillRows();
     this.layout(force || changed);
   }
@@ -319,7 +334,11 @@ export class Island {
     p.questions.hidden = !asking;
     if (asking) {
       const rid = msg!.request!;
-      renderQuestions(p.questions, msg!.questions!, (answers) => this.on.questionAnswered(rid, answers));
+      renderQuestions(p.questions, msg!.questions!, (answers) => this.on.questionAnswered(rid, answers), {
+        armed: () => this.guard.ready(rid),
+        // The island never takes the keyboard focus: typing happens in the panel.
+        onOther: () => this.on.noticeClicked(msg!),
+      });
     } else {
       p.questions.replaceChildren();
     }

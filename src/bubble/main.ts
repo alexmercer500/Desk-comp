@@ -6,6 +6,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
+import { ClickGuard } from "./guard";
 import { renderQuestions } from "./question";
 import type { BubbleMessage } from "./types";
 
@@ -24,10 +25,47 @@ const SHOW_MS = 6000;
 const SHOW_MS_DETAIL = 9000;
 
 let hideTimer = 0;
+/** The card on screen. */
 let current: BubbleMessage | null = null;
+/** Cards that stay until answered or closed (permissions, questions), latest last. */
+const pinned = new Map<string, BubbleMessage>();
+/** The one passing notification, shown over the pinned ones while it lasts. */
+let passing: BubbleMessage | null = null;
+const guard = new ClickGuard();
 
-async function show(msg: BubbleMessage) {
+/** What should be on screen: the passing notification, else the newest pinned card. */
+function top(): BubbleMessage | null {
+  if (passing) return passing;
+  let last: BubbleMessage | null = null;
+  for (const m of pinned.values()) last = m;
+  return last;
+}
+
+function receive(msg: BubbleMessage) {
+  if (msg.sticky) {
+    pinned.delete(msg.id); // re-added last: it's the newest
+    pinned.set(msg.id, msg);
+    // A new request goes in front of a passing notification: the agent only
+    // waits for a card that's actually on screen.
+    if (passing?.id === msg.id || (msg.request && current?.request !== msg.request)) passing = null;
+  } else {
+    pinned.delete(msg.id);
+    passing = msg;
+  }
+  void display(top());
+}
+
+function drop(id: string | null) {
+  if (id === null) pinned.clear();
+  else pinned.delete(id);
+  if (id === null || passing?.id === id) passing = null;
+  void display(top());
+}
+
+async function display(msg: BubbleMessage | null) {
   window.clearTimeout(hideTimer);
+  if (!msg) return hide();
+  const newRequest = Boolean(msg.request) && current?.request !== msg.request;
   current = msg;
   title.textContent = msg.title;
   text.textContent = msg.text;
@@ -41,25 +79,48 @@ async function show(msg: BubbleMessage) {
   const asking = Boolean(msg.request && msg.questions?.length);
   questionsBox.hidden = !asking;
   if (asking) {
-    renderQuestions(questionsBox, msg.questions!, (answers) => {
-      void emitTo("companion", "question:answer", { rid: msg.request, answers });
-      hide();
-    });
+    const rid = msg.request!;
+    renderQuestions(
+      questionsBox,
+      msg.questions!,
+      (answers) => {
+        void emitTo("companion", "question:answer", { rid, answers });
+        drop(msg.id);
+      },
+      {
+        armed: () => guard.ready(rid),
+        // This window never takes the keyboard focus: typing happens in the panel.
+        onOther: () => {
+          void emitTo("companion", "bubble:clicked", { id: msg.id, session: msg.session ?? null, action: null });
+          drop(msg.id);
+        },
+      },
+    );
   }
   for (const b of actions.querySelectorAll<HTMLButtonElement>("[data-decision]")) {
     const d = b.dataset.decision;
     b.hidden = asking ? d !== "terminal" : d === "always" && !msg.always;
   }
   card.dataset.kind = msg.kind;
+  // Buttons that just appeared under the cursor don't take clicks for a moment.
+  if (newRequest) guard.arm(msg.request!);
 
   wrap.dataset.tail = await invoke<string>("bubble_place");
   // Measure after layout so the click area matches the card exactly.
   requestAnimationFrame(() => {
+    if (current !== msg) return;
     const r = card.getBoundingClientRect();
     void invoke("bubble_card", { rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
     card.classList.add("shown");
+    // The agent waits only for a card that's on screen (see agents.rs).
+    if (msg.request) void emitTo("companion", "permission:shown", msg.request);
   });
-  if (!msg.sticky) hideTimer = window.setTimeout(hide, msg.detail ? SHOW_MS_DETAIL : SHOW_MS);
+  if (!msg.sticky) {
+    hideTimer = window.setTimeout(() => {
+      if (passing?.id === msg.id) passing = null;
+      void display(top());
+    }, msg.detail ? SHOW_MS_DETAIL : SHOW_MS);
+  }
 }
 
 function hide() {
@@ -74,19 +135,19 @@ function hide() {
 }
 
 body.addEventListener("click", () => {
-  if (current) void emitTo("companion", "bubble:clicked", { id: current.id, session: current.session ?? null, action: current.action ?? null });
-  hide();
+  if (!current) return;
+  void emitTo("companion", "bubble:clicked", { id: current.id, session: current.session ?? null, action: current.action ?? null });
+  drop(current.id);
 });
 
 actions.addEventListener("click", (e) => {
   const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-decision]");
   if (!button || !current?.request) return;
+  if (!guard.ready(current.request)) return; // the card has only just appeared
   void emitTo("companion", "permission:answer", { rid: current.request, decision: button.dataset.decision });
-  hide();
+  drop(current.id);
 });
 
-void listen<BubbleMessage>("bubble:show", ({ payload }) => void show(payload));
-void listen<string | null>("bubble:hide", ({ payload }) => {
-  // A targeted hide only closes the bubble it names.
-  if (!payload || current?.id === payload) hide();
-});
+void listen<BubbleMessage>("bubble:show", ({ payload }) => receive(payload));
+// A targeted hide only closes the card it names.
+void listen<string | null>("bubble:hide", ({ payload }) => drop(payload));

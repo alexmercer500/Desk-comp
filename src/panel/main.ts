@@ -7,8 +7,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ClickGuard } from "../bubble/guard";
 import { renderQuestions } from "../bubble/question";
-import { AGENT_NAMES, describeStep, turnMeta, type DayStats, type Permission, type SessionView, type Turn } from "../desktop/agents";
+import { AGENT_NAMES, describeStep, lineTotals, turnMeta, type DayStats, type Permission, type SessionView, type Turn } from "../desktop/agents";
+import type { Change } from "../desktop/diff";
 import { ago, elapsed, firstLine, plural } from "../desktop/format";
 import { Engine } from "../engine/engine";
 import type { CharacterId, StateName } from "../engine/types";
@@ -102,6 +104,10 @@ let focusId: string | null = null;
 const expanded = new Set<string>();
 /** Finished tasks whose "What it did" is open (session:startedAt). */
 const storyOpen = new Set<string>();
+/** Allow / Deny that just appeared ignore clicks for a moment (re-armed each time the panel opens). */
+const guard = new ClickGuard();
+/** Changed files whose diff the user has opened (the panel redraws often). */
+const diffOpen = new Set<string>();
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
@@ -176,14 +182,16 @@ function renderPerm(p: Permission): HTMLElement {
     box.append(el("div", "perm-label", p.questions.length > 1 ? "Has a few questions:" : "Has a question:"));
     if (p.rid) {
       const rid = p.rid;
+      guard.armOnce(rid);
       const qs = el("div", "perm-questions");
-      renderQuestions(qs, p.questions, (answers) => void emitTo("companion", "question:answer", { rid, answers }));
+      renderQuestions(qs, p.questions, (answers) => void emitTo("companion", "question:answer", { rid, answers }), { armed: () => guard.ready(rid) });
       qs.addEventListener("click", (e) => e.stopPropagation());
       const row = el("div", "perm-actions");
       const terminal = el("button", "act terminal", "In terminal");
       terminal.type = "button";
       terminal.addEventListener("click", (e) => {
         e.stopPropagation();
+        if (!guard.ready(rid)) return;
         void emitTo("companion", "permission:answer", { rid, decision: "terminal" });
       });
       row.append(terminal);
@@ -198,6 +206,7 @@ function renderPerm(p: Permission): HTMLElement {
   if (p.detail) box.append(el("pre", undefined, p.detail));
   if (p.rid) {
     const rid = p.rid;
+    guard.armOnce(rid);
     const row = el("div", "perm-actions");
     const choices: [string, string][] = [["deny", "Deny"], ["terminal", "In terminal"]];
     if (p.canAlways) choices.push(["always", "Always"]);
@@ -208,6 +217,7 @@ function renderPerm(p: Permission): HTMLElement {
       if (decision === "always") b.title = "Allow, and don't ask again for this in this project";
       b.addEventListener("click", (e) => {
         e.stopPropagation(); // not a click on the tile behind it
+        if (!guard.ready(rid)) return; // only just appeared under the cursor
         void emitTo("companion", "permission:answer", { rid, decision });
       });
       row.append(b);
@@ -248,6 +258,8 @@ function renderCurrent(t: Turn, now: number, showNow: boolean): HTMLElement[] {
 function currentMeta(t: Turn, now: number): string {
   const parts = [`${elapsed(now - t.startedAt)} so far`];
   if (t.files.length) parts.push(`${plural(t.files.length, "file")} edited`);
+  const lines = lineTotals(t.changes);
+  if (lines) parts.push(lines);
   if (t.commands) parts.push(plural(t.commands, "command"));
   return parts.join(" · ");
 }
@@ -297,7 +309,10 @@ function renderStory(key: string, t: Turn): HTMLElement {
     const files = el("div", "story-part");
     files.append(el("h4", undefined, `Files changed (${t.files.length})`));
     const ul = el("ul", "story-list");
-    for (const f of t.files) ul.append(el("li", "code", f));
+    for (const f of t.files) {
+      const change = t.changes.find((c) => c.path === f);
+      ul.append(change && change.add + change.del > 0 ? renderFileDiff(`${key}:${f}`, change) : el("li", "code", f));
+    }
     files.append(ul);
     story.append(files);
   }
@@ -329,6 +344,35 @@ function renderStory(key: string, t: Turn): HTMLElement {
   part.append(ol);
   story.append(part);
   return story;
+}
+
+/** One changed file: its name and +N −M, opening into the lines that changed. */
+function renderFileDiff(key: string, c: Change): HTMLElement {
+  const li = el("li", "diff-item");
+  const d = el("details", "diff");
+  d.open = diffOpen.has(key);
+  d.addEventListener("toggle", () => {
+    if (d.open) diffOpen.add(key);
+    else diffOpen.delete(key);
+  });
+  const head = el("summary");
+  head.append(el("span", "code diff-name", c.path), el("span", "diff-add", `+${c.add}`), el("span", "diff-del", `−${c.del}`));
+  d.append(head);
+  if (c.hunks.length) {
+    const body = el("div", "diff-lines");
+    c.hunks.forEach((hunk, i) => {
+      if (i > 0) body.append(el("div", "dl gap", "⋯"));
+      for (const line of hunk) body.append(el("div", `dl ${line.t === "+" ? "add" : line.t === "-" ? "del" : "ctx"}`, `${line.t === " " ? " " : line.t} ${line.s}`));
+    });
+    if (c.truncated) body.append(el("div", "dl gap", "⋯ more lines not shown"));
+    d.append(body);
+  } else {
+    const body = el("div", "diff-lines");
+    body.append(el("div", "dl gap", "Too large to show line by line."));
+    d.append(body);
+  }
+  li.append(d);
+  return li;
 }
 
 function statusText(s: SessionView, now: number): string {
@@ -597,6 +641,7 @@ function showWindowButton(s: SessionView): HTMLElement {
 
 /** `tab` chosen by the companion; `focus` is an agent session to highlight. */
 void listen<{ tab: Tab | null; focus: string | null; character?: string; place?: Place }>("panel:open", ({ payload }) => {
+  guard.reset(); // its buttons are new under the cursor again
   setOpen(true);
   if (payload.character) setCharacter(payload.character);
   if (payload.character && isCharacter(payload.character)) character = payload.character;

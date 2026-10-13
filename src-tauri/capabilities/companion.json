@@ -16,6 +16,8 @@
     "allow-get-prefs",
     "allow-answer-permission",
     "allow-answer-question",
+    "allow-permission-shown",
+    "allow-phone-sessions",
     "allow-focus-session"
   ]
 }

@@ -339,3 +339,36 @@ describe("IDEs", () => {
     expect(t.snapshot()[0].history[0]).toMatchObject({ prompt: "One", outcome: "cancelled" });
   });
 });
+
+describe("live diffs", () => {
+  const edited = (tool: string, file: string, edits: AgentEvent["edits"]) => {
+    t.handle(ev("PreToolUse", { tool, detail: file }));
+    t.handle(ev("PostToolUse", { tool, detail: file, edits }));
+  };
+
+  it("adds up the lines changed per file and shows the total in the summary", () => {
+    t.handle(ev("UserPromptSubmit", { prompt: "Fix totals" }));
+    edited("Edit", `${CWD}/src/cart.ts`, [{ old: "a\nb", new: "a\nc\nd" }]);
+    edited("Edit", `${CWD}/src/cart.ts`, [{ old: "x", new: "y" }]);
+    edited("Write", `${CWD}/src/new.ts`, [{ old: null, new: "1\n2\n3" }]);
+    clock = 5_000;
+    t.handle(ev("Stop", { summary: "Done." }));
+
+    const turn = t.snapshot()[0].history[0];
+    expect(turn.changes.map((c) => [c.path, c.add, c.del])).toEqual([
+      ["src/cart.ts", 3, 2],
+      ["src/new.ts", 3, 0],
+    ]);
+    expect(turn.files).toEqual(["src/cart.ts", "src/new.ts"]);
+    expect(shown.at(-1)?.meta).toBe("5s · 2 files edited · +6 −2");
+  });
+
+  it("shows no line counts when the relay sent no edit text", () => {
+    t.handle(ev("UserPromptSubmit", { prompt: "Fix" }));
+    step("Edit", `${CWD}/src/cart.ts`);
+    clock = 5_000;
+    t.handle(ev("Stop", { summary: "Done." }));
+    expect(t.snapshot()[0].history[0].changes).toEqual([]);
+    expect(shown.at(-1)?.meta).toBe("5s · 1 file edited");
+  });
+});

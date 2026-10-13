@@ -38,12 +38,23 @@ pub fn install_relay(app: &AppHandle) -> Option<PathBuf> {
     .into_iter()
     .flatten()
     .find(|p| p.is_file());
+    let aside = dest.with_extension("old.exe");
+    // Left by an earlier update while a hook was still running it.
+    let _ = std::fs::remove_file(&aside);
     if let Some(src) = source {
         if differs(&src, &dest) {
             if let Some(dir) = dest.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
-            let _ = std::fs::copy(&src, &dest);
+            if std::fs::copy(&src, &dest).is_err() {
+                // A hook is running the old copy, so it can't be overwritten,
+                // but Windows lets a running program be renamed. Move it aside
+                // and put the new one in place: an old relay left behind would
+                // keep talking the old way and the app would miss its events.
+                if std::fs::rename(&dest, &aside).is_ok() && std::fs::copy(&src, &dest).is_err() {
+                    let _ = std::fs::rename(&aside, &dest);
+                }
+            }
         }
     }
     // Tell the relay which program is the real companion: this one.

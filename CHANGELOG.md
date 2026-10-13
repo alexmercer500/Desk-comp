@@ -9,6 +9,19 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.7.0 (in progress)
+
+Making the agent side stronger, using ideas from coucou. Not released yet; the version number is still 0.6.0 until it is.
+
+- **Live diffs.** When an agent edits a file, the panel shows how many lines changed (`+42 −7`) next to the task's summary, and "What it did" → Files changed lists each file with its own `+N −M`. Click a file to see the lines that changed, with a little context. It's built only from the text the agent's own edit tool sent (Edit, MultiEdit, Write and the same shapes from other agents), after the tool ran, so a refused edit never counts and nothing is read from your disk. A whole-file write counts every line as added. Very large edits keep their counts but not their lines; at most 50 files per task and 400 lines per file are kept.
+- **Safer Allow / Deny.**
+  - The buttons ignore clicks for 0.6 s after a card appears, so a click meant for whatever was under the cursor can't land on Allow. This applies to the bubble, the top-edge island, the panel and question answers.
+  - An agent only waits for a card that's actually on screen. The card must report itself shown within 2 seconds; if it doesn't (a full-screen app is in front, or the window is stuck), the agent is let go at once and asks in its terminal, instead of waiting up to two minutes for a card nobody saw.
+  - In the corner bubble, a passing notification (say, another session finishing) no longer replaces a permission card for good: the card comes back when the notification ends, and several waiting requests line up, newest first. A new request also goes in front of a passing notification. The top-edge island already worked this way.
+- **"Other…" for Claude's questions.** Every question now has an **Other…** button for an answer of your own, as in the terminal. In the panel it shows a text box (Enter sends). The speech bubble and the top-edge island never take the keyboard focus, so they can't interrupt your typing elsewhere; there **Other…** opens the panel on that session instead. For a question where several answers are allowed, your text is added after the options you picked. The relay accepts typed answers up to 500 characters with no control characters; they still have to be for a question that was asked.
+- **Phone link** (for Desk Companion for Android, coming next). Settings → Phone → **Link a phone** (off by default) lets a phone on the same network, or a PC on the phone's hotspot, see your sessions and Allow / Deny requests. Pairing is by a QR code shown only when you click **Show pairing code**; the phone pins the PC's own certificate and signs in with a secret token, over TLS 1.3. Only local addresses can connect; nothing goes through the internet. **Pair again** makes a new code and unlinks every phone. A phone's answer goes to the agent exactly like a click here, and the card on the PC closes. The certificate and token live in Windows Credential Manager. The protocol is in `docs/PHONE_LINK.md`; `scripts/phone-sim.mjs` plays a phone for testing.
+- **One pipe per Windows user.** The relay and the app now talk over a pipe named after the user's account (its SID), so two people signed in to the same PC each get their own companion, and no other account can take the name first. The relay and the app build the name from the same code. When the app updates the relay while a hook is still running the old one, it now moves the old copy aside instead of leaving it in place.
+
 ## 0.6.0 (12 October 2026)
 
 Everything from the 0.5.0 previews below, in one version: Rui, more coding agents and IDEs, and a better "done". It's numbered 0.6.0 rather than 0.5.0 because of how much it adds. Updating from 0.4.1 or any 0.5.0 preview keeps your settings and connected agents.

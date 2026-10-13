@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-phone-sessions"
+description = "Enables the phone_sessions command without any pre-configured scope."
+commands.allow = ["phone_sessions"]
+
+[[permission]]
+identifier = "deny-phone-sessions"
+description = "Denies the phone_sessions command without any pre-configured scope."
+commands.deny = ["phone_sessions"]

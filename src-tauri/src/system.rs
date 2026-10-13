@@ -72,6 +72,8 @@ pub struct Prefs {
     pub rui_theme: String,
     /// While on battery power, show a 2D character instead of Rui (3D).
     pub rui_flat_on_battery: bool,
+    /// Let a paired phone see sessions and answer requests over the local network (phone/).
+    pub phone_link: bool,
 }
 
 impl Default for Prefs {
@@ -99,6 +101,7 @@ impl Default for Prefs {
             rui_look: "toy".into(),
             rui_theme: "cream".into(),
             rui_flat_on_battery: false,
+            phone_link: false,
         }
     }
 }
@@ -185,6 +188,9 @@ pub fn update(app: &AppHandle, key: &str, value: &Value) -> Result<Prefs, String
     }
     if before.hide_fullscreen && !next.hide_fullscreen {
         desktop::set_hidden(app, false);
+    }
+    if next.phone_link != before.phone_link {
+        crate::phone::apply(app);
     }
     broadcast(app);
     Ok(next)

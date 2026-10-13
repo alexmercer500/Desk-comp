@@ -14,6 +14,12 @@
 // relay goes away first (answered in the terminal, timed out) we tell the page
 // with "permission-closed" so the buttons disappear.
 //
+// The agent only waits for a card someone can see: the page must report the
+// card on screen (`permission_shown`) within SHOW_WAIT. If it doesn't —
+// notifications paused, a full-screen app, the window busy or gone — the relay
+// is let go at once and the agent asks in its terminal, instead of sitting
+// there for two minutes waiting on a card nobody saw.
+//
 // The pipe's default security only lets the current user (and admins) write
 // to it, and tokio rejects remote clients by default.
 
@@ -35,6 +41,8 @@ use crate::desktop;
 
 /// A little longer than the relay's own 110 s budget, so the relay always gives up first.
 const DECISION_WAIT: Duration = Duration::from_secs(115);
+/// How long the page has to put the card on screen before the agent is let go.
+const SHOW_WAIT: Duration = Duration::from_secs(2);
 
 /// Permission requests waiting for a click: request id → where to send the answer.
 #[derive(Default)]
@@ -47,6 +55,45 @@ impl Pending {
     fn take(&self, rid: &str) -> Option<Answer> {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(rid)
     }
+}
+
+/// Requests whose card hasn't been reported on screen yet: request id → the signal.
+#[derive(Default)]
+pub struct Shown(Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>);
+
+impl Shown {
+    fn insert(&self, rid: String, tx: tokio::sync::oneshot::Sender<()>) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(rid, tx);
+    }
+    fn take(&self, rid: &str) -> Option<tokio::sync::oneshot::Sender<()>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(rid)
+    }
+}
+
+/// The page put the card for this request on screen, with its buttons.
+#[tauri::command]
+pub fn permission_shown(shown: State<'_, Shown>, rid: String) {
+    if let Some(tx) = shown.take(&rid) {
+        let _ = tx.send(());
+    }
+}
+
+/// A phone is showing this request: like the card on screen, the agent keeps waiting for it.
+pub fn mark_shown(app: &AppHandle, rid: &str) {
+    if let Some(tx) = app.state::<Shown>().take(rid) {
+        let _ = tx.send(());
+    }
+}
+
+/// Allow or Deny from the phone (phone/). Goes the same way as a click: to the
+/// relay holding the request. The page is told first, so its card closes as
+/// answered rather than as "answer in the terminal". False when the request
+/// is already gone (answered elsewhere, timed out).
+pub fn decide_from_phone(app: &AppHandle, rid: &str, word: &str) -> bool {
+    debug_assert!(word == "allow" || word == "deny");
+    let Some(tx) = app.state::<Pending>().take(rid) else { return false };
+    let _ = app.emit_to(desktop::LABEL, "phone:decided", serde_json::json!({ "rid": rid, "decision": word }));
+    tx.try_send(Some(word.to_string())).is_ok()
 }
 
 /// The user's answer to a permission request: "allow", "always" (allow, and
@@ -81,9 +128,10 @@ pub async fn answer_question(
     Ok(pending.take(&rid).is_some_and(|tx| tx.try_send(Some(line)).is_ok()))
 }
 
-pub const PIPE: &str = r"\\.\pipe\desk-companion";
+#[path = "../hook/src/pipe_name.rs"]
+mod pipe_name;
 /// Longest line we accept; the relay sends at most a few kilobytes.
-const MAX_LINE: usize = 64 * 1024;
+const MAX_LINE: usize = 256 * 1024;
 /// How much of the transcript's end we read to find the last reply.
 const TRANSCRIPT_TAIL: u64 = 512 * 1024;
 /// Longest summary passed on.
@@ -107,6 +155,9 @@ pub struct AgentEvent {
     /// The agent's last reply, filled in for Stop.
     #[serde(default)]
     summary: Option<String>,
+    /// What an edit tool changed, `[{old, new}]`, sent after the tool ran (for the live diff).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    edits: Option<serde_json::Value>,
     /// Set when the relay is waiting for the user's Allow or Deny (or answers).
     #[serde(default)]
     rid: Option<String>,
@@ -126,14 +177,15 @@ pub struct AgentEvent {
 pub fn spawn(app: AppHandle) {
     use tokio::net::windows::named_pipe::ServerOptions;
 
+    let pipe = pipe_name::pipe_name();
     tauri::async_runtime::spawn(async move {
         let mut first = true;
         loop {
             // Only one app may own the pipe; a second instance fails here and stays quiet.
-            let server = match ServerOptions::new().first_pipe_instance(first).create(PIPE) {
+            let server = match ServerOptions::new().first_pipe_instance(first).create(&pipe) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("[agents] cannot open {PIPE}: {e}");
+                    eprintln!("[agents] cannot open {pipe}: {e}");
                     if first {
                         return;
                     }
@@ -186,8 +238,10 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
         }
         let rid = ev.rid.clone();
         let (tx, mut rx) = mpsc::channel::<Option<String>>(2);
+        let (shown_tx, shown_rx) = tokio::sync::oneshot::channel::<()>();
         if let Some(rid) = &rid {
             app.state::<Pending>().insert(rid.clone(), tx.clone());
+            app.state::<Shown>().insert(rid.clone(), shown_tx);
         }
         let _ = app.emit_to(desktop::LABEL, "agent", ev);
 
@@ -198,7 +252,14 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
             let _ = lines.next_line().await;
             let _ = tx.send(None).await;
         });
-        let answer = tokio::time::timeout(DECISION_WAIT, rx.recv()).await.ok().flatten().flatten();
+        let seen = tokio::time::timeout(SHOW_WAIT, shown_rx).await.is_ok_and(|r| r.is_ok());
+        app.state::<Shown>().take(&rid);
+        let answer = if seen {
+            tokio::time::timeout(DECISION_WAIT, rx.recv()).await.ok().flatten().flatten()
+        } else {
+            // Nobody saw a card. A click that somehow got in (the panel) still counts.
+            rx.try_recv().ok().flatten()
+        };
         hangup.abort();
         app.state::<Pending>().take(&rid);
         if let Some(word) = answer {

@@ -4,6 +4,7 @@
 // window ("prefs"); this tab then redraws from what was actually stored.
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Engine } from "../engine/engine";
 import type { CharacterId } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
@@ -33,6 +34,24 @@ interface Prefs {
   ruiLook: string;
   ruiTheme: string;
   ruiFlatOnBattery: boolean;
+  phoneLink: boolean;
+}
+
+interface PhoneStatus {
+  on: boolean;
+  listening: boolean;
+  port: number;
+  hosts: string[];
+  phones: { device: string; address: string; since: number }[];
+  error: string | null;
+}
+
+interface Pairing {
+  link: string;
+  /** SVG data URL. */
+  qr: string;
+  name: string;
+  hosts: string[];
 }
 
 interface AgentStatus {
@@ -331,6 +350,19 @@ function build() {
     switchRow("notifyErrors", "When something fails"),
   );
 
+  // Phone
+  const phoneBox = el("div", "set-phone");
+  controls.set("phoneBox", phoneBox);
+  const phone = section(
+    "Phone",
+    switchRow(
+      "phoneLink",
+      "Link a phone",
+      "Desk Companion for Android: see your agents and Allow / Deny from your phone, over your own Wi-Fi (or your phone's hotspot). Nothing goes through the internet.",
+    ),
+    phoneBox,
+  );
+
   // Ask
   const keyLine = el("div", "set-key");
   controls.set("key", keyLine);
@@ -372,7 +404,7 @@ function build() {
   );
   void checkUpdates(false);
 
-  root.replaceChildren(message, appearance, notifications, agents, ask, system);
+  root.replaceChildren(message, appearance, notifications, agents, phone, ask, system);
   built = true;
 }
 
@@ -540,4 +572,118 @@ export async function refreshSettings() {
   if (!built) build();
   drawUpdates();
   fill(s, ask);
+  await refreshPhone();
+}
+
+// ── Phone link ───────────────────────────────────────────────────────────────
+
+let phoneStatus: PhoneStatus | null = null;
+/** The pairing code, while shown (only after a click: anyone who sees it can pair a phone). */
+let pairing: Pairing | null = null;
+/** "Pair again" asks once more before cutting off the phones. */
+let confirmPairAgain = false;
+
+async function refreshPhone() {
+  phoneStatus = await invoke<PhoneStatus>("phone_status").catch(() => null);
+  drawPhone();
+}
+
+// Phones connecting and leaving, the link starting or failing.
+void listen<PhoneStatus>("phone-status", ({ payload }) => {
+  phoneStatus = payload;
+  if (built) drawPhone();
+});
+
+function drawPhone() {
+  const box = controls.get("phoneBox");
+  if (!box) return;
+  box.replaceChildren();
+  const s = phoneStatus;
+  if (!s?.on) {
+    pairing = null;
+    confirmPairAgain = false;
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  if (s.error) {
+    box.append(el("p", "set-hint set-error", s.error));
+    return;
+  }
+  if (!s.listening) {
+    box.append(el("p", "set-hint", "Starting…"));
+    return;
+  }
+
+  const where = s.hosts.length
+    ? `Listening on ${s.hosts[0]}, port ${s.port}.`
+    : "This PC isn't on a network a phone can reach. Connect to Wi-Fi or your phone's hotspot.";
+  box.append(el("p", "set-hint", where));
+  if (s.phones.length) {
+    for (const p of s.phones) {
+      const line = el("p", "set-phone-item");
+      line.append(el("span", "set-dot"), `${p.device} connected (${p.address})`);
+      box.append(line);
+    }
+  } else {
+    box.append(el("p", "set-hint", "No phone connected."));
+  }
+
+  const buttons = el("div", "set-key");
+  const show = el("button", "set-button", pairing ? "Hide pairing code" : "Show pairing code");
+  show.type = "button";
+  show.disabled = s.hosts.length === 0;
+  show.addEventListener("click", async () => {
+    if (pairing) {
+      pairing = null;
+    } else {
+      try {
+        pairing = await invoke<Pairing>("phone_pairing");
+        say("");
+      } catch (e) {
+        say(String(e), true);
+      }
+    }
+    drawPhone();
+  });
+  const again = el("button", "set-button", confirmPairAgain ? "Yes, unlink every phone" : "Pair again");
+  again.type = "button";
+  again.title = "A new code: phones paired before are unlinked and must scan again";
+  again.addEventListener("click", async () => {
+    if (!confirmPairAgain) {
+      confirmPairAgain = true;
+      drawPhone();
+      return;
+    }
+    confirmPairAgain = false;
+    try {
+      phoneStatus = await invoke<PhoneStatus>("phone_pair_again");
+      if (pairing) pairing = await invoke<Pairing>("phone_pairing");
+      say("New pairing code made. Phones paired before have been unlinked.");
+    } catch (e) {
+      say(String(e), true);
+    }
+    drawPhone();
+  });
+  buttons.append(show, again);
+  box.append(buttons);
+
+  if (pairing) {
+    const code = el("div", "set-qr");
+    const img = el("img");
+    img.src = pairing.qr;
+    img.alt = "Pairing code for Desk Companion on your phone";
+    img.width = 200;
+    img.height = 200;
+    code.append(img);
+    const how = el("div", "set-qr-text");
+    how.append(
+      el("span", "set-title", `Pair with ${pairing.name}`),
+      el("span", "set-hint", "In Desk Companion on your phone: Settings → Link a computer, then scan this code."),
+      el("span", "set-hint", "Anyone who sees this code can link a phone until you pair again."),
+      el("span", "set-hint", "The first time, Windows may ask whether to allow Desk Companion on private networks: allow it, or the phone can't connect."),
+    );
+    code.append(how);
+    box.append(code);
+  }
 }

@@ -77,6 +77,33 @@ Testing without a battery: start the app with `DESK_COMPANION_FAKE_BATTERY=1` an
 - [x] Build the installer with `npx tauri build`. Use `node scripts/release.mjs --url …` instead once there's an update address.
 - [ ] Test installing, updating from 0.4.1, and uninstalling on a clean user account.
 
+## 0.7: agent essentials
+
+Ideas taken from comparing with coucou (12 October 2026). Do them in this order; Sonnet is enough for the Sonnet ones, use Opus for the first two.
+
+- [x] **Approval safety**: 600 ms click guard (`src/bubble/guard.ts`); the card must report itself shown within 2 s (`permission_shown`, `SHOW_WAIT` in agents.rs) or the agent is let go; the corner bubble keeps pinned cards like the island. Tested live (island, corner, full-screen). Answering in the terminal already cleared the card (any later work event clears it).
+- [x] **Per-user pipe name**: `desk-companion-<SID>`, from `src-tauri/hook/src/pipe_name.rs`, which the app includes too. Not yet tried with two users signed in at once.
+- [x] **Live diffs** (`src/desktop/diff.ts`, relay `edit_parts`, panel `renderFileDiff`): see CHANGELOG. Not yet looked at in the running app.
+- [x] **"Other…" free-text answer** to Claude's questions: text box in the panel; the bubble and island open the panel (they never take keyboard focus). Tested live end to end.
+- [ ] **Plan usage pills** for Claude (via Claude Code's `statusLine`, keeping the user's own status line running) and Codex (`codex app-server`, `account/rateLimits/read`). Also look into **Command Code** (does its mod API or CLI expose usage?) and any other agent that reports limits; show one pill per agent that has data.
+- [ ] **Rate-limit state** for the character (tired, sweating) when an agent reports a rate limit.
+- [ ] **Keyboard shortcuts**: Y / N on the card, and a few global keys (go to the waiting alert, mute, show/hide).
+- [ ] **More agents**: OpenCode, Amp, Muse Code, and a generic `--agent <name>` tag.
+
+Later (0.8): weekly recap, a custom-sounds folder, choosing the display, Ollama for Ask.
+
+## Android companion
+
+For when you give an agent a prompt and walk away: notifications, Allow / Deny, and a reply when a task is done. Native Kotlin app in `android/` (see its README). Decisions of 13 October 2026: direct link from the phone to the PC first (works on a phone hotspot with a subnet sweep), relay later; "further prompts" means a reply when a Claude Code turn ends (the Stop hook returns `decision: block` and the reply as the reason, so the same terminal session carries on).
+
+- [x] **Phase 0, toolchain**: JDK 17, Android command-line SDK and Gradle under `%LOCALAPPDATA%\Android`, no Android Studio.
+- [x] **Phase 2a, demo app (0.1.0)**: Home with the soft-card design, filters, approval sheet with a 600 ms guard, session detail with a reply box, Activity, Settings, a sample notification with Deny / Allow. Samples only. Built, unit-tested and checked on the emulator in light and dark mode (screens, sheet, notification, Deny); not yet on a real phone.
+- [x] **Phase 1, desktop phone-link server**: `src-tauri/src/phone/` (proto, identity, server), Settings → Phone, `src/desktop/phone.ts` (the list sent), `docs/PHONE_LINK.md`, `scripts/phone-sim.mjs`. Tested live with the simulator: pinned TLS 1.3, wrong token refused, sessions pushed, a real request denied from the "phone" through the real relay in about 0.3 s, the PC's card closed, Pair again unlinks. Not yet with a real phone (phase 2b), and only over 127.0.0.1 so far (the firewall must allow the app on private networks).
+- [x] **Phase 2b, link the app**: QR scan (CameraX + zxing), paste, or a `deskcompanion://pair` link, always ending at a confirmation; pinned TLS 1.3 to each of the PC's addresses in turn, reconnecting with backoff; pairing encrypted under an Android Keystore key; a foreground service keeps the link; live sessions replace the samples. Tested on the emulator against the real desktop app and relay: linked, a real request arrived as a notification, Deny from the notification reached the agent in 0.34 s, Allow from the in-app sheet (opened from the notification) reached it too, the PC's card closed. QR scanning itself not tried (the emulator's camera can't show the code).
+- [ ] **Phase 3, notifications and approvals** (Sonnet, Opus reviews Allow): done so far: request notifications (lock screen shows only "Approval needed"), Deny from the notification, "done" / "stopped" notifications. Still to do: Allow behind the fingerprint / screen lock, question answers, the notification switches and quiet hours actually applied (and saved), a 600 ms guard on notification buttons.
+- [ ] **Phase 4, reply when a task is done** (Opus): the Stop-hook hold, "away mode", the phone's reply box, release it when you come back to the PC.
+- [ ] **Phase 5, reliability** (Opus for crypto): phone-hotspot address sweep, battery and Doze handling, reconnect rules, then an end-to-end encrypted relay.
+
 ## Waiting on decisions
 
 These come from earlier versions and don't block the Rui work.
