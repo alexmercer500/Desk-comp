@@ -32,6 +32,12 @@ npx vitest run      # app tests
 cd src-tauri && cargo test --workspace   # Rust tests
 ```
 
+## Build on another machine
+
+Windows app: install Node 20+, Rust (through rustup; the project pins its version) and the Visual Studio Build Tools with the "Desktop development with C++" workload, then `npm install` and `npx tauri build`. WebView2 comes with Windows 11.
+
+Android app (`android/`): needs a JDK 17 and the Android SDK command-line tools (packages `platform-tools`, `platforms;android-35`, a recent `build-tools`), no Android Studio. Put `sdk.dir=<path to the SDK>` in `android/local.properties` (not committed), set `JAVA_HOME` to the JDK, and run `gradlew assembleDebug` in `android/`; the APK lands in `android/app/build/outputs/apk/debug/`. `androiduild.cmd` is the same with this project's own tool folders. More in `android/README.md`.
+
 ## Build the installer
 
 ```bash

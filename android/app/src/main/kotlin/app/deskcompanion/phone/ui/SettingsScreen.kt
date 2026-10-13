@@ -116,7 +116,7 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
         }
 
         item {
-            Text("Desk Companion for Android 0.1.0", style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(top = 10.dp, start = 6.dp))
+            Text("Desk Companion for Android 0.2.0", style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(top = 10.dp, start = 6.dp))
         }
     }
 }

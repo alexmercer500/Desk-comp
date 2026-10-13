@@ -2,7 +2,7 @@
 
 The phone side of Desk Companion: see your coding agents, get a notification when one finishes or needs you, Allow or Deny from the lock screen, and reply when a task is done.
 
-**Status: 0.1.0.** Links to the PC over the local network (Settings → Link a computer: scan the code from the PC's Settings → Phone). Shows the PC's sessions in your character's colours, notifies you when an agent needs you or finishes, Allow / Deny (Allow behind the fingerprint), answers Claude's questions, and replies to a finished task while you're away. Finds the PC again when its address changes. Until linked, it shows samples. The protocol is `docs/PHONE_LINK.md`; what's next is in `ROADMAP.md` ("Android companion").
+**Status: 0.2.0.** Links to the PC over the local network (Settings → Link a computer: scan the code from the PC's Settings → Phone). Shows the PC's sessions in your character's colours, notifies you when an agent needs you or finishes, Allow / Deny (Allow behind the fingerprint), answers Claude's questions, and replies to a finished task while you're away. Finds the PC again when its address changes. Until linked, it shows samples. The protocol is `docs/PHONE_LINK.md`; what's next is in `ROADMAP.md` ("Android companion").
 
 Native Kotlin and Jetpack Compose. The font is Outfit (SIL Open Font License, `licenses/`).
 

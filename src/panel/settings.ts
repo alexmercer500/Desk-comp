@@ -627,6 +627,7 @@ function drawPhone() {
     }
   } else {
     box.append(el("p", "set-hint", "No phone connected."));
+    box.append(el("p", "set-hint", "If a phone can't connect, allow Desk Companion through Windows Firewall on private networks (Windows asks the first time: tick Private)."));
   }
 
   const buttons = el("div", "set-key");
