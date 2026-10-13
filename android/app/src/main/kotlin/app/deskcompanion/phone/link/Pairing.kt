@@ -26,6 +26,21 @@ data class Pairing(
         // An IPv4 address or a plain host name: nothing that could smuggle in a path or a port.
         private val HOST = Regex("^[A-Za-z0-9.-]{1,253}$")
 
+        /**
+         * The PC's addresses after a connect: the one that worked first, then
+         * the ones the PC says it has now, then the ones known before; IPv4
+         * only from the PC, no repeats, at most [max].
+         */
+        fun mergeHosts(used: String, offered: List<String>, known: List<String>, max: Int): List<String> {
+            val fromPc = offered.filter { ipv4(it) }
+            return (listOf(used) + fromPc + known).filter { HOST.matches(it) }.distinct().take(max)
+        }
+
+        private fun ipv4(s: String): Boolean {
+            val parts = s.split('.')
+            return parts.size == 4 && parts.all { p -> p.isNotEmpty() && p.length <= 3 && p.all(Char::isDigit) && p.toInt() in 0..255 }
+        }
+
         /** The pairing in a link, or null when it isn't one of ours or is damaged. */
         fun parse(text: String): Pairing? {
             val uri = try {

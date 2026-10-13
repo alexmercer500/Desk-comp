@@ -21,7 +21,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings as AndroidSettings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,6 +75,9 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
                 ToggleRow("Quiet hours", "Only urgent ones, 10 pm to 8 am", state.quietHours) { state.changeQuietHours(it) }
             }
         }
+
+        item { Group("Staying linked") }
+        item { Card { SleepRow() } }
 
         item { Group("Replying") }
         item {
@@ -113,7 +127,11 @@ private fun ComputerCard(link: LinkHub.State, onLink: () -> Unit, onUnlink: () -
     val c = Desk.colors
     val (label, title, detail, mood, color) = when (link) {
         LinkHub.State.Unpaired -> Card5("NOT LINKED", "Link your computer", "Until then, the sessions here are samples so you can try the app.", Status.Idle, c.lavender)
-        is LinkHub.State.Connecting -> Card5("CONNECTING", link.name, "Reaching your PC…", Status.Working, c.blue)
+        is LinkHub.State.Connecting -> Card5(
+            "CONNECTING", link.name,
+            if (link.searching) "Its address changed: looking for it on this network…" else "Reaching your PC…",
+            Status.Working, c.blue,
+        )
         is LinkHub.State.Connected -> Card5(
             "LINKED", link.name,
             if (link.approvals) "Connected. Requests can be answered from here." else "Connected. Allow / Deny is switched off on the PC.",
@@ -235,5 +253,58 @@ private fun CharacterPicker() {
             }
         }
         Text("Changes on your PC too, and the app takes this character's colour.", style = DeskType.small, color = c.inkSoft)
+    }
+}
+
+/**
+ * Whether Android lets the link run while the phone sleeps. Without it, the
+ * phone may stop talking to the PC after a while with the screen off (Doze),
+ * and requests arrive only when you pick the phone up.
+ */
+@Composable
+private fun SleepRow() {
+    val c = Desk.colors
+    val ctx = LocalContext.current
+    val power = remember { ctx.getSystemService(PowerManager::class.java) }
+    var allowed by remember { mutableStateOf(power.isIgnoringBatteryOptimizations(ctx.packageName)) }
+    // Back from the system dialog: read it again.
+    LifecycleResumeEffect(Unit) {
+        allowed = power.isIgnoringBatteryOptimizations(ctx.packageName)
+        onPauseOrDispose { }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = !allowed, role = Role.Button) { askToStayAwake(ctx) }
+            .padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Stay linked while the phone sleeps", style = DeskType.bodyMedium, color = c.ink)
+            Text(
+                if (allowed) "On. Requests reach you with the screen off."
+                else "Off. Android may pause the link with the screen off, so requests can arrive late. Tap to allow.",
+                style = DeskType.small, color = c.inkSoft,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            if (allowed) "On" else "Allow", style = DeskType.label,
+            color = if (allowed) c.ink else c.onAccent,
+            modifier = Modifier.clip(CircleShape).background(if (allowed) c.chip else c.accent).padding(horizontal = 14.dp, vertical = 8.dp),
+        )
+    }
+}
+
+private fun askToStayAwake(ctx: Context) {
+    val ask = Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
+    try {
+        ctx.startActivity(ask)
+    } catch (e: Exception) {
+        // Some phones hide that dialog: open the list instead.
+        try {
+            ctx.startActivity(Intent(AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (e: Exception) {
+        }
     }
 }

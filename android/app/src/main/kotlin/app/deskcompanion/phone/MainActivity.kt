@@ -69,6 +69,11 @@ class MainActivity : FragmentActivity() {
         setContent { DeskTheme { App(incomingPairing, incomingReview) } }
     }
 
+    override fun onResume() {
+        super.onResume()
+        LinkHub.nudge()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         read(intent)

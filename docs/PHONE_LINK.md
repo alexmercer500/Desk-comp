@@ -48,7 +48,7 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
 
 | `t` | Fields | |
 |---|---|---|
-| `welcome` | `v`, `name`, `approvals` | `approvals`: whether Allow / Deny from the phone is on |
+| `welcome` | `v`, `name`, `approvals`, `hosts` | `approvals`: whether Allow / Deny from the phone is on. `hosts`: the PC's addresses right now (the phone saves them) |
 | `error` | `code` = `token` \| `version` \| `busy` \| `hello`, `message` | then the PC closes |
 | `sessions` | `sessions`: [Session] | the whole list, sent on connect and whenever it changes |
 | `decided` | `rid`, `ok` | answer to `decision`, `answer` or `reply`: `ok` false when the request was already gone (answered elsewhere, timed out, no longer held) |
@@ -84,6 +84,10 @@ Answers to a question go the same way; the relay checks each against what was as
 ## Replies
 
 Claude Code's Stop hook asks the app whether to hold the finished turn. It holds only when the link is on, answering from the companion is on, a signed-in phone has away mode on, and the PC has had no keyboard or mouse input for 60 s. A held turn waits up to 290 s. It ends at once when someone uses the PC, when no away phone is left, or when the relay gives up. A `reply` goes back as Claude Code's Stop output, `{"decision":"block","reason":"The user replied from their phone: …"}`, and Claude carries on with it. Without a reply the turn ends as if nothing happened.
+
+## Finding the PC again
+
+Addresses change, a phone hotspot most of all. The phone keeps the address that last worked first, then the ones the PC sent in `welcome`. When none of them answers, it searches its own local networks: every address in the /24 around each of its private IPv4 addresses (the network itself when smaller), never more, and never anything outside private, carrier-grade NAT or link-local ranges. It opens TLS to each address that accepts a connection on the port and keeps the first one that shows the paired certificate. The certificate is checked during the handshake, before anything is sent, so other machines never see the token. A search happens at most every 30 seconds. The phone also tries again at once when its networks change, when its hotspot is turned on or off, and when the app is opened.
 
 ## Limits
 

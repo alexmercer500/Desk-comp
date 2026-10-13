@@ -42,7 +42,8 @@ object Protocol {
 
     /** A message from the PC. */
     sealed interface FromPc {
-        data class Welcome(val name: String, val approvals: Boolean) : FromPc
+        /** `hosts`: the PC's addresses right now. */
+        data class Welcome(val name: String, val approvals: Boolean, val hosts: List<String> = emptyList()) : FromPc
         data class Error(val code: String, val message: String) : FromPc
         data class Sessions(val sessions: List<Session>) : FromPc
         data class Decided(val rid: String, val ok: Boolean) : FromPc
@@ -61,7 +62,11 @@ object Protocol {
             return null
         }
         return when (o.optString("t")) {
-            "welcome" -> FromPc.Welcome(o.optString("name", "Your PC"), o.optBoolean("approvals", false))
+            "welcome" -> FromPc.Welcome(
+                o.optString("name", "Your PC"),
+                o.optBoolean("approvals", false),
+                o.optJSONArray("hosts")?.let { a -> (0 until minOf(a.length(), 8)).map { a.optString(it) }.filter { it.isNotEmpty() } }.orEmpty(),
+            )
             "error" -> FromPc.Error(o.optString("code"), o.optString("message"))
             "sessions" -> FromPc.Sessions(sessions(o.optJSONArray("sessions") ?: JSONArray()))
             "decided" -> FromPc.Decided(o.optString("rid"), o.optBoolean("ok", false))

@@ -210,8 +210,9 @@ pub fn rank_hosts(mut candidates: Vec<(String, std::net::Ipv4Addr)>) -> Vec<Stri
 
 // ── PC → phone ────────────────────────────────────────────────────────────────
 
-pub fn welcome(name: &str, approvals: bool) -> String {
-    line(json!({ "t": "welcome", "v": VERSION, "name": name, "approvals": approvals }))
+/// `hosts`: the PC's addresses right now, so a phone can find it again after they change.
+pub fn welcome(name: &str, approvals: bool, hosts: &[String]) -> String {
+    line(json!({ "t": "welcome", "v": VERSION, "name": name, "approvals": approvals, "hosts": hosts }))
 }
 
 pub fn error(code: &str, message: &str) -> String {
@@ -357,7 +358,7 @@ mod tests {
 
     #[test]
     fn replies_are_single_lines() {
-        for l in [welcome("PC", true), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([])), character("rui", "toy", "cream")] {
+        for l in [welcome("PC", true, &["192.168.1.2".into()]), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([])), character("rui", "toy", "cream")] {
             assert!(l.ends_with('\n'));
             assert_eq!(l.matches('\n').count(), 1);
             assert!(serde_json::from_str::<Value>(l.trim()).is_ok());

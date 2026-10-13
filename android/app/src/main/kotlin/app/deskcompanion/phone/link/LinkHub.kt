@@ -1,6 +1,16 @@
 package app.deskcompanion.phone.link
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.SystemClock
+import androidx.core.content.ContextCompat
 import android.os.Build
 import app.deskcompanion.phone.model.Look
 import app.deskcompanion.phone.model.Session
@@ -10,6 +20,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,12 +36,19 @@ import java.net.Socket
 /**
  * The one link to the paired PC: connects (trying each of its addresses),
  * signs in, keeps the session list current, and sends decisions. Reconnects
- * on its own, waiting a little longer each time (up to 30 s).
+ * on its own, waiting a little longer each time (up to 30 s), and at once
+ * when the phone's network changes or the app is opened.
+ *
+ * Addresses change (a phone hotspot hands the PC a new one): the PC sends its
+ * current ones on every connect and they're saved; when none of the known
+ * ones answers, the phone's own network is searched for the PC (Discovery),
+ * at most every SCAN_EVERY_MS.
  */
 object LinkHub {
     sealed interface State {
         data object Unpaired : State
-        data class Connecting(val name: String) : State
+        /** `searching`: the known addresses didn't answer, so the network is being searched. */
+        data class Connecting(val name: String, val searching: Boolean = false) : State
         data class Connected(val name: String, val approvals: Boolean) : State
         /** Lost or unreachable; trying again. */
         data class Retrying(val name: String, val reason: String) : State
@@ -42,6 +61,12 @@ object LinkHub {
     private const val READ_TIMEOUT_MS = 60_000
     private const val PING_MS = 25_000L
     private const val MAX_LINE = 70_000
+    /** Least time between two searches of the network for the PC. */
+    private const val SCAN_EVERY_MS = 30_000L
+    /** With no local network at all, wait this long (or for a network to appear) before trying again. */
+    private const val NO_NETWORK_WAIT_MS = 5 * 60_000L
+    /** Most addresses remembered for the PC. */
+    private const val MAX_HOSTS = 8
 
     private val _state = MutableStateFlow<State>(State.Unpaired)
     val state: StateFlow<State> = _state
@@ -50,6 +75,9 @@ object LinkHub {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
+    /** Wakes the reconnect loop early: the network changed, or the app was opened. */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+    @Volatile private var lastScan = 0L
     private val writeLock = Any()
     @Volatile private var out: OutputStream? = null
     @Volatile private var socket: Socket? = null
@@ -62,7 +90,33 @@ object LinkHub {
     fun init(ctx: Context) {
         if (app != null) return
         app = ctx.applicationContext
+        watchNetworks(ctx.applicationContext)
         PairingStore.load(ctx.applicationContext)?.let { connect(it) }
+    }
+
+    /** Try again now if the link is down (the app came to the front, a network appeared). */
+    fun nudge() {
+        if (paired != null && _state.value !is State.Connected) wake.trySend(Unit)
+    }
+
+    /** Any network appearing or changing (Wi-Fi joined, hotspot on or off) is a reason to try at once. */
+    private fun watchNetworks(ctx: Context) {
+        try {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            // Not only networks with internet: a hotspot or a router that's offline can still reach the PC.
+            val any = NetworkRequest.Builder().removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+            cm.registerNetworkCallback(any, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) = nudge()
+                override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) = nudge()
+            })
+        } catch (e: Exception) {
+            // Without it the loop still retries on its own.
+        }
+        // The phone's own hotspot isn't a network the phone joins, so it has its own broadcast.
+        val tether = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) = nudge()
+        }
+        ContextCompat.registerReceiver(ctx, tether, IntentFilter("android.net.conn.TETHER_STATE_CHANGED"), ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     /** Pairs with a PC (after the user confirmed) and connects. */
@@ -137,12 +191,14 @@ object LinkHub {
         job?.cancel()
         closeSocket()
         app?.let { LinkService.start(it) }
-        job = scope.launch { loop(p) }
+        job = scope.launch { loop() }
     }
 
-    private suspend fun loop(p: Pairing) {
+    private suspend fun loop() {
         var wait = 1_000L
         while (currentCoroutineContext().isActive) {
+            val p = paired ?: return
+            wake.tryReceive() // a nudge from before this attempt is used up by it
             _state.value = State.Connecting(p.name)
             var welcomed = false
             val reason = try {
@@ -158,15 +214,17 @@ object LinkHub {
             }
             if (!currentCoroutineContext().isActive) return
             if (welcomed) wait = 1_000L
-            _state.value = State.Retrying(p.name, reason)
-            delay(wait)
-            wait = (wait * 2).coerceAtMost(30_000L)
+            // No local network at all: nothing to try until one appears (it nudges), so don't spin.
+            val offline = Discovery.ownAddresses().isEmpty()
+            _state.value = State.Retrying(p.name, if (offline) "Not on a network. Waiting for Wi-Fi or your hotspot" else reason)
+            val nudged = withTimeoutOrNull(if (offline) NO_NETWORK_WAIT_MS else wait) { wake.receive() } != null
+            wait = if (nudged) 1_000L else (wait * 2).coerceAtMost(30_000L)
         }
     }
 
     /** One connection, until it ends. True when the PC unlinked this phone (don't retry). */
-    private fun session(p: Pairing, onWelcome: () -> Unit): Boolean {
-        val sock = open(p)
+    private suspend fun session(p: Pairing, onWelcome: () -> Unit): Boolean {
+        val (host, sock) = open(p)
         socket = sock
         val pinger = scope.launch {
             while (isActive) {
@@ -183,6 +241,7 @@ object LinkHub {
                 when (val m = Protocol.parse(line)) {
                     is Protocol.FromPc.Welcome -> {
                         onWelcome()
+                        remember(p, host, m.hosts)
                         _state.value = State.Connected(m.name, m.approvals)
                     }
                     is Protocol.FromPc.Sessions -> onSessions(m.sessions)
@@ -202,17 +261,40 @@ object LinkHub {
         }
     }
 
-    /** Tries each of the PC's addresses in turn. */
-    private fun open(p: Pairing): Socket {
+    /**
+     * Tries each of the PC's known addresses in turn; if none answers, and the
+     * network wasn't searched in the last SCAN_EVERY_MS, searches it.
+     * Returns the address that worked and the open connection.
+     */
+    private suspend fun open(p: Pairing): Pair<String, Socket> {
         var last: Exception? = null
         for (host in p.hosts) {
             try {
-                return PinnedTls.connect(host, p.port, p.fingerprint, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+                return host to PinnedTls.connect(host, p.port, p.fingerprint, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
             } catch (e: Exception) {
                 last = e
             }
         }
+        val now = SystemClock.elapsedRealtime()
+        if (lastScan == 0L || now - lastScan >= SCAN_EVERY_MS) {
+            lastScan = now
+            _state.value = State.Connecting(p.name, searching = true)
+            Discovery.find(p, p.hosts.toSet())?.let { (host, sock) ->
+                sock.soTimeout = READ_TIMEOUT_MS
+                return host to sock
+            }
+            last = IOException("Couldn't find your PC on this network")
+        }
         throw last ?: IOException("no address")
+    }
+
+    /** Keeps the address that just worked first, then the PC's own current ones, then the older ones. */
+    private fun remember(p: Pairing, used: String, offered: List<String>) {
+        val hosts = Pairing.mergeHosts(used, offered, p.hosts, MAX_HOSTS)
+        if (hosts == p.hosts || paired != p) return
+        val next = p.copy(hosts = hosts)
+        paired = next
+        app?.let { PairingStore.save(it, next) }
     }
 
     private fun onSessions(list: List<Session>) {
@@ -263,6 +345,8 @@ object LinkHub {
     }
 
     private fun friendly(e: Exception): String = when {
+        e.message == "Couldn't find your PC on this network" ->
+            "Couldn't find your PC on this network. Is it on the same Wi-Fi or your hotspot, with Settings → Phone on? Is the app allowed through the firewall?"
         e is javax.net.ssl.SSLHandshakeException || e.cause is java.security.cert.CertificateException ->
             "That isn't the paired PC (its certificate changed). Scan the code again."
         e is java.net.SocketTimeoutException -> "The PC stopped answering"

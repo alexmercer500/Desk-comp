@@ -27,6 +27,8 @@ Making the agent side stronger, using ideas from coucou. Not released yet; the v
 
 - **Your character on your phone.** The Android app now shows the character you picked on the PC (Kulhi, Hexo, Glim, Billu or Rui) in the mood of each session, and takes its colours from that character. Pick another on the phone (Settings → Character, with Rui's look and colour) and it changes on the PC too, and the other way round.
 
+- **The phone finds your PC again on its own.** When the PC's address changes (your phone's hotspot gives it a new one), the phone searches its own network for it, only the PC with the paired certificate can answer, and remembers the new address. It also reconnects as soon as the network changes or you open the app. A new setting, **Stay linked while the phone sleeps**, keeps requests arriving with the screen off.
+
 ## 0.6.0 (12 October 2026)
 
 Everything from the 0.5.0 previews below, in one version: Rui, more coding agents and IDEs, and a better "done". It's numbered 0.6.0 rather than 0.5.0 because of how much it adds. Updating from 0.4.1 or any 0.5.0 preview keeps your settings and connected agents.

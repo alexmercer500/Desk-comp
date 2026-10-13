@@ -87,6 +87,9 @@ impl Host for AppHost {
         let set = |key: &str, v: &str| crate::system::update(&self.0, key, &Value::String(v.to_string())).is_ok();
         set("character", id) && look.is_none_or(|l| set("ruiLook", l)) && theme.is_none_or(|t| set("ruiTheme", t))
     }
+    fn addresses(&self) -> Vec<String> {
+        hosts()
+    }
     fn phones_changed(&self) {
         let _ = self.0.emit("phone-status", status_of(&self.0));
     }

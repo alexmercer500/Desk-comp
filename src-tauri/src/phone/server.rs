@@ -86,6 +86,8 @@ pub trait Host: Send + Sync + 'static {
     fn reply(&self, rid: &str, text: &str) -> bool;
     /// The user picked a character on the phone; false when it isn't a known one.
     fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool;
+    /// The PC's addresses a phone could reach right now.
+    fn addresses(&self) -> Vec<String>;
     /// The list of phones changed.
     fn phones_changed(&self);
 }
@@ -189,7 +191,7 @@ where
     let mut character = shared.character.subscribe();
     let first = sessions.borrow_and_update().clone();
     let look = character.borrow_and_update().clone();
-    let mut ok = send(&mut write, &proto::welcome(name, host.approvals())).await.is_ok()
+    let mut ok = send(&mut write, &proto::welcome(name, host.approvals(), &host.addresses())).await.is_ok()
         && send(&mut write, &look).await.is_ok()
         && send(&mut write, &first).await.is_ok();
     let mut deadline = tokio::time::Instant::now() + proto::IDLE_LIMIT;
@@ -333,6 +335,9 @@ mod tests {
             self.characters.lock().unwrap().push((id.into(), look.map(Into::into), theme.map(Into::into)));
             id != "bogus"
         }
+        fn addresses(&self) -> Vec<String> {
+            vec!["192.168.1.20".into()]
+        }
         fn phones_changed(&self) {}
     }
 
@@ -359,7 +364,9 @@ mod tests {
             let mut r = BufReader::new(r);
 
             w.write_all(b"{\"t\":\"hello\",\"v\":1,\"token\":\"secret\",\"device\":\"Pixel\"}\n").await.unwrap();
-            assert_eq!(read_line(&mut r).await["t"], "welcome");
+            let welcome = read_line(&mut r).await;
+            assert_eq!(welcome["t"], "welcome");
+            assert_eq!(welcome["hosts"][0], "192.168.1.20");
             assert_eq!(read_line(&mut r).await["t"], "character");
             assert_eq!(read_line(&mut r).await["sessions"][0]["id"], "s1");
             assert_eq!(shared.phones().len(), 1);
