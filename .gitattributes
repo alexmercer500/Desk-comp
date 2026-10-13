@@ -1,0 +1,3 @@
+# The Gradle wrapper script is run by a shell: keep its line endings as LF.
+android/gradlew text eol=lf
+*.sh text eol=lf
