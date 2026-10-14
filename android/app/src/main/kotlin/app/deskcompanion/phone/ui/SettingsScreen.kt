@@ -89,7 +89,7 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
             Card {
                 ToggleRow(
                     "Away mode",
-                    "When a Claude Code task finishes while nobody's at your PC, it waits up to 5 minutes for a reply from here",
+                    "Each Claude Code task that finishes waits up to 5 minutes for a reply from here. Using the PC's keyboard or mouse lets it go at once",
                     state.awayMode,
                 ) { state.changeAwayMode(it) }
             }

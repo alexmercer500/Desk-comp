@@ -84,7 +84,7 @@ Answers to a question go the same way; the relay checks each against what was as
 
 ## Replies
 
-Claude Code's Stop hook asks the app whether to hold the finished turn. It holds only when the link is on, answering from the companion is on, a signed-in phone has away mode on, and the PC has had no keyboard or mouse input for 60 s. A held turn waits up to 290 s. It ends at once when someone uses the PC, when no away phone is left, or when the relay gives up. A `reply` goes back as Claude Code's Stop output, `{"decision":"block","reason":"The user replied from their phone: …"}`, and Claude carries on with it. Without a reply the turn ends as if nothing happened.
+Claude Code's Stop hook asks the app whether to hold the finished turn. It holds only when the link is on, answering from the companion is on, and a signed-in phone has away mode on (away mode is the user saying they're away; the PC doesn't wait to go idle first). A held turn waits up to 290 s. It ends at once when someone uses the PC, when no away phone is left, or when the relay gives up. A `reply` goes back as Claude Code's Stop output, `{"decision":"block","reason":"The user replied from their phone: …"}`, and Claude carries on with it. Without a reply the turn ends as if nothing happened.
 
 ## Finding the PC again
 

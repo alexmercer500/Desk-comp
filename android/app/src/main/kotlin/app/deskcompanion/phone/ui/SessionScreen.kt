@@ -105,20 +105,23 @@ fun SessionScreen(
             }
         }
         if (s.status == Status.Done || s.reply != null) {
-            // A solid dock, fading in above, so the list scrolls away underneath it.
-            Box(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(0f to c.bg.copy(alpha = 0f), 0.18f to c.bg, 1f to c.bg))
-                    .imePadding()
-                    .padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = padding.calculateBottomPadding() + 12.dp),
-            ) {
-                ReplyBar(
-                    hint = replyHint(state, s),
-                    open = state.canReply(s),
-                    onSend = { text, sent -> onReply(s.id, text, sent) },
-                )
+            // A solid dock with a short fade above it, so the list scrolls away underneath
+            // and never shows through the hint or the box.
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(listOf(c.bg.copy(alpha = 0f), c.bg))))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(c.bg)
+                        .imePadding()
+                        .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = padding.calculateBottomPadding() + 12.dp),
+                ) {
+                    ReplyBar(
+                        hint = replyHint(state, s),
+                        open = state.canReply(s),
+                        onSend = { text, sent -> onReply(s.id, text, sent) },
+                    )
+                }
             }
         }
     }
@@ -197,7 +200,7 @@ private fun replyHint(state: AppState, s: Session): String {
             if (left >= 1) "Your PC is waiting for your reply for about $left more min." else "Your PC is waiting for your reply for a moment longer."
         }
         !state.awayMode -> "Away mode is off: turn it on in Settings to reply from here."
-        else -> "Replies open when a Claude Code task finishes while you're away from your PC."
+        else -> "This one finished before it could wait. With Away mode on, the next Claude Code task waits for your reply."
     }
 }
 

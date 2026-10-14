@@ -14,9 +14,9 @@
 // and phones that can't reach it directly come through there, end-to-end
 // encrypted (relay.rs, docs/RELAY.md).
 //
-// Replies: while the user is away (a phone with away mode is signed in and
-// this PC has had no input for AWAY_IDLE), a finished Claude Code turn is held
-// for a few minutes (agents.rs). Its session then carries `reply` for phones,
+// Replies: while a phone with away mode is signed in, a finished Claude Code
+// turn is held for a few minutes (agents.rs); any key or mouse movement on
+// this PC lets it go at once. Its session then carries `reply` for phones,
 // and a reply from one goes to the relay holding the turn.
 
 mod identity;
@@ -52,9 +52,6 @@ pub struct PhoneLink {
     relay: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     relay_status: Arc<Mutex<RelayStatus>>,
 }
-
-/// No input on this PC for this long counts as away (for holding a finished turn).
-const AWAY_IDLE_SECS: u64 = 60;
 
 struct Running {
     task: tauri::async_runtime::JoinHandle<()>,
@@ -113,13 +110,16 @@ impl Host for AppHost {
 }
 
 /// Whether to hold a finished turn for a reply: the link is on, a phone with
-/// away mode is signed in, answering from the companion is on, and nobody has
-/// touched this PC for a while.
+/// away mode is signed in, and answering from the companion is on. Away mode
+/// is the user saying they're away; there's no wait for the PC to go idle
+/// first (that made replies impossible to try from a PC in use). Someone at
+/// the PC loses nothing: their next key or mouse movement lets the turn go
+/// (keep_holding).
 pub fn should_hold(app: &AppHandle) -> bool {
     let p = crate::system::current(app);
     let link = app.state::<PhoneLink>();
     let running = link.running.lock().unwrap_or_else(|e| e.into_inner()).is_some();
-    p.phone_link && p.answer_permissions && running && link.shared.any_away() && idle_secs().is_some_and(|s| s >= AWAY_IDLE_SECS)
+    p.phone_link && p.answer_permissions && running && link.shared.any_away()
 }
 
 /// Seconds since the last input on this PC. Debug builds can pretend nobody's

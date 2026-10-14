@@ -9,6 +9,11 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.8.2 (14 October 2026)
+
+- **Replies from your phone work whenever Away mode is on.** Before, a finished Claude Code task only waited for your reply if nobody had touched the PC for a whole minute, so the phone's Send button stayed greyed out when you tried it from your desk. Now Away mode on the phone is enough: each finished task waits up to 5 minutes for a reply. Using the PC's keyboard or mouse still lets it go at once, so working at the PC isn't held up.
+- **Android 0.3.1:** the hint above the reply box no longer runs into the text scrolling underneath it, and it says why a reply can't be sent yet.
+
 ## 0.8.1 (14 October 2026)
 
 - **Fixed:** after installing or updating, the app could start without listening to your coding agents at all: the character and your phone stayed "All quiet" until the app was restarted. It happened when the copy being replaced hadn't quite let go yet. The app now keeps trying until it can listen.
