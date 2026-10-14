@@ -9,6 +9,10 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.8.1 (14 October 2026)
+
+- **Fixed:** after installing or updating, the app could start without listening to your coding agents at all: the character and your phone stayed "All quiet" until the app was restarted. It happened when the copy being replaced hadn't quite let go yet. The app now keeps trying until it can listen.
+
 ## 0.8.0 (14 October 2026)
 
 **Your phone, away from home.** Desk Companion for Android (0.3.0) now works when the phone isn't on the PC's network: on mobile data, at work, anywhere.

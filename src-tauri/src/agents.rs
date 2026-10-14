@@ -232,14 +232,14 @@ pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut first = true;
         loop {
-            // Only one app may own the pipe; a second instance fails here and stays quiet.
+            // Only one app may own the pipe (first_pipe_instance refuses a name that's taken).
+            // Taken at start-up usually means the copy this one replaces (an install or an
+            // update) hasn't quite let go yet, so keep trying: giving up here left the app
+            // running but deaf to every agent until it was restarted.
             let server = match ServerOptions::new().first_pipe_instance(first).create(&pipe) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[agents] cannot open {pipe}: {e}");
-                    if first {
-                        return;
-                    }
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
