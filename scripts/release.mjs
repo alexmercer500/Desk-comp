@@ -189,7 +189,7 @@ function buildAndroid() {
   }
   const updateUrl = `${base}/android.json`;
   console.log(`Building the Android app ${name} (code ${code}; updates from ${updateUrl})…`);
-  const build = spawnSync(`build.cmd assembleRelease "-PupdateUrl=${updateUrl}"`, { cwd: dir, stdio: "inherit", shell: true });
+  const build = spawnSync(`"${path.join(dir, "build.cmd")}" assembleRelease "-PupdateUrl=${updateUrl}"`, { cwd: dir, stdio: "inherit", shell: true });
   if (build.status !== 0) process.exit(build.status ?? 1);
 
   const built = path.join(dir, "app", "build", "outputs", "apk", "release", "app-release.apk");
