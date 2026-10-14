@@ -38,7 +38,7 @@ Do this once the phone test is good.
 
 ## 5. Decisions only you can make
 
-- [ ] **Use the phone away from your network?** This needs a small relay server that forwards encrypted messages it can't read. Choose: run one yourself, or a hosted option such as a Cloudflare Worker (free at this size). Until you decide, nothing to build.
+- [ ] **Deploy the relay** (decided: Cloudflare Worker, free). Follow "Setup" in `docs/RELAY.md`: sign up, `cd relay && npm install && npx wrangler login && npx wrangler deploy`, and open the printed address to check it. Then the PC and phone sides can be built.
 - [ ] **Merge `development` into `main`** when you're happy with 0.7.0 (a pull request on GitHub is the safest way).
 - [ ] **Google Play?** If you ever publish the Android app there, the "stay linked while the phone sleeps" request needs a justification, and the app needs a release signing key (not the debug one). Not needed for installing the APK yourself.
 - [ ] **Which files stay in the repo:** the repo holds docs and specs; decide if any should be removed before it goes public.

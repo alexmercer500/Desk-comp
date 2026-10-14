@@ -1,0 +1,14 @@
+{
+  "name": "desk-companion-relay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A Cloudflare Worker that passes encrypted messages between your PC and your phone. It cannot read them.",
+  "scripts": {
+    "dev": "wrangler dev --local --port 8787",
+    "deploy": "wrangler deploy",
+    "test": "node test/relay.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

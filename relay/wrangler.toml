@@ -1,0 +1,12 @@
+name = "desk-companion-relay"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+# Durable Objects on the free plan must use SQLite storage.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
