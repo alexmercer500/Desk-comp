@@ -109,6 +109,10 @@ fun PairScreen(start: Pairing?, onPair: (Pairing) -> Unit, onBack: () -> Unit, p
                             problem = "That code isn't a Desk Companion pairing code."
                         }
                     },
+                    onProblem = { message ->
+                        scanning = false
+                        problem = message
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             }

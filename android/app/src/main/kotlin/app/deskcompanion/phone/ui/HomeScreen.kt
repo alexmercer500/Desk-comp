@@ -43,6 +43,8 @@ fun HomeScreen(
     onReview: (String) -> Unit,
     onBell: () -> Unit,
     onLink: () -> Unit,
+    /** The linked PC's name, shown when you haven't set your own. */
+    pcName: String?,
     padding: PaddingValues,
 ) {
     val c = Desk.colors
@@ -55,7 +57,7 @@ fun HomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Header(state, onBell) }
+        item { Header(state, pcName, onBell) }
         if (!state.live) {
             item {
                 Row(
@@ -90,7 +92,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun Header(state: AppState, onBell: () -> Unit) {
+private fun Header(state: AppState, pcName: String?, onBell: () -> Unit) {
     val c = Desk.colors
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(52.dp).clip(CircleShape).background(c.blue), contentAlignment = Alignment.Center) {
@@ -98,7 +100,7 @@ private fun Header(state: AppState, onBell: () -> Unit) {
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text("Hello, Nidhi", style = DeskType.heading, color = c.ink)
+            Text(state.greeting(pcName), style = DeskType.heading, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val line = when {
                 state.waitingCount > 0 -> "${state.waitingCount} waiting for you"
                 state.sessions.any { it.status == Status.Working } -> "Your agents are busy"

@@ -58,6 +58,24 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
     fun changeNotifyErrors(v: Boolean) { notifyErrors = v; store.notifyErrors = v }
     fun changeQuietHours(v: Boolean) { quietHours = v; store.quietHours = v }
     fun changeRequireUnlockForAllow(v: Boolean) { requireUnlockForAllow = v; store.requireUnlockForAllow = v }
+    /** The name shown on Home ("Hello, Nidhi"); empty uses the linked PC's name. */
+    var displayName by mutableStateOf(store.displayName)
+        private set
+
+    fun changeDisplayName(v: String) {
+        // One short line: no control characters, at most 30 characters.
+        val clean = v.filter { !it.isISOControl() }.take(30)
+        displayName = clean
+        store.displayName = clean.trim()
+    }
+
+    /** The greeting on Home: your name, else the connected PC, else a plain hello. */
+    fun greeting(pcName: String?): String = when {
+        displayName.isNotBlank() -> "Hello, ${displayName.trim()}"
+        pcName != null -> pcName
+        else -> "Hello"
+    }
+
     fun changeAwayMode(v: Boolean) { awayMode = v; store.awayMode = v; onAway?.invoke(v) }
 
     fun session(id: String): Session? = sessions.firstOrNull { it.id == id }

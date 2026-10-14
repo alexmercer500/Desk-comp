@@ -186,6 +186,12 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                         onReview = { reviewId = it },
                         onBell = { reviewId = state.sessions.firstOrNull { it.status == Status.Waiting && (it.approval != null || it.question != null) }?.id },
                         onLink = { pairing = true },
+                        pcName = when (val l = link) {
+                            is LinkHub.State.Connected -> l.name
+                            is LinkHub.State.Connecting -> l.name
+                            is LinkHub.State.Retrying -> l.name
+                            else -> null
+                        },
                         padding = padding,
                     )
                     Tab.Activity -> ActivityScreen(state, padding)

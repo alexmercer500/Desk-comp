@@ -92,4 +92,20 @@ class AppStateTest {
         assertFalse(state.reply("a", "again"))
         assertEquals(Status.Done, state.session("a")!!.status)
     }
+
+    @Test
+    fun theGreetingIsYourNameElseThePcElseAPlainHello() {
+        val store = Settings.memory()
+        val state = AppState(store = store)
+        assertEquals("Hello", state.greeting(null))
+        assertEquals("PC-0001", state.greeting("PC-0001"))
+        state.changeDisplayName("  Nidhi  ")
+        assertEquals("Hello, Nidhi", state.greeting("PC-0001"))
+        state.changeDisplayName("")
+        assertEquals("PC-0001", state.greeting("PC-0001"))
+        state.changeDisplayName("ab" + "x".repeat(40))
+        assertEquals(30, state.displayName.length)
+        assertEquals("ab", state.displayName.take(2)) // control characters dropped
+        assertEquals(state.displayName.trim(), AppState(store = store).displayName)
+    }
 }

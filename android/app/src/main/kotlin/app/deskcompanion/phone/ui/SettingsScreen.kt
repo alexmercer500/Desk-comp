@@ -1,6 +1,8 @@
 package app.deskcompanion.phone.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +61,9 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
         item { Text("Settings", style = DeskType.display, color = c.ink, modifier = Modifier.padding(top = 6.dp)) }
 
         item { ComputerCard(link, onLink, onUnlink) }
+
+        item { Group("Your name") }
+        item { NameField(state) }
 
         item { Group("Character") }
         item { CharacterPicker() }
@@ -306,5 +311,25 @@ private fun askToStayAwake(ctx: Context) {
             ctx.startActivity(Intent(AndroidSettings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         } catch (e: Exception) {
         }
+    }
+}
+
+/** What Home calls you. Leave it empty to see the linked PC's name instead. */
+@Composable
+private fun NameField(state: AppState) {
+    val c = Desk.colors
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.surface).padding(horizontal = 18.dp, vertical = 16.dp)) {
+            if (state.displayName.isEmpty()) Text("Your name, or leave empty to show your PC's", style = DeskType.body, color = c.inkSoft)
+            BasicTextField(
+                value = state.displayName,
+                onValueChange = { state.changeDisplayName(it) },
+                singleLine = true,
+                textStyle = DeskType.body.copy(color = c.ink),
+                cursorBrush = SolidColor(c.ink),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Text("Shown at the top of Home.", style = DeskType.small, color = c.inkSoft)
     }
 }

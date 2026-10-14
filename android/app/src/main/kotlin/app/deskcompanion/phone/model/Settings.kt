@@ -19,6 +19,10 @@ class Settings(
     var ruiLook: String
         get() = readText("ruiLook", "toy")
         set(v) = writeText("ruiLook", v)
+    /** What the home screen calls the user; empty means "use the PC's name". */
+    var displayName: String
+        get() = readText("displayName", "")
+        set(v) = writeText("displayName", v)
     var ruiTheme: String
         get() = readText("ruiTheme", "cream")
         set(v) = writeText("ruiTheme", v)
