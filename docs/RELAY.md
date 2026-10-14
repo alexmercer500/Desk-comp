@@ -17,12 +17,15 @@ Works from any computer; nothing is tied to the one you deploy from.
 3. `npx wrangler login` opens a browser to authorise.
 4. `npx wrangler deploy`. It prints your address (the `workers.dev` one). The first deploy may ask you to pick a `workers.dev` name; any name is fine. A brand-new address can take a minute or two before it answers.
 5. Open that address in a browser. It should say "Desk Companion relay. It passes encrypted messages and cannot read them."
-6. On the PC: Settings → Phone, with **Link a phone** on, paste the address into **Relay address**, click **Save**, and turn on **Reach your phone anywhere**. The line under it should say "Relay: connected".
-7. The phone learns the address the next time it connects to the PC on the same network (or from a new pairing code). Nothing to type on the phone.
+6. Build it in: copy `.env.example` to `.env` (next to `package.json`) and set `DESK_COMPANION_RELAY=<your address>`, then build the app (`npx tauri build`). `.env` isn't in git, so anyone who builds the app themselves sets their own relay, or none.
+7. On the PC: Settings → Phone → turn on **Link a phone**. **Reach your phone anywhere** is already on in a build with a relay, and the line under it should say "Relay: connected". (A build without one: paste the address into **Relay address**, click **Save**, and turn the switch on. A pasted address also overrides the built-in one.)
+8. The phone gets the address from the pairing code, or the next time it connects to the PC on the same network. Nothing to type on the phone.
 
 Test the relay's rules locally, with no account: `cd relay && npm test` (starts the Worker with `wrangler dev` and runs real WebSocket connections against it). Test the whole path without a phone: copy the pairing link (Settings → Phone → Show pairing code) and run `node scripts/phone-sim.mjs "<link>" --relay`.
 
-The address isn't built into the app: each person runs their own relay, on their own free allowance.
+Only your own builds carry your address (from `.env`); the code in git has none, so each person who builds the app runs their own relay, on their own free allowance.
+
+**A PC with no Wi-Fi** (wired to a LAN) and a phone on its own mobile data can pair and stay linked through the relay alone: with the relay on, the pairing code carries its address, and the phone, finding no local network to search, goes straight to it. The PC's network only needs to allow outgoing HTTPS (a WebSocket to `*.workers.dev`); a network that forces all traffic through a proxy isn't supported yet. The pairing code can be shown even when the PC has no address a phone could reach directly.
 
 ## What the relay does
 

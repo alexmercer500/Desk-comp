@@ -36,7 +36,7 @@ cd src-tauri && cargo test --workspace   # Rust tests
 
 Windows app: install Node 20+, Rust (through rustup; the project pins its version) and the Visual Studio Build Tools with the "Desktop development with C++" workload, then `npm install` and `npx tauri build`. WebView2 comes with Windows 11.
 
-Android app (`android/`): needs a JDK 17 and the Android SDK command-line tools (packages `platform-tools`, `platforms;android-35`, a recent `build-tools`), no Android Studio. Put `sdk.dir=<path to the SDK>` in `android/local.properties` (not committed), set `JAVA_HOME` to the JDK, and run `gradlew assembleDebug` in `android/`; the APK lands in `android/app/build/outputs/apk/debug/`. `androiduild.cmd` is the same with this project's own tool folders. More in `android/README.md`.
+Android app (`android/`): needs a JDK 17 and the Android SDK command-line tools (packages `platform-tools`, `platforms;android-35`, a recent `build-tools`), no Android Studio. Put `sdk.dir=<path to the SDK>` in `android/local.properties` (not committed), set `JAVA_HOME` to the JDK, and run `gradlew assembleDebug` in `android/`; the APK lands in `android/app/build/outputs/apk/debug/`. `android\build.cmd` is the same with this project's own tool folders. More in `android/README.md`.
 
 ## Build the installer
 
@@ -45,6 +45,8 @@ npx tauri build
 ```
 
 The installer lands in `src-tauri/target/release/bundle/nsis/`. It installs per user (no admin prompt) and includes the agent relay. A plain build like this has automatic updates switched off, and is signed only if a certificate is configured (see below).
+
+**Your phone relay, built in.** To build with your own relay (`docs/RELAY.md`) so nobody has to paste its address, copy `.env.example` to `.env` and set `DESK_COMPANION_RELAY=https://…workers.dev` (or set that environment variable). `.env` isn't in git: everyone who builds the app uses their own relay. Without it the app is built with none, and an address can still be pasted in Settings → Phone.
 
 ## Releasing (signed, with automatic updates)
 

@@ -80,7 +80,11 @@ fun PairScreen(start: Pairing?, onPair: (Pairing) -> Unit, onBack: () -> Unit, p
                 Text("Link to ${p.name}?", style = DeskType.title, color = c.onCard)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "At ${p.hosts.joinToString(" or ")}, port ${p.port}. This phone will see its coding agents and can Allow or Deny their requests.",
+                    when {
+                        p.hosts.isEmpty() -> "Through your relay, encrypted end to end."
+                        p.relay != null -> "At ${p.hosts.joinToString(" or ")}, or through your relay when you're away."
+                        else -> "At ${p.hosts.joinToString(" or ")}, port ${p.port}."
+                    } + " This phone will see its coding agents and can Allow or Deny their requests.",
                     style = DeskType.body, color = c.onCard.copy(alpha = 0.8f),
                 )
                 Spacer(Modifier.height(20.dp))

@@ -256,10 +256,21 @@ fn stop(app: &AppHandle) {
     link.shared.kick_all();
 }
 
-/// The relay's address while it should be used: switched on, with an address.
+/// The relay built into this copy at build time (`DESK_COMPANION_RELAY`, see
+/// build.rs), made plain; None when it was built without one.
+pub fn built_in_relay() -> Option<String> {
+    let given = env!("DESK_COMPANION_RELAY_BUILT_IN");
+    (!given.is_empty()).then(|| proto::relay_address(given).ok()).flatten()
+}
+
+/// The relay's address while it should be used: switched on, with the address
+/// from Settings, or else the built-in one.
 fn relay_url(app: &AppHandle) -> Option<String> {
     let p = crate::system::current(app);
-    (p.phone_link && p.phone_relay && !p.relay_url.is_empty()).then_some(p.relay_url)
+    if !(p.phone_link && p.phone_relay) {
+        return None;
+    }
+    if p.relay_url.is_empty() { built_in_relay() } else { Some(p.relay_url) }
 }
 
 /// Connects to the relay if it's on (and the link is running), with the current pairing's keys.
@@ -393,11 +404,13 @@ pub async fn phone_pairing(app: AppHandle) -> Result<Pairing, String> {
         (r.identity.fingerprint(), r.identity.token.clone(), r.port)
     };
     let hosts = hosts();
-    if hosts.is_empty() {
-        return Err("This PC isn't on a network a phone can reach. Connect to Wi-Fi (or your phone's hotspot) first.".into());
+    let relay = relay_url(&app);
+    // With the relay on, a phone can pair from anywhere; without it, it must share a network with this PC.
+    if hosts.is_empty() && relay.is_none() {
+        return Err("This PC isn't on a network a phone can reach. Connect to Wi-Fi (or your phone's hotspot) first, or turn on Reach your phone anywhere.".into());
     }
     let name = pc_name();
-    let text = proto::pairing_link(&hosts, port, &fingerprint, &token, &name, relay_url(&app).as_deref());
+    let text = proto::pairing_link(&hosts, port, &fingerprint, &token, &name, relay.as_deref());
     let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M).map_err(|e| e.to_string())?;
     let svg = code
         .render::<qrcode::render::svg::Color>()

@@ -39,6 +39,12 @@ class LinkTest {
         )) {
             assertNull(bad, Pairing.relayAddress(bad))
         }
+        // A PC with no local network a phone could join pairs through the relay alone.
+        val noHosts = good.replace("hosts=192.168.5.34,10.42.0.15", "hosts=")
+        assertNull(Pairing.parse(noHosts))
+        val relayOnly = Pairing.parse("$noHosts&relay=https%3A%2F%2Fr.example.workers.dev")!!
+        assertEquals(emptyList<String>(), relayOnly.hosts)
+        assertEquals("https://r.example.workers.dev", relayOnly.relay)
         // A bad relay address in a pairing link is left out; the pairing itself still works.
         assertNull(Pairing.parse("$good&relay=http%3A%2F%2Fevil.example")!!.relay)
     }

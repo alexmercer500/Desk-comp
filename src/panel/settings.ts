@@ -70,6 +70,8 @@ interface Settings {
   agents: AgentStatus[];
   autostart: boolean;
   version: string;
+  /** The relay built into this copy, used when no address is saved. */
+  builtInRelay: string | null;
 }
 
 interface UpdateInfo {
@@ -533,7 +535,11 @@ function fill(s: Settings, ask: AskStatus) {
   controls.get("relayBox")!.hidden = !p.phoneLink;
   const relayInput = controls.get("relayUrl") as HTMLInputElement;
   if (document.activeElement !== relayInput) relayInput.value = p.relayUrl;
-  (controls.get("phoneRelay") as HTMLInputElement).disabled = !p.relayUrl && !p.phoneRelay;
+  relayInput.placeholder = s.builtInRelay ?? "https://desk-companion-relay.<your-name>.workers.dev";
+  const builtIn = controls.get("relayBuiltIn")!;
+  builtIn.textContent = s.builtInRelay ? `Empty uses the relay built into this copy (${s.builtInRelay}). Paste another to use your own.` : "";
+  builtIn.hidden = !s.builtInRelay;
+  (controls.get("phoneRelay") as HTMLInputElement).disabled = !p.relayUrl && !s.builtInRelay && !p.phoneRelay;
 
   // Answering from here only makes sense while permission requests show here.
   (controls.get("answerPermissions") as HTMLInputElement).disabled = !p.notifyPermission;
@@ -625,7 +631,9 @@ function relaySettings(): HTMLElement {
   const line = el("div", "set-key");
   line.append(input, save);
   const address = el("label", "set-relay-address");
-  address.append(el("span", "set-title", "Relay address"), line);
+  const builtIn = el("span", "set-hint");
+  controls.set("relayBuiltIn", builtIn);
+  address.append(el("span", "set-title", "Relay address"), line, builtIn);
   const status = el("p", "set-hint");
   controls.set("relayStatus", status);
   box.append(
@@ -680,7 +688,9 @@ function drawPhone() {
 
   const where = s.hosts.length
     ? `Listening on ${s.hosts[0]}, port ${s.port}.`
-    : "This PC isn't on a network a phone can reach. Connect to Wi-Fi or your phone's hotspot.";
+    : s.relay.state !== "off"
+      ? "No local network a phone can join: phones connect through the relay."
+      : "This PC isn't on a network a phone can reach. Connect to Wi-Fi or your phone's hotspot.";
   box.append(el("p", "set-hint", where));
   if (s.phones.length) {
     for (const p of s.phones) {
@@ -696,7 +706,7 @@ function drawPhone() {
   const buttons = el("div", "set-key");
   const show = el("button", "set-button", pairing ? "Hide pairing code" : "Show pairing code");
   show.type = "button";
-  show.disabled = s.hosts.length === 0;
+  show.disabled = s.hosts.length === 0 && s.relay.state === "off";
   show.addEventListener("click", async () => {
     if (pairing) {
       pairing = null;

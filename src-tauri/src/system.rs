@@ -76,7 +76,7 @@ pub struct Prefs {
     pub phone_link: bool,
     /// Also reach the phone through the internet relay (phone/relay.rs) when it isn't on this network.
     pub phone_relay: bool,
-    /// The relay's address (`https://…workers.dev`), "" when none.
+    /// The relay's address (`https://…workers.dev`); "" uses the one built in, if any.
     pub relay_url: String,
 }
 
@@ -106,7 +106,8 @@ impl Default for Prefs {
             rui_theme: "cream".into(),
             rui_flat_on_battery: false,
             phone_link: false,
-            phone_relay: false,
+            // On when this copy was built with a relay (it's used only while the phone link is on).
+            phone_relay: crate::phone::built_in_relay().is_some(),
             relay_url: String::new(),
         }
     }
@@ -259,6 +260,8 @@ pub struct Settings {
     agents: Vec<crate::setup::AgentStatus>,
     autostart: bool,
     version: String,
+    /// The relay built into this copy, if any (used when `relayUrl` is empty).
+    built_in_relay: Option<String>,
 }
 
 #[tauri::command]
@@ -269,6 +272,7 @@ pub async fn get_settings(app: AppHandle) -> Result<Settings, String> {
         agents: crate::setup::agents_status(),
         autostart: crate::setup::autostart_enabled(),
         version: app.package_info().version.to_string(),
+        built_in_relay: crate::phone::built_in_relay(),
     })
 }
 

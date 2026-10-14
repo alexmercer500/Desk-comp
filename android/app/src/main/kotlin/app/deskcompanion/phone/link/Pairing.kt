@@ -74,9 +74,11 @@ data class Pairing(
             val port = q["port"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
             val fp = q["fp"]?.lowercase()?.takeIf { HEX64.matches(it) } ?: return null
             val token = q["token"]?.takeIf { TOKEN.matches(it) } ?: return null
-            if (hosts.isEmpty()) return null
+            val relay = relayAddress(q["relay"])
+            // No address on a local network is fine when the PC has the relay on: the phone goes through it.
+            if (hosts.isEmpty() && relay == null) return null
             val name = q["name"].orEmpty().filter { !it.isISOControl() }.trim().take(60).ifEmpty { "Your PC" }
-            return Pairing(hosts, port, fp, token, name, relayAddress(q["relay"]))
+            return Pairing(hosts, port, fp, token, name, relay)
         }
 
         private fun decode(s: String): String = try {
