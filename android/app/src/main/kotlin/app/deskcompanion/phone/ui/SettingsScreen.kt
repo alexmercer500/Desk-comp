@@ -366,7 +366,8 @@ private fun UpdateRow() {
     val busy = u is Updater.State.Checking || u is Updater.State.Downloading || u is Updater.State.Installing
     Column(Modifier.fillMaxWidth().padding(18.dp)) {
         Text(title, style = DeskType.bodyMedium, color = c.ink)
-        Text(detail, style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(top = 2.dp))
+        // The release notes can be long: show the start, the buttons must stay on screen.
+        Text(detail, style = DeskType.small, color = c.inkSoft, maxLines = 4, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (canInstall) PillButton("Update", onClick = { Updater.install(ctx) }, modifier = Modifier.weight(1f), enabled = !busy)

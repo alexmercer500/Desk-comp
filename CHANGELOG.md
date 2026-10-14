@@ -9,6 +9,11 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.8.4 (14 October 2026, Android 0.4.1)
+
+- **The phone's update card keeps its buttons on screen.** A long list of release notes no longer pushes Update and Check now off the bottom; only the first lines are shown.
+- First release published through GitHub for both apps (0.8.3 was the first); this one is the first update on top of it.
+
 ## 0.8.3 (14 October 2026, Android 0.4.0)
 
 - **The Android app can now update itself.** Settings has an Updates card: it checks when you open the app (at most every 6 hours) and has a Check now button. When a newer version is out you get a notification and an Update button. The app downloads it, checks it against its published checksum and that it's signed with the same key as the installed copy, then hands it to Android's own install screen. The first time, Android asks you to allow installs from Desk Companion.
