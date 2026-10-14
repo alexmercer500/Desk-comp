@@ -2,7 +2,7 @@
 
 How Desk Companion on the PC and the Android app talk. Version 1.
 
-The link is **off by default**. Turned on (Settings → Phone), the PC listens on the local network; nothing is announced and nothing goes through the internet. The phone and the PC must be on the same network (Wi-Fi, or the PC on the phone's hotspot).
+The link is **off by default**. Turned on (Settings → Phone), the PC listens on the local network; nothing is announced. The phone and the PC must be on the same network (Wi-Fi, or the PC on the phone's hotspot), unless the relay is on: then the same messages also go end-to-end encrypted through the user's own relay on the internet (`docs/RELAY.md`).
 
 ## Trust
 
@@ -15,7 +15,7 @@ The link is **off by default**. Turned on (Settings → Phone), the PC listens o
 ## Pairing link
 
 ```
-deskcompanion://pair?v=1&hosts=192.168.1.20,10.42.0.15&port=47822&fp=<64 hex>&token=<43 base64url>&name=<PC name>
+deskcompanion://pair?v=1&hosts=192.168.1.20,10.42.0.15&port=47822&fp=<64 hex>&token=<43 base64url>&name=<PC name>[&relay=<https address>]
 ```
 
 | Field | |
@@ -26,6 +26,7 @@ deskcompanion://pair?v=1&hosts=192.168.1.20,10.42.0.15&port=47822&fp=<64 hex>&to
 | `fp` | SHA-256 of the certificate (DER), lowercase hex |
 | `token` | the shared secret |
 | `name` | the PC's name, to show the user |
+| `relay` | only while the relay is on: its address, `https://host[:port]` (percent-encoded) |
 
 ## Messages
 
@@ -48,7 +49,7 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
 
 | `t` | Fields | |
 |---|---|---|
-| `welcome` | `v`, `name`, `approvals`, `hosts` | `approvals`: whether Allow / Deny from the phone is on. `hosts`: the PC's addresses right now (the phone saves them) |
+| `welcome` | `v`, `name`, `approvals`, `hosts`, `relay` | `approvals`: whether Allow / Deny from the phone is on. `hosts`: the PC's addresses right now (the phone saves them). `relay`: the relay's address while it's on, else `null` (the phone saves or forgets it). Sent again whenever the relay is switched or its address changes |
 | `error` | `code` = `token` \| `version` \| `busy` \| `hello`, `message` | then the PC closes |
 | `sessions` | `sessions`: [Session] | the whole list, sent on connect and whenever it changes |
 | `decided` | `rid`, `ok` | answer to `decision`, `answer` or `reply`: `ok` false when the request was already gone (answered elsewhere, timed out, no longer held) |
@@ -88,6 +89,10 @@ Claude Code's Stop hook asks the app whether to hold the finished turn. It holds
 ## Finding the PC again
 
 Addresses change, a phone hotspot most of all. The phone keeps the address that last worked first, then the ones the PC sent in `welcome`. When none of them answers, it searches its own local networks: every address in the /24 around each of its private IPv4 addresses (the network itself when smaller), never more, and never anything outside private, carrier-grade NAT or link-local ranges. It opens TLS to each address that accepts a connection on the port and keeps the first one that shows the paired certificate. The certificate is checked during the handshake, before anything is sent, so other machines never see the token. A search happens at most every 30 seconds. The phone also tries again at once when its networks change, when its hotspot is turned on or off, and when the app is opened.
+
+## Through the relay
+
+Away from the PC's network, the same lines travel inside encrypted frames through the relay, and the PC handles them exactly as above (hello and token included). The frames, keys and replay rules are in `docs/RELAY.md`. Such a phone's address shows as `relay`.
 
 ## Limits
 

@@ -12,8 +12,8 @@ android {
         // 11+: the combined fingerprint-or-screen-lock prompt for Allow needs it.
         minSdk = 30
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
     buildTypes {
         release {
@@ -40,6 +40,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     // Fingerprint or screen-lock check before Allow.
     implementation("androidx.biometric:biometric:1.1.0")
+    // Biometric brings an old Fragment whose FragmentActivity refuses the request codes that
+    // permission prompts (camera, notifications) use today and crashes; the current one doesn't.
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
@@ -50,6 +53,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraX")
     implementation("androidx.camera:camera-view:$cameraX")
     implementation("com.google.zxing:core:3.5.3")
+    // The relay's WebSocket, when the phone isn't on the PC's network.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // android.jar only has stubs of org.json in JVM tests
 }

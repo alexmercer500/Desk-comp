@@ -28,6 +28,7 @@ object PairingStore {
             .put("fp", p.fingerprint)
             .put("token", p.token)
             .put("name", p.name)
+            .put("relay", p.relay ?: "")
             .toString()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val data = cipher.doFinal(json.toByteArray(Charsets.UTF_8))
@@ -47,7 +48,7 @@ object PairingStore {
             }
             val o = JSONObject(String(cipher.doFinal(Base64.decode(data, Base64.NO_WRAP)), Charsets.UTF_8))
             val hosts = o.getJSONArray("hosts").let { a -> (0 until a.length()).map { a.getString(it) } }
-            Pairing(hosts, o.getInt("port"), o.getString("fp"), o.getString("token"), o.getString("name"))
+            Pairing(hosts, o.getInt("port"), o.getString("fp"), o.getString("token"), o.getString("name"), Pairing.relayAddress(o.optString("relay")))
         } catch (e: Exception) {
             clear(ctx) // a key that changed or data that's damaged: start over
             null

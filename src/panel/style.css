@@ -570,6 +570,21 @@ label.set-text { cursor: pointer; }
 .set-button:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
 .set-key { display: flex; align-items: center; gap: 10px; }
 
+/* The relay's address: a full-width field under its title. */
+.set-relay-address { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px; }
+.set-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.set-input:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
+
 /* Characters, as picture cards. */
 .char-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 4px 0 8px; }
 .char-card {

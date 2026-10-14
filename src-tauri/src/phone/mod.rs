@@ -9,6 +9,11 @@
 // to the relay holding the request open (agents::decide); so do answers to
 // Claude's questions.
 //
+// Away from home: with the relay on (Settings → Phone, `phoneRelay` and
+// `relayUrl`), the PC also stays connected to the user's relay on the internet,
+// and phones that can't reach it directly come through there, end-to-end
+// encrypted (relay.rs, docs/RELAY.md).
+//
 // Replies: while the user is away (a phone with away mode is signed in and
 // this PC has had no input for AWAY_IDLE), a finished Claude Code turn is held
 // for a few minutes (agents.rs). Its session then carries `reply` for phones,
@@ -16,6 +21,7 @@
 
 mod identity;
 mod proto;
+mod relay;
 mod server;
 
 use std::collections::HashMap;
@@ -27,7 +33,10 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use identity::Identity;
+use relay::RelayStatus;
 use server::{Host, PhoneInfo, Shared};
+
+pub use proto::relay_address;
 
 /// The link's state: the shared part outlives restarts; `running` is the server task.
 pub struct PhoneLink {
@@ -39,6 +48,9 @@ pub struct PhoneLink {
     list: Mutex<Value>,
     /// Turns held for a reply: session id → (request id, until when, ms since 1970).
     holds: Mutex<HashMap<String, (String, u64)>>,
+    /// The relay connection's task, and how it's doing.
+    relay: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    relay_status: Arc<Mutex<RelayStatus>>,
 }
 
 /// No input on this PC for this long counts as away (for holding a finished turn).
@@ -58,6 +70,8 @@ impl Default for PhoneLink {
             error: Mutex::new(None),
             list: Mutex::new(Value::Array(Vec::new())),
             holds: Mutex::new(HashMap::new()),
+            relay: Mutex::new(None),
+            relay_status: Arc::new(Mutex::new(RelayStatus::off())),
         }
     }
 }
@@ -89,6 +103,9 @@ impl Host for AppHost {
     }
     fn addresses(&self) -> Vec<String> {
         hosts()
+    }
+    fn relay(&self) -> Option<String> {
+        relay_url(&self.0)
     }
     fn phones_changed(&self) {
         let _ = self.0.emit("phone-status", status_of(&self.0));
@@ -226,15 +243,80 @@ async fn start(app: &AppHandle, identity: Option<Identity>) -> Result<(), String
     let host: Arc<dyn Host> = Arc::new(AppHost(app.clone()));
     let task = tauri::async_runtime::spawn(server::serve(listener, acceptor, token, name, link.shared.clone(), host));
     *link.running.lock().unwrap_or_else(|e| e.into_inner()) = Some(Running { task, identity, port });
+    start_relay(app);
     Ok(())
 }
 
 fn stop(app: &AppHandle) {
     let link = app.state::<PhoneLink>();
+    stop_relay(&link);
     if let Some(r) = link.running.lock().unwrap_or_else(|e| e.into_inner()).take() {
         r.task.abort();
     }
     link.shared.kick_all();
+}
+
+/// The relay's address while it should be used: switched on, with an address.
+fn relay_url(app: &AppHandle) -> Option<String> {
+    let p = crate::system::current(app);
+    (p.phone_link && p.phone_relay && !p.relay_url.is_empty()).then_some(p.relay_url)
+}
+
+/// Connects to the relay if it's on (and the link is running), with the current pairing's keys.
+fn start_relay(app: &AppHandle) {
+    let link = app.state::<PhoneLink>();
+    stop_relay(&link);
+    let token = {
+        let running = link.running.lock().unwrap_or_else(|e| e.into_inner());
+        match running.as_ref() {
+            Some(r) => r.identity.token.clone(),
+            None => return,
+        }
+    };
+    let Some(url) = relay_url(app) else { return };
+    let keys = match relay::Keys::derive(&token) {
+        Ok(k) => Arc::new(k),
+        Err(e) => {
+            *link.relay_status.lock().unwrap_or_else(|e| e.into_inner()) = RelayStatus { state: "retrying", error: Some(e) };
+            return;
+        }
+    };
+    let cx = relay::Context {
+        keys,
+        token: Arc::new(token),
+        name: Arc::new(pc_name()),
+        shared: link.shared.clone(),
+        host: Arc::new(AppHost(app.clone())),
+    };
+    let (status, handle) = (link.relay_status.clone(), app.clone());
+    let report = Arc::new(move |s: RelayStatus| {
+        let changed = {
+            let mut now = status.lock().unwrap_or_else(|e| e.into_inner());
+            let changed = *now != s;
+            *now = s;
+            changed
+        };
+        if changed {
+            let _ = handle.emit("phone-status", status_of(&handle));
+        }
+    });
+    *link.relay.lock().unwrap_or_else(|e| e.into_inner()) = Some(tauri::async_runtime::spawn(relay::run(url, cx, report)));
+}
+
+fn stop_relay(link: &PhoneLink) {
+    if let Some(task) = link.relay.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        // Dropping the task drops its phones' handling; each one ends and tidies up.
+        task.abort();
+    }
+    *link.relay_status.lock().unwrap_or_else(|e| e.into_inner()) = RelayStatus::off();
+}
+
+/// The relay was switched on or off, or its address changed.
+pub fn relay_changed(app: &AppHandle) {
+    start_relay(app);
+    // Phones signed in now get a fresh welcome with the new address (or none).
+    app.state::<PhoneLink>().shared.tell_news();
+    let _ = app.emit("phone-status", status_of(app));
 }
 
 fn pc_name() -> String {
@@ -267,6 +349,7 @@ pub struct PhoneStatus {
     hosts: Vec<String>,
     phones: Vec<PhoneInfo>,
     error: Option<String>,
+    relay: RelayStatus,
 }
 
 fn status_of(app: &AppHandle) -> PhoneStatus {
@@ -280,6 +363,7 @@ fn status_of(app: &AppHandle) -> PhoneStatus {
         hosts: if running.is_some() { hosts() } else { Vec::new() },
         phones: link.shared.phones(),
         error,
+        relay: link.relay_status.lock().unwrap_or_else(|e| e.into_inner()).clone(),
     };
     status
 }
@@ -313,7 +397,7 @@ pub async fn phone_pairing(app: AppHandle) -> Result<Pairing, String> {
         return Err("This PC isn't on a network a phone can reach. Connect to Wi-Fi (or your phone's hotspot) first.".into());
     }
     let name = pc_name();
-    let text = proto::pairing_link(&hosts, port, &fingerprint, &token, &name);
+    let text = proto::pairing_link(&hosts, port, &fingerprint, &token, &name, relay_url(&app).as_deref());
     let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), qrcode::EcLevel::M).map_err(|e| e.to_string())?;
     let svg = code
         .render::<qrcode::render::svg::Color>()

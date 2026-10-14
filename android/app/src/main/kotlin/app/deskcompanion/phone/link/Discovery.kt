@@ -28,10 +28,14 @@ object Discovery {
     /** Addresses tried at the same time. */
     private const val PARALLEL = 48
 
-    /** The phone's own IPv4 addresses on local networks, with their prefix lengths (Wi-Fi, hotspot, USB). */
+    /**
+     * The phone's own IPv4 addresses on local networks, with their prefix
+     * lengths (Wi-Fi, hotspot, USB). Not mobile data: carriers hand out
+     * private addresses too, but the PC is never there.
+     */
     fun ownAddresses(): List<Pair<Int, Int>> = try {
         NetworkInterface.getNetworkInterfaces().toList()
-            .filter { it.isUp && !it.isLoopback }
+            .filter { it.isUp && !it.isLoopback && !isMobileData(it.name) }
             .flatMap { it.interfaceAddresses }
             .mapNotNull { a -> (a.address as? Inet4Address)?.let { toInt(it.address) to a.networkPrefixLength.toInt() } }
             .filter { (ip, _) -> isLocal(ip) }
@@ -61,6 +65,11 @@ object Discovery {
         out.removeAll(skip)
         return out.toList()
     }
+
+    /** Interface names Android phones use for mobile data (and its IPv4-over-IPv6 and VPN tunnels). */
+    private val MOBILE = listOf("rmnet", "ccmni", "pdp", "wwan", "v4-", "clat", "seth", "ppp", "tun", "dummy")
+
+    fun isMobileData(name: String?): Boolean = name != null && MOBILE.any { name.startsWith(it, ignoreCase = true) }
 
     /** Private, carrier-grade NAT (some hotspots) and link-local ranges: never anything on the internet. */
     fun isLocal(ip: Int): Boolean {

@@ -38,7 +38,8 @@ Do this once the phone test is good.
 
 ## 5. Decisions only you can make
 
-- [ ] **Deploy the relay** (decided: Cloudflare Worker, free). Follow "Setup" in `docs/RELAY.md`: sign up, `cd relay && npm install && npx wrangler login && npx wrangler deploy`, and open the printed address to check it. Then the PC and phone sides can be built.
+- [x] **Deploy the relay**: done, `https://desk-companion-relay.desktop-champ.workers.dev`.
+- [ ] **Try the relay from a real phone**: on the PC, Settings → Phone → paste the address above into Relay address, Save, turn on Reach your phone anywhere ("Relay: connected"). Connect the phone once on the same Wi-Fi so it learns the address, then turn Wi-Fi off on the phone: Settings on the phone should say "Connected through the relay" within about 15 s, and requests should still arrive. Turn Wi-Fi back on: it should move back to the direct link within 5 minutes (at once if you open the app).
 - [ ] **Merge `development` into `main`** when you're happy with 0.7.0 (a pull request on GitHub is the safest way).
 - [ ] **Google Play?** If you ever publish the Android app there, the "stay linked while the phone sleeps" request needs a justification, and the app needs a release signing key (not the debug one). Not needed for installing the APK yourself.
 - [ ] **Which files stay in the repo:** the repo holds docs and specs; decide if any should be removed before it goes public.
@@ -51,7 +52,6 @@ Pick the order, and say which model (Sonnet for most, Opus for security or proto
 - [ ] Desktop: keyboard shortcuts (Y / N for Allow / Deny, plus a global one).
 - [ ] Desktop: more agents (OpenCode, Amp, a generic `--agent` option).
 - [ ] Desktop: plan usage pills for Codex and Command Code, and a rate-limit state on the character.
-- [ ] The off-network relay (after the decision in section 5).
 - [ ] Later ideas: weekly recap, a sounds folder, choosing which display the character sits on, Ollama (local AI) for Ask.
 
 ## Where things are

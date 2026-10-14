@@ -28,10 +28,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
-import java.net.Socket
+import java.util.concurrent.TimeUnit
 
 /**
  * The one link to the paired PC: connects (trying each of its addresses),
@@ -43,13 +42,20 @@ import java.net.Socket
  * current ones on every connect and they're saved; when none of the known
  * ones answers, the phone's own network is searched for the PC (Discovery),
  * at most every SCAN_EVERY_MS.
+ *
+ * Away from the PC's network, with the relay on at the PC (the pairing then
+ * knows its address), the link goes through the relay instead, end-to-end
+ * encrypted (RelayWire). While it does, the PC's own addresses are tried now
+ * and then (and on every network change), and the link moves back to the
+ * direct one as soon as the PC answers there.
  */
 object LinkHub {
     sealed interface State {
         data object Unpaired : State
-        /** `searching`: the known addresses didn't answer, so the network is being searched. */
-        data class Connecting(val name: String, val searching: Boolean = false) : State
-        data class Connected(val name: String, val approvals: Boolean) : State
+        /** `searching`: the known addresses didn't answer, so the network is being searched. `relay`: trying the relay. */
+        data class Connecting(val name: String, val searching: Boolean = false, val relay: Boolean = false) : State
+        /** `relayed`: through the relay, not the local network. */
+        data class Connected(val name: String, val approvals: Boolean, val relayed: Boolean = false) : State
         /** Lost or unreachable; trying again. */
         data class Retrying(val name: String, val reason: String) : State
         /** The PC refused this phone (Pair again on the PC): scan the new code. */
@@ -67,6 +73,18 @@ object LinkHub {
     private const val NO_NETWORK_WAIT_MS = 5 * 60_000L
     /** Most addresses remembered for the PC. */
     private const val MAX_HOSTS = 8
+    /** Time for the PC to answer through the relay. */
+    private const val RELAY_WAIT_MS = 12_000L
+    /** While linked through the relay, how often to see whether the PC can be reached directly again. */
+    private const val PROBE_EVERY_MS = 5 * 60_000L
+
+    /** For the relay's WebSocket. Pings keep it (and the mobile network's NAT) awake and notice a dead one. */
+    private val http by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .pingInterval(30, TimeUnit.SECONDS)
+            .build()
+    }
 
     private val _state = MutableStateFlow<State>(State.Unpaired)
     val state: StateFlow<State> = _state
@@ -78,9 +96,10 @@ object LinkHub {
     /** Wakes the reconnect loop early: the network changed, or the app was opened. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
     @Volatile private var lastScan = 0L
-    private val writeLock = Any()
-    @Volatile private var out: OutputStream? = null
-    @Volatile private var socket: Socket? = null
+    @Volatile private var wire: Wire? = null
+    /** A direct connection found while linked through the relay, to switch to. */
+    @Volatile private var handoff: Wire? = null
+    @Volatile private var lastError: Exception? = null
     private var app: Context? = null
     var paired: Pairing? = null
         private set
@@ -94,9 +113,13 @@ object LinkHub {
         PairingStore.load(ctx.applicationContext)?.let { connect(it) }
     }
 
-    /** Try again now if the link is down (the app came to the front, a network appeared). */
+    /**
+     * Try again now if the link is down (the app came to the front, a network
+     * appeared); through the relay, see whether the PC can be reached directly.
+     */
     fun nudge() {
-        if (paired != null && _state.value !is State.Connected) wake.trySend(Unit)
+        val s = _state.value
+        if (paired != null && (s !is State.Connected || s.relayed)) wake.trySend(Unit)
     }
 
     /** Any network appearing or changing (Wi-Fi joined, hotspot on or off) is a reason to try at once. */
@@ -215,7 +238,9 @@ object LinkHub {
             if (!currentCoroutineContext().isActive) return
             if (welcomed) wait = 1_000L
             // No local network at all: nothing to try until one appears (it nudges), so don't spin.
-            val offline = Discovery.ownAddresses().isEmpty()
+            // A direct connection was found while on the relay: switch to it at once.
+            if (handoff != null) continue
+            val offline = Discovery.ownAddresses().isEmpty() && p.relay == null
             _state.value = State.Retrying(p.name, if (offline) "Not on a network. Waiting for Wi-Fi or your hotspot" else reason)
             val nudged = withTimeoutOrNull(if (offline) NO_NETWORK_WAIT_MS else wait) { wake.receive() } != null
             wait = if (nudged) 1_000L else (wait * 2).coerceAtMost(30_000L)
@@ -224,25 +249,25 @@ object LinkHub {
 
     /** One connection, until it ends. True when the PC unlinked this phone (don't retry). */
     private suspend fun session(p: Pairing, onWelcome: () -> Unit): Boolean {
-        val (host, sock) = open(p)
-        socket = sock
+        val w = open(p)
+        wire = w
         val pinger = scope.launch {
             while (isActive) {
                 delay(PING_MS)
                 send(Protocol.ping())
             }
         }
+        val prober = if (w.host == null) scope.launch { probe(p, w) } else null
         try {
-            out = sock.getOutputStream()
+            // Through the relay too: the token goes inside the encryption, and the PC checks it the same way.
             send(Protocol.hello(p.token, deviceName(), Settings.shared.awayMode))
-            val input = sock.getInputStream()
             while (true) {
-                val line = readLine(input) ?: return false
+                val line = w.readLine() ?: return false
                 when (val m = Protocol.parse(line)) {
                     is Protocol.FromPc.Welcome -> {
                         onWelcome()
-                        remember(p, host, m.hosts)
-                        _state.value = State.Connected(m.name, m.approvals)
+                        remember(p, w.host, m.hosts, m.relay)
+                        _state.value = State.Connected(m.name, m.approvals, relayed = w.host == null)
                     }
                     is Protocol.FromPc.Sessions -> onSessions(m.sessions)
                     is Protocol.FromPc.Character -> showCharacter(m.id, m.look, m.theme)
@@ -255,44 +280,82 @@ object LinkHub {
             }
         } finally {
             pinger.cancel()
-            out = null
-            socket = null
-            sock.close()
+            prober?.cancel()
+            wire = null
+            w.close()
         }
     }
 
     /**
-     * Tries each of the PC's known addresses in turn; if none answers, and the
-     * network wasn't searched in the last SCAN_EVERY_MS, searches it.
-     * Returns the address that worked and the open connection.
+     * While linked through the relay: every PROBE_EVERY_MS, or when the network
+     * changes, tries the PC's own addresses; if one answers, keeps it for the
+     * next connection and ends the relay one.
      */
-    private suspend fun open(p: Pairing): Pair<String, Socket> {
-        var last: Exception? = null
+    private suspend fun probe(p: Pairing, relayed: Wire) {
+        while (currentCoroutineContext().isActive) {
+            withTimeoutOrNull(PROBE_EVERY_MS) { wake.receive() }
+            if (Discovery.ownAddresses().isEmpty()) continue
+            val direct = tryHosts(paired ?: p) ?: continue
+            handoff = direct
+            relayed.close()
+            return
+        }
+    }
+
+    /** The first of the PC's known addresses that answers, or null (the last failure in [lastError]). */
+    private fun tryHosts(p: Pairing): Wire? {
         for (host in p.hosts) {
             try {
-                return host to PinnedTls.connect(host, p.port, p.fingerprint, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+                return SocketWire(host, PinnedTls.connect(host, p.port, p.fingerprint, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS), MAX_LINE)
             } catch (e: Exception) {
-                last = e
+                lastError = e
             }
         }
-        val now = SystemClock.elapsedRealtime()
-        if (lastScan == 0L || now - lastScan >= SCAN_EVERY_MS) {
-            lastScan = now
-            _state.value = State.Connecting(p.name, searching = true)
-            Discovery.find(p, p.hosts.toSet())?.let { (host, sock) ->
-                sock.soTimeout = READ_TIMEOUT_MS
-                return host to sock
+        return null
+    }
+
+    /**
+     * The direct link first: each of the PC's known addresses in turn, then (if
+     * the network wasn't searched in the last SCAN_EVERY_MS) a search of it.
+     * Only on a local network: on mobile data there's nothing to find. Then
+     * the relay, when the PC has it on.
+     */
+    private suspend fun open(p: Pairing): Wire {
+        handoff?.let {
+            handoff = null
+            return it
+        }
+        var last: Exception? = null
+        if (Discovery.ownAddresses().isNotEmpty()) {
+            lastError = null
+            tryHosts(p)?.let { return it }
+            last = lastError
+            val now = SystemClock.elapsedRealtime()
+            if (lastScan == 0L || now - lastScan >= SCAN_EVERY_MS) {
+                lastScan = now
+                _state.value = State.Connecting(p.name, searching = true)
+                Discovery.find(p, p.hosts.toSet())?.let { (host, sock) ->
+                    sock.soTimeout = READ_TIMEOUT_MS
+                    return SocketWire(host, sock, MAX_LINE)
+                }
+                last = IOException("Couldn't find your PC on this network")
             }
-            last = IOException("Couldn't find your PC on this network")
+        }
+        p.relay?.let { relay ->
+            _state.value = State.Connecting(p.name, relay = true)
+            return RelayWire.open(p, relay, http, RELAY_WAIT_MS, READ_TIMEOUT_MS.toLong())
         }
         throw last ?: IOException("no address")
     }
 
-    /** Keeps the address that just worked first, then the PC's own current ones, then the older ones. */
-    private fun remember(p: Pairing, used: String, offered: List<String>) {
-        val hosts = Pairing.mergeHosts(used, offered, p.hosts, MAX_HOSTS)
-        if (hosts == p.hosts || paired != p) return
-        val next = p.copy(hosts = hosts)
+    /**
+     * Keeps the address that just worked first, then the PC's own current ones,
+     * then the older ones; and the relay's address as the PC has it now.
+     */
+    private fun remember(p: Pairing, used: String?, offered: List<String>, relay: String?) {
+        val hosts = if (used != null) Pairing.mergeHosts(used, offered, p.hosts, MAX_HOSTS) else p.hosts
+        if ((hosts == p.hosts && relay == p.relay) || paired != p) return
+        val next = p.copy(hosts = hosts, relay = relay)
         paired = next
         app?.let { PairingStore.save(it, next) }
     }
@@ -306,37 +369,14 @@ object LinkHub {
     }
 
     private fun send(line: String) {
-        synchronized(writeLock) {
-            try {
-                out?.apply {
-                    write(line.toByteArray(Charsets.UTF_8))
-                    flush()
-                }
-            } catch (e: IOException) {
-                // The reading side notices and reconnects.
-            }
-        }
-    }
-
-    /** One line, without its newline; null at the end of the stream. Refuses absurdly long lines. */
-    private fun readLine(input: InputStream): String? {
-        val buf = java.io.ByteArrayOutputStream()
-        while (true) {
-            val b = input.read()
-            if (b == -1) return if (buf.size() == 0) null else buf.toString("UTF-8")
-            if (b == '\n'.code) return buf.toString("UTF-8")
-            buf.write(b)
-            if (buf.size() > MAX_LINE) throw IOException("line too long")
-        }
+        wire?.send(line)
     }
 
     private fun closeSocket() {
-        try {
-            socket?.close()
-        } catch (e: Exception) {
-        }
-        socket = null
-        out = null
+        wire?.close()
+        wire = null
+        handoff?.close()
+        handoff = null
     }
 
     private fun deviceName(): String {

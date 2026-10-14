@@ -35,6 +35,8 @@ interface Prefs {
   ruiTheme: string;
   ruiFlatOnBattery: boolean;
   phoneLink: boolean;
+  phoneRelay: boolean;
+  relayUrl: string;
 }
 
 interface PhoneStatus {
@@ -44,6 +46,7 @@ interface PhoneStatus {
   hosts: string[];
   phones: { device: string; address: string; since: number }[];
   error: string | null;
+  relay: { state: "off" | "connecting" | "connected" | "retrying"; error: string | null };
 }
 
 interface Pairing {
@@ -353,14 +356,16 @@ function build() {
   // Phone
   const phoneBox = el("div", "set-phone");
   controls.set("phoneBox", phoneBox);
+  const relayBox = relaySettings();
   const phone = section(
     "Phone",
     switchRow(
       "phoneLink",
       "Link a phone",
-      "Desk Companion for Android: see your agents and Allow / Deny from your phone, over your own Wi-Fi (or your phone's hotspot). Nothing goes through the internet.",
+      "Desk Companion for Android: see your agents and Allow / Deny from your phone, over your own Wi-Fi (or your phone's hotspot).",
     ),
     phoneBox,
+    relayBox,
   );
 
   // Ask
@@ -524,6 +529,12 @@ function fill(s: Settings, ask: AskStatus) {
   every.value = String(p.breakMinutes);
   every.disabled = !p.breaks;
 
+  // The relay: only with the link on; its address as saved, unless it's being edited.
+  controls.get("relayBox")!.hidden = !p.phoneLink;
+  const relayInput = controls.get("relayUrl") as HTMLInputElement;
+  if (document.activeElement !== relayInput) relayInput.value = p.relayUrl;
+  (controls.get("phoneRelay") as HTMLInputElement).disabled = !p.relayUrl && !p.phoneRelay;
+
   // Answering from here only makes sense while permission requests show here.
   (controls.get("answerPermissions") as HTMLInputElement).disabled = !p.notifyPermission;
 
@@ -594,7 +605,59 @@ void listen<PhoneStatus>("phone-status", ({ payload }) => {
   if (built) drawPhone();
 });
 
+/** Away from home: the relay switch, its address, and how it's doing. */
+function relaySettings(): HTMLElement {
+  const box = el("div", "set-relay");
+  controls.set("relayBox", box);
+  const input = el("input", "set-input");
+  input.type = "url";
+  input.spellcheck = false;
+  input.placeholder = "https://desk-companion-relay.<your-name>.workers.dev";
+  input.setAttribute("aria-label", "Relay address");
+  controls.set("relayUrl", input);
+  const save = el("button", "set-button", "Save");
+  save.type = "button";
+  const store = () => void set("relayUrl", input.value.trim());
+  save.addEventListener("click", store);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") store();
+  });
+  const line = el("div", "set-key");
+  line.append(input, save);
+  const address = el("label", "set-relay-address");
+  address.append(el("span", "set-title", "Relay address"), line);
+  const status = el("p", "set-hint");
+  controls.set("relayStatus", status);
+  box.append(
+    switchRow(
+      "phoneRelay",
+      "Reach your phone anywhere",
+      "When the phone isn't on this network, it connects through a relay you run on Cloudflare (free). Everything is encrypted between this PC and the phone: the relay can't read it. Setup: docs/RELAY.md.",
+    ),
+    address,
+    status,
+  );
+  return box;
+}
+
+/** "Relay: connected", or what's wrong. */
+function drawRelay() {
+  const status = controls.get("relayStatus");
+  if (!status) return;
+  const r = phoneStatus?.relay;
+  const words: Record<string, string> = {
+    off: "",
+    connecting: "Relay: connecting…",
+    connected: "Relay: connected. Your phone can reach this PC from anywhere.",
+    retrying: `Relay: not connected${r?.error ? `. ${r.error}` : ""}. Trying again.`,
+  };
+  status.textContent = r ? words[r.state] : "";
+  status.classList.toggle("set-error", r?.state === "retrying");
+  status.hidden = !status.textContent;
+}
+
 function drawPhone() {
+  drawRelay();
   const box = controls.get("phoneBox");
   if (!box) return;
   box.replaceChildren();
@@ -622,7 +685,7 @@ function drawPhone() {
   if (s.phones.length) {
     for (const p of s.phones) {
       const line = el("p", "set-phone-item");
-      line.append(el("span", "set-dot"), `${p.device} connected (${p.address})`);
+      line.append(el("span", "set-dot"), `${p.device} connected (${p.address === "relay" ? "through the relay" : p.address})`);
       box.append(line);
     }
   } else {

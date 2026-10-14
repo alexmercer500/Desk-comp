@@ -25,6 +25,22 @@ class LinkTest {
         assertEquals(token, p.token)
         assertEquals("Nidhi's PC", p.name)
         assertFalse("the token never shows in logs", p.toString().contains(token))
+        assertNull(p.relay)
+        assertEquals("https://r.example.workers.dev", Pairing.parse("$good&relay=https%3A%2F%2Fr.example.workers.dev")!!.relay)
+    }
+
+    @Test
+    fun relayAddressesAreCheckedAndMadePlain() {
+        assertEquals("https://desk-companion-relay.me.workers.dev", Pairing.relayAddress(" https://Desk-Companion-Relay.me.workers.dev/ "))
+        assertEquals("https://relay.example.com:8443", Pairing.relayAddress("wss://relay.example.com:8443"))
+        for (bad in listOf(
+            null, "", "relay.example.com", "http://relay.example.com", "https://", "https://relay.example.com/r/x",
+            "https://user@relay.example.com", "https://relay.example.com:99999", "https://-relay.example.com", "https://relay.example.com?x",
+        )) {
+            assertNull(bad, Pairing.relayAddress(bad))
+        }
+        // A bad relay address in a pairing link is left out; the pairing itself still works.
+        assertNull(Pairing.parse("$good&relay=http%3A%2F%2Fevil.example")!!.relay)
     }
 
     @Test
@@ -106,6 +122,12 @@ class LinkTest {
         assertEquals(Protocol.FromPc.Decided("r", false), Protocol.parse("""{"t":"decided","rid":"r","ok":false}"""))
         assertEquals(Protocol.FromPc.Pong, Protocol.parse("""{"t":"pong"}"""))
         assertEquals(Protocol.FromPc.Other, Protocol.parse("""{"t":"something-new"}"""))
+        assertEquals(
+            Protocol.FromPc.Welcome("PC", true, listOf("10.0.0.2"), "https://r.example.workers.dev"),
+            Protocol.parse("""{"t":"welcome","v":1,"name":"PC","approvals":true,"hosts":["10.0.0.2"],"relay":"https://r.example.workers.dev"}"""),
+        )
+        assertNull((Protocol.parse("""{"t":"welcome","name":"PC","relay":null}""") as Protocol.FromPc.Welcome).relay)
+        assertNull((Protocol.parse("""{"t":"welcome","name":"PC","relay":"http://evil.example"}""") as Protocol.FromPc.Welcome).relay)
         assertNull(Protocol.parse("not json"))
         assertNotNull(Protocol.parse("""{"t":"sessions"}"""))
     }

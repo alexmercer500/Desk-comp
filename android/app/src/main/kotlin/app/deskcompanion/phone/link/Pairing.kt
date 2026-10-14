@@ -17,6 +17,8 @@ data class Pairing(
     val token: String,
     /** The PC's name, to show. */
     val name: String,
+    /** The relay's address (`https://host[:port]`) while the PC has it on; null otherwise. */
+    val relay: String? = null,
 ) {
     override fun toString() = "Pairing($name, ${hosts.joinToString()}:$port)" // never the token
 
@@ -34,6 +36,20 @@ data class Pairing(
         fun mergeHosts(used: String, offered: List<String>, known: List<String>, max: Int): List<String> {
             val fromPc = offered.filter { ipv4(it) }
             return (listOf(used) + fromPc + known).filter { HOST.matches(it) }.distinct().take(max)
+        }
+
+        private val RELAY = Regex("^https://([a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?)(:[0-9]{1,5})?$")
+
+        /**
+         * A relay address made plain (`https://host[:port]`, no path), or null
+         * when it isn't one. Only https: the relay is on the internet.
+         */
+        fun relayAddress(text: String?): String? {
+            val t = text?.trim()?.trimEnd('/')?.lowercase()?.replaceFirst(Regex("^wss://"), "https://") ?: return null
+            val m = RELAY.matchEntire(t) ?: return null
+            val port = m.groupValues[3].drop(1)
+            if (port.isNotEmpty() && port.toInt() !in 1..65535) return null
+            return t
         }
 
         private fun ipv4(s: String): Boolean {
@@ -60,7 +76,7 @@ data class Pairing(
             val token = q["token"]?.takeIf { TOKEN.matches(it) } ?: return null
             if (hosts.isEmpty()) return null
             val name = q["name"].orEmpty().filter { !it.isISOControl() }.trim().take(60).ifEmpty { "Your PC" }
-            return Pairing(hosts, port, fp, token, name)
+            return Pairing(hosts, port, fp, token, name, relayAddress(q["relay"]))
         }
 
         private fun decode(s: String): String = try {

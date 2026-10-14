@@ -134,12 +134,17 @@ private fun ComputerCard(link: LinkHub.State, onLink: () -> Unit, onUnlink: () -
         LinkHub.State.Unpaired -> Card5("NOT LINKED", "Link your computer", "Until then, the sessions here are samples so you can try the app.", Status.Idle, c.lavender)
         is LinkHub.State.Connecting -> Card5(
             "CONNECTING", link.name,
-            if (link.searching) "Its address changed: looking for it on this network…" else "Reaching your PC…",
+            when {
+                link.relay -> "Not on its network: reaching it through the relay…"
+                link.searching -> "Its address changed: looking for it on this network…"
+                else -> "Reaching your PC…"
+            },
             Status.Working, c.blue,
         )
         is LinkHub.State.Connected -> Card5(
             "LINKED", link.name,
-            if (link.approvals) "Connected. Requests can be answered from here." else "Connected. Allow / Deny is switched off on the PC.",
+            (if (link.relayed) "Connected through the relay, encrypted end to end. " else "Connected. ") +
+                if (link.approvals) "Requests can be answered from here." else "Allow / Deny is switched off on the PC.",
             Status.Done, c.mint,
         )
         is LinkHub.State.Retrying -> Card5("RECONNECTING", link.name, link.reason, Status.Waiting, c.peach)

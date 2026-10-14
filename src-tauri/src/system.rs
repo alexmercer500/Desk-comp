@@ -74,6 +74,10 @@ pub struct Prefs {
     pub rui_flat_on_battery: bool,
     /// Let a paired phone see sessions and answer requests over the local network (phone/).
     pub phone_link: bool,
+    /// Also reach the phone through the internet relay (phone/relay.rs) when it isn't on this network.
+    pub phone_relay: bool,
+    /// The relay's address (`https://…workers.dev`), "" when none.
+    pub relay_url: String,
 }
 
 impl Default for Prefs {
@@ -102,6 +106,8 @@ impl Default for Prefs {
             rui_theme: "cream".into(),
             rui_flat_on_battery: false,
             phone_link: false,
+            phone_relay: false,
+            relay_url: String::new(),
         }
     }
 }
@@ -131,6 +137,9 @@ impl Prefs {
         }
         if !RUI_THEMES.contains(&self.rui_theme.as_str()) {
             return Err(format!("unknown colour {:?}", self.rui_theme));
+        }
+        if !self.relay_url.is_empty() && crate::phone::relay_address(&self.relay_url).as_deref() != Ok(self.relay_url.as_str()) {
+            return Err("relay address must be plain https://host (Settings makes it so)".into());
         }
         if !(BREAK_MINUTES.0..=BREAK_MINUTES.1).contains(&self.break_minutes) {
             return Err(format!("break interval must be {}–{} minutes", BREAK_MINUTES.0, BREAK_MINUTES.1));
@@ -191,6 +200,8 @@ pub fn update(app: &AppHandle, key: &str, value: &Value) -> Result<Prefs, String
     }
     if next.phone_link != before.phone_link {
         crate::phone::apply(app);
+    } else if (next.phone_relay, &next.relay_url) != (before.phone_relay, &before.relay_url) {
+        crate::phone::relay_changed(app);
     }
     if (&next.character, &next.rui_look, &next.rui_theme) != (&before.character, &before.rui_look, &before.rui_theme) {
         crate::phone::character_changed(app);
@@ -263,6 +274,12 @@ pub async fn get_settings(app: AppHandle) -> Result<Settings, String> {
 
 #[tauri::command]
 pub async fn set_setting(app: AppHandle, key: String, value: Value) -> Result<Prefs, String> {
+    // The relay address as typed: checked and made plain here, with a message that says what's wrong.
+    let value = match (key.as_str(), value.as_str()) {
+        ("relayUrl", Some(t)) if !t.trim().is_empty() => Value::String(crate::phone::relay_address(t).map_err(String::from)?),
+        ("relayUrl", Some(_)) => Value::String(String::new()),
+        _ => value,
+    };
     update(&app, &key, &value)
 }
 

@@ -3,7 +3,6 @@
 // main loop waits on several things at once) and a loop that sends sessions,
 // answers pings and applies decisions.
 
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -40,6 +39,8 @@ pub struct Shared {
     pub character: watch::Sender<Arc<String>>,
     /// Bumped to drop every phone (Pair again, link turned off).
     pub kick: watch::Sender<u64>,
+    /// Bumped when what `welcome` says changes (the relay): phones get it again.
+    news: watch::Sender<u64>,
     pub phones: Mutex<Vec<PhoneInfo>>,
     connections: AtomicUsize,
     next_id: AtomicU64,
@@ -51,6 +52,7 @@ impl Shared {
             sessions: watch::channel(Arc::new(proto::sessions(&serde_json::json!([])))).0,
             character: watch::channel(Arc::new(proto::character("kulhi", "toy", "cream"))).0,
             kick: watch::channel(0).0,
+            news: watch::channel(0).0,
             phones: Mutex::new(Vec::new()),
             connections: AtomicUsize::new(0),
             next_id: AtomicU64::new(1),
@@ -70,6 +72,11 @@ impl Shared {
     pub fn kick_all(&self) {
         self.kick.send_modify(|n| *n += 1);
     }
+
+    /// Sends every phone a fresh `welcome`.
+    pub fn tell_news(&self) {
+        self.news.send_modify(|n| *n += 1);
+    }
 }
 
 /// What the app does with a phone's messages (the real one in mod.rs; a fake in tests).
@@ -88,6 +95,8 @@ pub trait Host: Send + Sync + 'static {
     fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool;
     /// The PC's addresses a phone could reach right now.
     fn addresses(&self) -> Vec<String>;
+    /// The relay's address while the relay is on (relay.rs).
+    fn relay(&self) -> Option<String>;
     /// The list of phones changed.
     fn phones_changed(&self);
 }
@@ -125,14 +134,16 @@ pub async fn serve(listener: TcpListener, acceptor: TlsAcceptor, token: Arc<Stri
             shared.connections.fetch_add(1, Ordering::SeqCst);
             let tls = tokio::time::timeout(proto::HELLO_WAIT, acceptor.accept(stream)).await;
             if let Ok(Ok(tls)) = tls {
-                connection(tls, addr, &token, &name, &shared, host.as_ref()).await;
+                connection(tls, addr.ip().to_string(), &token, &name, &shared, host.as_ref()).await;
             }
             shared.connections.fetch_sub(1, Ordering::SeqCst);
         });
     }
 }
 
-async fn connection<S>(stream: S, addr: SocketAddr, token: &str, name: &str, shared: &Shared, host: &dyn Host)
+/// One phone, from hello to the end. `address`: where it connects from, for
+/// Settings (an IP address, or "relay").
+pub(super) async fn connection<S>(stream: S, address: String, token: &str, name: &str, shared: &Shared, host: &dyn Host)
 where
     S: tokio::io::AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -165,7 +176,7 @@ where
                     let mut phones = shared.phones.lock().unwrap_or_else(|e| e.into_inner());
                     (phones.len() < proto::MAX_PHONES).then(|| {
                         let id = shared.next_id.fetch_add(1, Ordering::SeqCst);
-                        phones.push(PhoneInfo { id, device, address: addr.ip().to_string(), since: now_ms(), away });
+                        phones.push(PhoneInfo { id, device, address, since: now_ms(), away });
                         id
                     })
                 };
@@ -189,9 +200,10 @@ where
     let mut sessions = shared.sessions.subscribe();
     let mut kick = shared.kick.subscribe();
     let mut character = shared.character.subscribe();
+    let mut news = shared.news.subscribe();
     let first = sessions.borrow_and_update().clone();
     let look = character.borrow_and_update().clone();
-    let mut ok = send(&mut write, &proto::welcome(name, host.approvals(), &host.addresses())).await.is_ok()
+    let mut ok = send(&mut write, &proto::welcome(name, host.approvals(), &host.addresses(), host.relay().as_deref())).await.is_ok()
         && send(&mut write, &look).await.is_ok()
         && send(&mut write, &first).await.is_ok();
     let mut deadline = tokio::time::Instant::now() + proto::IDLE_LIMIT;
@@ -244,6 +256,10 @@ where
                 let line = sessions.borrow_and_update().clone();
                 ok = send(&mut write, &line).await.is_ok();
             }
+            changed = news.changed() => {
+                if changed.is_err() { break }
+                ok = send(&mut write, &proto::welcome(name, host.approvals(), &host.addresses(), host.relay().as_deref())).await.is_ok();
+            }
             _ = kick.changed() => {
                 let _ = send(&mut write, &proto::error("token", "Paired again on the PC. Scan the new code")).await;
                 break;
@@ -270,7 +286,7 @@ async fn send<W: AsyncWrite + Unpin>(w: &mut W, line: &str) -> std::io::Result<(
 
 /// The next line (without its newline), refusing lines over MAX_LINE.
 /// None at the end of the stream.
-async fn next_line<R: AsyncBufRead + Unpin>(r: &mut R, buf: &mut Vec<u8>) -> std::io::Result<Option<String>> {
+pub(super) async fn next_line<R: AsyncBufRead + Unpin>(r: &mut R, buf: &mut Vec<u8>) -> std::io::Result<Option<String>> {
     buf.clear();
     loop {
         let available = r.fill_buf().await?;
@@ -338,6 +354,9 @@ mod tests {
         fn addresses(&self) -> Vec<String> {
             vec!["192.168.1.20".into()]
         }
+        fn relay(&self) -> Option<String> {
+            Some("https://r.example.workers.dev".into())
+        }
         fn phones_changed(&self) {}
     }
 
@@ -359,7 +378,7 @@ mod tests {
             let host = Arc::new(FakeHost::default());
             let (phone, pc) = duplex(64 * 1024);
             let (s, h) = (shared.clone(), host.clone());
-            let task = tokio::spawn(async move { connection(pc, "192.168.1.9:5000".parse().unwrap(), "secret", "PC", &s, h.as_ref()).await });
+            let task = tokio::spawn(async move { connection(pc, "192.168.1.9".into(), "secret", "PC", &s, h.as_ref()).await });
             let (r, mut w) = tokio::io::split(phone);
             let mut r = BufReader::new(r);
 
@@ -367,6 +386,7 @@ mod tests {
             let welcome = read_line(&mut r).await;
             assert_eq!(welcome["t"], "welcome");
             assert_eq!(welcome["hosts"][0], "192.168.1.20");
+            assert_eq!(welcome["relay"], "https://r.example.workers.dev");
             assert_eq!(read_line(&mut r).await["t"], "character");
             assert_eq!(read_line(&mut r).await["sessions"][0]["id"], "s1");
             assert_eq!(shared.phones().len(), 1);
@@ -426,7 +446,7 @@ mod tests {
                 let host = Arc::new(FakeHost::default());
                 let (phone, pc) = duplex(64 * 1024);
                 let (s, h) = (shared.clone(), host.clone());
-                let task = tokio::spawn(async move { connection(pc, "10.0.0.2:1".parse().unwrap(), "secret", "PC", &s, h.as_ref()).await });
+                let task = tokio::spawn(async move { connection(pc, "10.0.0.2".into(), "secret", "PC", &s, h.as_ref()).await });
                 let (r, mut w) = tokio::io::split(phone);
                 let mut r = BufReader::new(r);
                 w.write_all(first.as_bytes()).await.unwrap();

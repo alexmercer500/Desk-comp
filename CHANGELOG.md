@@ -9,6 +9,18 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.8.0 (14 October 2026)
+
+**Your phone, away from home.** Desk Companion for Android (0.3.0) now works when the phone isn't on the PC's network: on mobile data, at work, anywhere.
+
+- **Reach your phone anywhere** (Settings → Phone, off by default). Both the PC and the phone connect out to a small relay that you run yourself on Cloudflare's free plan (`docs/RELAY.md` has the 10-minute setup). Paste its address into **Relay address**, click **Save**, turn the switch on, and the line under it says "Relay: connected". The phone learns the address on its next connection at home, or from a new pairing code.
+- **The relay can't read anything.** Everything is encrypted between the PC and the phone with keys made from the pairing secret in the QR code, which never goes through the internet. Each message is numbered and tied to its connection, so nothing recorded on the way can be played back. **Pair again** changes every key.
+- **Direct first.** On the same Wi-Fi or hotspot the phone still connects straight to the PC. It only goes through the relay when it can't, and moves back to the direct link when it's home again (within 5 minutes, or at once when you open the app). On the phone, Settings says which: "Connected through the relay, encrypted end to end". On the PC, such a phone shows as "connected (through the relay)".
+- Everything works the same through the relay: notifications, Allow / Deny behind the fingerprint, answers to Claude's questions, replies when a task finishes, the character.
+- **Fixed on Android:** tapping **Link** (when asked to allow notifications) or **Scan the code** (when asked for the camera) crashed the app on a phone that hadn't given those permissions yet.
+- On the phone, mobile data no longer counts as a local network, so it doesn't knock on the carrier's addresses looking for the PC.
+- `scripts/phone-sim.mjs --relay` plays a phone through the relay, for testing.
+
 ## 0.7.0 (13 October 2026)
 
 The big ones: a safer Allow / Deny, live diffs, and **Desk Companion for Android**: get a notification on your phone when an agent needs you or finishes, Allow or Deny it, answer Claude's questions, and reply when a task is done, all over your own network.

@@ -159,13 +159,54 @@ pub fn same_secret(a: &str, b: &str) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// The pairing link the QR code carries.
-pub fn pairing_link(hosts: &[String], port: u16, fingerprint: &str, token: &str, name: &str) -> String {
-    format!(
+/// The pairing link the QR code carries. `relay`: the relay's address, when it's on.
+pub fn pairing_link(hosts: &[String], port: u16, fingerprint: &str, token: &str, name: &str, relay: Option<&str>) -> String {
+    let mut link = format!(
         "deskcompanion://pair?v={VERSION}&hosts={}&port={port}&fp={fingerprint}&token={token}&name={}",
         hosts.join(","),
         percent(name),
-    )
+    );
+    if let Some(r) = relay {
+        link.push_str(&format!("&relay={}", percent(r)));
+    }
+    link
+}
+
+/// A relay address as the user typed it, made plain: `https://host[:port]`
+/// (no path, no query). Plain `http://` only for this PC itself, to try a
+/// relay running locally (`wrangler dev`). `wss://` and `ws://` are taken as
+/// the same thing.
+pub fn relay_address(typed: &str) -> Result<String, &'static str> {
+    const BAD: &str = "That isn't a relay address. It looks like https://desk-companion-relay.<your-name>.workers.dev";
+    let t = typed.trim().trim_end_matches('/');
+    let (secure, rest) = if let Some(r) = t.strip_prefix("https://").or_else(|| t.strip_prefix("wss://")) {
+        (true, r)
+    } else if let Some(r) = t.strip_prefix("http://").or_else(|| t.strip_prefix("ws://")) {
+        (false, r)
+    } else {
+        return Err(BAD);
+    };
+    let (host, port) = match rest.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p.parse::<u16>().ok().filter(|p| *p > 0).ok_or(BAD)?)),
+        None => (rest, None),
+    };
+    let host_ok = !host.is_empty()
+        && host.len() <= 253
+        && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+        && !host.starts_with(['.', '-'])
+        && !host.ends_with(['.', '-']);
+    if !host_ok {
+        return Err(BAD);
+    }
+    let host = host.to_ascii_lowercase();
+    if !secure && !matches!(host.as_str(), "127.0.0.1" | "localhost") {
+        return Err("The relay address must start with https://");
+    }
+    let scheme = if secure { "https" } else { "http" };
+    Ok(match port {
+        Some(p) => format!("{scheme}://{host}:{p}"),
+        None => format!("{scheme}://{host}"),
+    })
 }
 
 /// Percent-encodes everything but unreserved characters.
@@ -211,8 +252,9 @@ pub fn rank_hosts(mut candidates: Vec<(String, std::net::Ipv4Addr)>) -> Vec<Stri
 // ── PC → phone ────────────────────────────────────────────────────────────────
 
 /// `hosts`: the PC's addresses right now, so a phone can find it again after they change.
-pub fn welcome(name: &str, approvals: bool, hosts: &[String]) -> String {
-    line(json!({ "t": "welcome", "v": VERSION, "name": name, "approvals": approvals, "hosts": hosts }))
+/// `relay`: the relay's address while it's on (null when off: the phone forgets it).
+pub fn welcome(name: &str, approvals: bool, hosts: &[String], relay: Option<&str>) -> String {
+    line(json!({ "t": "welcome", "v": VERSION, "name": name, "approvals": approvals, "hosts": hosts, "relay": relay }))
 }
 
 pub fn error(code: &str, message: &str) -> String {
@@ -338,8 +380,37 @@ mod tests {
 
     #[test]
     fn the_link_carries_everything_the_phone_needs() {
-        let link = pairing_link(&["192.168.1.20".into(), "10.0.0.5".into()], 47822, "ab12", "tok_EN-1", "Nidhi's PC");
+        let link = pairing_link(&["192.168.1.20".into(), "10.0.0.5".into()], 47822, "ab12", "tok_EN-1", "Nidhi's PC", None);
         assert_eq!(link, "deskcompanion://pair?v=1&hosts=192.168.1.20,10.0.0.5&port=47822&fp=ab12&token=tok_EN-1&name=Nidhi%27s%20PC");
+        let link = pairing_link(&["192.168.1.20".into()], 47822, "ab12", "t", "PC", Some("https://r.example.workers.dev"));
+        assert!(link.ends_with("&name=PC&relay=https%3A%2F%2Fr.example.workers.dev"), "{link}");
+    }
+
+    #[test]
+    fn relay_addresses_are_checked_and_made_plain() {
+        for (typed, plain) in [
+            ("https://Desk-Companion-Relay.me.workers.dev/", "https://desk-companion-relay.me.workers.dev"),
+            ("  wss://relay.example.com:8443 ", "https://relay.example.com:8443"),
+            ("http://127.0.0.1:8787", "http://127.0.0.1:8787"),
+            ("ws://localhost:8787/", "http://localhost:8787"),
+        ] {
+            assert_eq!(relay_address(typed).as_deref(), Ok(plain), "{typed}");
+        }
+        for bad in [
+            "",
+            "relay.example.com",
+            "http://relay.example.com",
+            "https://",
+            "https://relay.example.com/r/abc",
+            "https://relay.example.com?x=1",
+            "https://user@relay.example.com",
+            "https://relay.example.com:0",
+            "https://relay.example.com:99999",
+            "https://-relay.example.com",
+            "ftp://relay.example.com",
+        ] {
+            assert!(relay_address(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
@@ -358,7 +429,7 @@ mod tests {
 
     #[test]
     fn replies_are_single_lines() {
-        for l in [welcome("PC", true, &["192.168.1.2".into()]), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([])), character("rui", "toy", "cream")] {
+        for l in [welcome("PC", true, &["192.168.1.2".into()], Some("https://r.example")), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([])), character("rui", "toy", "cream")] {
             assert!(l.ends_with('\n'));
             assert_eq!(l.matches('\n').count(), 1);
             assert!(serde_json::from_str::<Value>(l.trim()).is_ok());
