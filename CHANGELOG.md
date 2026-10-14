@@ -9,6 +9,12 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.8.3 (14 October 2026, Android 0.4.0)
+
+- **The Android app can now update itself.** Settings has an Updates card: it checks when you open the app (at most every 6 hours) and has a Check now button. When a newer version is out you get a notification and an Update button. The app downloads it, checks it against its published checksum and that it's signed with the same key as the installed copy, then hands it to Android's own install screen. The first time, Android asks you to allow installs from Desk Companion.
+- **One command now publishes both apps.** `node scripts/release.mjs --github owner/repo --publish` builds the signed Windows installer and the signed Android APK and uploads them with `latest.json` and `android.json`. It refuses to publish with uncommitted changes, when the branch is behind `origin`, or when that version already exists. See docs/RELEASING.md.
+- **Android release signing.** The phone app is now signed with its own release key (kept outside the repo). Phones that have the older, debug-signed 0.3.x need to uninstall it once and pair again; from 0.4.0 on, updates install over the top.
+
 ## 0.8.2 (14 October 2026)
 
 - **Replies from your phone work whenever Away mode is on.** Before, a finished Claude Code task only waited for your reply if nobody had touched the PC for a whole minute, so the phone's Send button stayed greyed out when you tried it from your desk. Now Away mode on the phone is enough: each finished task waits up to 5 minutes for a reply. Using the PC's keyboard or mouse still lets it go at once, so working at the PC isn't held up.

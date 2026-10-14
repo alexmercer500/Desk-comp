@@ -13,6 +13,8 @@
     <!-- Scanning the pairing code; asked for only when you tap Scan. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Installing a new version of this app, only after you tap Update in Settings. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
@@ -51,5 +53,8 @@
 
         <!-- Deny from a notification: acts without opening the app. Not exported. -->
         <receiver android:name=".notify.ActionReceiver" android:exported="false" />
+
+        <!-- Android's answer to an update install. Not exported. -->
+        <receiver android:name=".update.InstallReceiver" android:exported="false" />
     </application>
 </manifest>

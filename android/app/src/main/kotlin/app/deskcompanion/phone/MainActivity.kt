@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import app.deskcompanion.phone.link.LinkHub
+import app.deskcompanion.phone.update.Updater
 import app.deskcompanion.phone.link.Pairing
 import app.deskcompanion.phone.link.Unlock
 import app.deskcompanion.phone.model.AppState
@@ -65,6 +66,8 @@ class MainActivity : FragmentActivity() {
         Settings.init(this).let { Look.show(it.character, it.ruiLook, it.ruiTheme) }
         Notifications.createChannels(this)
         LinkHub.init(this)
+        // If we just arrived from an update, the downloaded file is no longer needed.
+        Updater.cleanUp(this)
         read(intent)
         setContent { DeskTheme { App(incomingPairing, incomingReview) } }
     }
@@ -72,6 +75,7 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         LinkHub.nudge()
+        Updater.checkIfDue(this)
     }
 
     override fun onNewIntent(intent: Intent) {

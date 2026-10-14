@@ -43,6 +43,7 @@ object Notifications {
     const val EXTRA_REVIEW = "review"
     const val LINK_ID = 1
     private const val TEST_ID = 1001
+    private const val UPDATE_ID = 1002
 
     /** Requests and questions with a notification up, so each is posted once and removed when it's gone. */
     private val posted = mutableSetOf<String>()
@@ -277,6 +278,20 @@ object Notifications {
             .setTimeoutAfter((hold.until - System.currentTimeMillis()).coerceAtLeast(1_000))
             .addAction(reply)
             .build()
+    }
+
+    /** "A new version is ready": opens the app, where Settings has the Update button. */
+    fun updateAvailable(ctx: Context, versionName: String) {
+        if (!canPost(ctx)) return
+        val n = NotificationCompat.Builder(ctx, CHANNEL_UPDATES)
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setContentTitle("Desk Companion $versionName is ready")
+            .setContentText("Open Settings to update")
+            .setColor(0xFF9FB6FA.toInt())
+            .setAutoCancel(true)
+            .setContentIntent(openApp(ctx, null))
+            .build()
+        NotificationManagerCompat.from(ctx).notify(UPDATE_ID, n)
     }
 
     /** The sample approval from Settings → Try it. */

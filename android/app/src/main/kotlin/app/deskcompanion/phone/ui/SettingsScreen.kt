@@ -45,6 +45,8 @@ import app.deskcompanion.phone.model.Characters
 import app.deskcompanion.phone.model.Look
 import app.deskcompanion.phone.model.Status
 import app.deskcompanion.phone.link.LinkHub
+import app.deskcompanion.phone.update.Updater
+import androidx.compose.runtime.collectAsState
 
 @Composable
 fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onUnlink: () -> Unit, onTestNotification: () -> Unit, padding: PaddingValues) {
@@ -120,8 +122,13 @@ fun SettingsScreen(state: AppState, link: LinkHub.State, onLink: () -> Unit, onU
             }
         }
 
+        if (Updater.enabled) {
+            item { Group("Updates") }
+            item { Card { UpdateRow() } }
+        }
+
         item {
-            Text("Desk Companion for Android 0.2.0", style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(top = 10.dp, start = 6.dp))
+            Text("Desk Companion for Android ${Updater.installedName()}", style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(top = 10.dp, start = 6.dp))
         }
     }
 }
@@ -336,5 +343,34 @@ private fun NameField(state: AppState) {
             )
         }
         Text("Shown at the top of Home.", style = DeskType.small, color = c.inkSoft)
+    }
+}
+
+/** The version check: what is installed, whether there's a newer one, and the button to get it. */
+@Composable
+private fun UpdateRow() {
+    val c = Desk.colors
+    val ctx = LocalContext.current
+    val u by Updater.state.collectAsState()
+    val (title, detail) = when (val s = u) {
+        is Updater.State.Available -> "Version ${s.info.versionName} is ready" to s.info.notes.ifBlank { "A newer version is available" }
+        is Updater.State.Downloading -> "Downloading ${s.info.versionName}…" to "${s.percent}%"
+        is Updater.State.NeedsPermission -> "Allow installs, then tap Update" to "Android asks once: switch on \"Allow from this source\", then come back"
+        is Updater.State.Installing -> "Installing ${s.info.versionName}…" to "Confirm on Android's screen. The app restarts when it's done"
+        is Updater.State.Failed -> "Update didn't finish" to s.message
+        is Updater.State.Checking -> "Checking…" to "You have ${Updater.installedName()}"
+        is Updater.State.UpToDate -> "You're up to date" to "Version ${Updater.installedName()}"
+        else -> "Check for updates" to "You have ${Updater.installedName()}. It checks by itself when you open the app"
+    }
+    val canInstall = u is Updater.State.Available || u is Updater.State.NeedsPermission || (u as? Updater.State.Failed)?.info != null
+    val busy = u is Updater.State.Checking || u is Updater.State.Downloading || u is Updater.State.Installing
+    Column(Modifier.fillMaxWidth().padding(18.dp)) {
+        Text(title, style = DeskType.bodyMedium, color = c.ink)
+        Text(detail, style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(top = 2.dp))
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (canInstall) PillButton("Update", onClick = { Updater.install(ctx) }, modifier = Modifier.weight(1f), enabled = !busy)
+            PillButton("Check now", onClick = { Updater.check(ctx) }, modifier = Modifier.weight(1f), filled = !canInstall, enabled = !busy)
+        }
     }
 }
