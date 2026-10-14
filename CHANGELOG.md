@@ -9,6 +9,10 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.8.5 (14 October 2026, Android 0.4.2)
+
+- **Test release: The Little Mug That Updated Itself.** Once there was a clay mug on a desk who watched the robots work all day. One morning a note arrived through the post: a new version of you is ready. The mug did not panic. It checked the note was really from home, packed its things, and when the screen blinked it was a little taller, a little wiser, and still the same mug. Nothing else changed in this version; if you can read this on your phone, updating works.
+
 ## 0.8.4 (14 October 2026, Android 0.4.1)
 
 - **The phone's update card keeps its buttons on screen.** A long list of release notes no longer pushes Update and Check now off the bottom; only the first lines are shown.
