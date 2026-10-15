@@ -1,9 +1,12 @@
 // Development only (phone-stills.html, driven by scripts/make-phone-pictures.mjs):
-// draws the four 2D characters in the moods the phone app shows, as small
-// transparent pictures: { "kulhi-work": "data:image/webp;…" }.
+// draws the 2D characters in the moods the phone app shows, as small
+// transparent pictures: { "kulhi-work": "data:image/webp;…" }. Dogesh Bhai is
+// drawn in every outfit: { "dogesh-work-detective": … }.
 
 import { Engine } from "../engine/engine";
 import { SKINS } from "../skins";
+import { withDogeshOutfit } from "../skins/dogesh";
+import { OUTFIT_NAMES } from "../skins/dogesh-outfits";
 import type { CharacterId, StateName } from "../engine/types";
 
 /** Phone mood → the character state it is drawn in, and how long to let it settle (ms). */
@@ -18,8 +21,8 @@ const MOODS: Record<string, [StateName, number]> = {
 
 /** A character whose mood reads better at another moment of the state (ms). */
 const SETTLE: Partial<Record<CharacterId, Partial<Record<string, number>>>> = {
-  // Dogesh's moods come later in their states: hiding under his scarf (call),
-  // fainted stiff after the scream (droop), curled up under the scarf (sleep).
+  // Dogesh's moods come later in their states: hiding (under his scarf, cap,
+  // hood…) (call), fainted stiff after the scream (droop), curled up asleep (sleep).
   dogesh: { call: 1500, droop: 1250, sleep: 2200 },
 };
 
@@ -31,18 +34,25 @@ window.addEventListener("unhandledrejection", (e) => (out.textContent = `ERROR $
 const pictures: Record<string, string> = {};
 for (const [id, skin] of Object.entries(SKINS)) {
   for (const [mood, [state, settle]] of Object.entries(MOODS)) {
-    const canvas = document.createElement("canvas");
-    canvas.width = SIZE;
-    canvas.height = SIZE;
-    canvas.style.cssText = `width:${SIZE}px;height:${SIZE}px`;
-    document.body.append(canvas);
-    const engine = new Engine(skin);
-    engine.addView(canvas);
-    engine.setState("IDLE", null, 0);
-    engine.advance(300);
-    engine.setState(state, null, 0);
-    engine.advance(SETTLE[id as CharacterId]?.[mood] ?? settle);
-    pictures[`${id}-${mood}`] = canvas.toDataURL("image/webp", 0.9);
+    const draw = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = SIZE;
+      canvas.height = SIZE;
+      canvas.style.cssText = `width:${SIZE}px;height:${SIZE}px`;
+      document.body.append(canvas);
+      const engine = new Engine(skin);
+      engine.addView(canvas);
+      engine.setState("IDLE", null, 0);
+      engine.advance(300);
+      engine.setState(state, null, 0);
+      engine.advance(SETTLE[id as CharacterId]?.[mood] ?? settle);
+      return canvas.toDataURL("image/webp", 0.9);
+    };
+    if (id === "dogesh") {
+      for (const outfit of OUTFIT_NAMES) pictures[`dogesh-${mood}-${outfit}`] = withDogeshOutfit(outfit, draw);
+    } else {
+      pictures[`${id}-${mood}`] = draw();
+    }
   }
 }
 out.textContent = JSON.stringify(pictures);

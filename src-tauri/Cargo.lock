@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "companion-hook"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "serde_json",
 ]
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "desk-companion"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "base64 0.22.1",
  "futures-util",

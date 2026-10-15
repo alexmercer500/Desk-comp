@@ -1,6 +1,8 @@
 package app.deskcompanion.phone.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.border
@@ -220,26 +222,51 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChang
     }
 }
 
-/** Your character: picked here or on the PC, the same one in both places. Rui also has a look and a colour. */
+/** Your character: picked here or on the PC, the same one in both places. Rui also has a look and a colour, Dogesh Bhai an outfit. */
 @Composable
 private fun CharacterPicker() {
     val c = Desk.colors
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (ch in Characters.all) {
-                val on = Look.character == ch.id
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(if (on) c.accent.copy(alpha = 0.16f) else c.surface)
-                        .border(if (on) 2.dp else 1.dp, if (on) c.accent else c.line, RoundedCornerShape(20.dp))
-                        .clickable(role = Role.RadioButton) { LinkHub.pickCharacter(ch.id) }
-                        .padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    CharacterPicture(ch.id, Status.Idle, 44.dp)
-                    Text(ch.name, style = DeskType.label, color = c.ink, maxLines = 1)
+        // Three to a line: six in one row left each too narrow for its name.
+        for (line in Characters.all.chunked(3)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (ch in line) {
+                    val on = Look.character == ch.id
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (on) c.accent.copy(alpha = 0.16f) else c.surface)
+                            .border(if (on) 2.dp else 1.dp, if (on) c.accent else c.line, RoundedCornerShape(20.dp))
+                            .clickable(role = Role.RadioButton) { LinkHub.pickCharacter(ch.id) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        CharacterPicture(ch.id, Status.Idle, 52.dp)
+                        Text(ch.name, style = DeskType.label, color = c.ink, maxLines = 1, softWrap = false)
+                    }
+                }
+                // Keep the last line's cards the same width as the others.
+                repeat(3 - line.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        if (Look.character == "dogesh") {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (o in Characters.dogeshOutfits) {
+                    val on = Look.dogeshOutfit == o.id
+                    Column(
+                        Modifier
+                            .width(76.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (on) c.accent.copy(alpha = 0.16f) else c.surface)
+                            .border(if (on) 2.dp else 1.dp, if (on) c.accent else c.line, RoundedCornerShape(16.dp))
+                            .clickable(role = Role.RadioButton) { LinkHub.pickCharacter("dogesh", outfit = o.id) }
+                            .padding(vertical = 6.dp, horizontal = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        CharacterPicture("dogesh", Status.Idle, 44.dp, outfit = o.id)
+                        Text(o.name, style = DeskType.small, color = c.ink, maxLines = 1, softWrap = false)
+                    }
                 }
             }
         }

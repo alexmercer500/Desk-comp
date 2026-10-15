@@ -164,17 +164,18 @@ object LinkHub {
     }
 
     /** The user picked a character here: shown at once, and the PC is told (it checks the name and switches too). */
-    fun pickCharacter(id: String, look: String? = null, theme: String? = null) {
-        showCharacter(id, look, theme)
-        if (_state.value is State.Connected) scope.launch { send(Protocol.character(id, look, theme)) }
+    fun pickCharacter(id: String, look: String? = null, theme: String? = null, outfit: String? = null) {
+        showCharacter(id, look, theme, outfit)
+        if (_state.value is State.Connected) scope.launch { send(Protocol.character(id, look, theme, outfit)) }
     }
 
-    private fun showCharacter(id: String, look: String?, theme: String?) {
-        Look.show(id, look, theme)
+    private fun showCharacter(id: String, look: String?, theme: String?, outfit: String?) {
+        Look.show(id, look, theme, outfit)
         Settings.shared.run {
             character = Look.character
             ruiLook = Look.ruiLook
             ruiTheme = Look.ruiTheme
+            dogeshOutfit = Look.dogeshOutfit
         }
     }
 
@@ -270,7 +271,7 @@ object LinkHub {
                         _state.value = State.Connected(m.name, m.approvals, relayed = w.host == null)
                     }
                     is Protocol.FromPc.Sessions -> onSessions(m.sessions)
-                    is Protocol.FromPc.Character -> showCharacter(m.id, m.look, m.theme)
+                    is Protocol.FromPc.Character -> showCharacter(m.id, m.look, m.theme, m.outfit)
                     is Protocol.FromPc.Error -> {
                         if (m.code == "token") return true
                         throw IOException(m.message.ifEmpty { m.code })

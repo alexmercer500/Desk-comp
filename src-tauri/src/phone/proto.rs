@@ -42,8 +42,8 @@ pub enum FromPhone {
     Reply { rid: String, text: String },
     /// Away mode switched on the phone.
     Away { on: bool },
-    /// The user picked a character on the phone (Rui's look and colour only when it is Rui).
-    Character { id: String, look: Option<String>, theme: Option<String> },
+    /// The user picked a character on the phone (Rui's look and colour, Dogesh Bhai's outfit, only for them).
+    Character { id: String, look: Option<String>, theme: Option<String>, outfit: Option<String> },
     Ping,
     /// A type this version doesn't know (a newer phone): ignored.
     Other,
@@ -100,6 +100,7 @@ pub fn parse(line: &str) -> Result<FromPhone, &'static str> {
                 id: name("id").ok_or("character without an id")?.to_string(),
                 look: name("look").map(str::to_string),
                 theme: name("theme").map(str::to_string),
+                outfit: name("outfit").map(str::to_string),
             })
         }
         Some("away") => Ok(FromPhone::Away { on: o.get("on").and_then(Value::as_bool).ok_or("away without on")? }),
@@ -265,9 +266,9 @@ pub fn decided(rid: &str, ok: bool) -> String {
     line(json!({ "t": "decided", "rid": rid, "ok": ok }))
 }
 
-/// The character in use on the PC (and Rui's look and colour), for the phone's colours and pictures.
-pub fn character(id: &str, look: &str, theme: &str) -> String {
-    line(json!({ "t": "character", "id": id, "look": look, "theme": theme }))
+/// The character in use on the PC (and Rui's look and colour, Dogesh Bhai's outfit), for the phone's colours and pictures.
+pub fn character(id: &str, look: &str, theme: &str, outfit: &str) -> String {
+    line(json!({ "t": "character", "id": id, "look": look, "theme": theme, "outfit": outfit }))
 }
 
 pub fn pong() -> String {
@@ -308,9 +309,13 @@ mod tests {
         assert_eq!(parse(r#"{"t":"away","on":true}"#), Ok(FromPhone::Away { on: true }));
         assert_eq!(
             parse(r#"{"t":"character","id":"rui","look":"anime","theme":"mint"}"#),
-            Ok(FromPhone::Character { id: "rui".into(), look: Some("anime".into()), theme: Some("mint".into()) })
+            Ok(FromPhone::Character { id: "rui".into(), look: Some("anime".into()), theme: Some("mint".into()), outfit: None })
         );
-        assert_eq!(parse(r#"{"t":"character","id":"kulhi"}"#), Ok(FromPhone::Character { id: "kulhi".into(), look: None, theme: None }));
+        assert_eq!(parse(r#"{"t":"character","id":"kulhi"}"#), Ok(FromPhone::Character { id: "kulhi".into(), look: None, theme: None, outfit: None }));
+        assert_eq!(
+            parse(r#"{"t":"character","id":"dogesh","outfit":"detective"}"#),
+            Ok(FromPhone::Character { id: "dogesh".into(), look: None, theme: None, outfit: Some("detective".into()) })
+        );
         for bad in [r#"{"t":"character"}"#, r#"{"t":"character","id":"../x"}"#, r#"{"t":"character","id":"Kulhi"}"#, r#"{"t":"character","id":""}"#] {
             assert!(parse(bad).is_err(), "{bad}");
         }
@@ -429,7 +434,7 @@ mod tests {
 
     #[test]
     fn replies_are_single_lines() {
-        for l in [welcome("PC", true, &["192.168.1.2".into()], Some("https://r.example")), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([])), character("rui", "toy", "cream")] {
+        for l in [welcome("PC", true, &["192.168.1.2".into()], Some("https://r.example")), error("token", "Pair again"), decided("r", false), pong(), sessions(&json!([])), character("rui", "toy", "cream", "cozy")] {
             assert!(l.ends_with('\n'));
             assert_eq!(l.matches('\n').count(), 1);
             assert!(serde_json::from_str::<Value>(l.trim()).is_ok());

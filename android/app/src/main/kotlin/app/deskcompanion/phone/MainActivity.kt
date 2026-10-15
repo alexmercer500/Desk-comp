@@ -63,7 +63,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        Settings.init(this).let { Look.show(it.character, it.ruiLook, it.ruiTheme) }
+        Settings.init(this).let { Look.show(it.character, it.ruiLook, it.ruiTheme, it.dogeshOutfit) }
         Notifications.createChannels(this)
         LinkHub.init(this)
         // If we just arrived from an update, the downloaded file is no longer needed.

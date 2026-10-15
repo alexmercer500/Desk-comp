@@ -26,12 +26,31 @@ object Characters {
     val ruiThemes = listOf("cream", "mint", "sky", "lavender", "peach", "panda")
     val ruiLooks = listOf("toy", "anime")
 
+    /** Dogesh Bhai's outfits, as on the PC (src/skins/dogesh-outfits.ts), each with its name and the app's colour in it. */
+    class Outfit(val id: String, val name: String, val accent: Color)
+    val dogeshOutfits = listOf(
+        Outfit("cozy", "Cozy scarf", Color(0xFF2F8F8A)),
+        Outfit("desi", "Desi Bhai", Color(0xFF8A2A3D)),
+        Outfit("detective", "Detective", Color(0xFF8E7443)),
+        Outfit("hero", "Superhero", Color(0xFFC8342C)),
+        Outfit("rainy", "Rainy day", Color(0xFFB8860B)),
+        Outfit("coder", "Coder Bhai", Color(0xFF4A5468)),
+        Outfit("pyjamas", "Pyjamas", Color(0xFF4F72BD)),
+        Outfit("chef", "Chef", Color(0xFFB07E35)),
+        Outfit("dapper", "Dapper", Color(0xFF3F7A4F)),
+    )
+    fun isOutfit(id: String?) = dogeshOutfits.any { it.id == id }
+
     fun info(id: String): Info = all.firstOrNull { it.id == id } ?: all.first()
 
-    fun accent(id: String, ruiTheme: String): Color = if (id == "rui") ruiAccent[ruiTheme] ?: info("rui").accent else info(id).accent
+    fun accent(id: String, ruiTheme: String, dogeshOutfit: String = "cozy"): Color = when (id) {
+        "rui" -> ruiAccent[ruiTheme] ?: info("rui").accent
+        "dogesh" -> dogeshOutfits.firstOrNull { it.id == dogeshOutfit }?.accent ?: info("dogesh").accent
+        else -> info(id).accent
+    }
 
-    /** The drawable's name for a character in the mood of a session status (Rui: his own pose and look). */
-    fun picture(id: String, ruiLook: String, ruiTheme: String, status: Status): String {
+    /** The drawable's name for a character in the mood of a session status (Rui: his own pose and look; Dogesh Bhai: in his outfit). */
+    fun picture(id: String, ruiLook: String, ruiTheme: String, status: Status, dogeshOutfit: String = "cozy"): String {
         if (id == "rui") {
             val look = if (ruiLook in ruiLooks) ruiLook else "toy"
             val theme = if (ruiTheme in ruiThemes) ruiTheme else "cream"
@@ -51,6 +70,7 @@ object Characters {
             Status.Error -> "droop"
             Status.Idle -> "idle"
         }
+        if (who == "dogesh") return "dogesh_${mood}_${if (isOutfit(dogeshOutfit)) dogeshOutfit else "cozy"}"
         return "char_${who}_$mood"
     }
 }
@@ -67,14 +87,17 @@ object Look {
         private set
     var ruiTheme by mutableStateOf("cream")
         private set
+    var dogeshOutfit by mutableStateOf("cozy")
+        private set
 
-    val accent: Color get() = Characters.accent(character, ruiTheme)
+    val accent: Color get() = Characters.accent(character, ruiTheme, dogeshOutfit)
 
-    /** Shows `id` (and Rui's look and colour). Unknown names are ignored. */
-    fun show(id: String, look: String? = null, theme: String? = null) {
+    /** Shows `id` (and Rui's look and colour, Dogesh Bhai's outfit). Unknown names are ignored. */
+    fun show(id: String, look: String? = null, theme: String? = null, outfit: String? = null) {
         if (Characters.all.none { it.id == id }) return
         character = id
         if (look != null && look in Characters.ruiLooks) ruiLook = look
         if (theme != null && theme in Characters.ruiThemes) ruiTheme = theme
+        if (outfit != null && Characters.isOutfit(outfit)) dogeshOutfit = outfit
     }
 }

@@ -50,7 +50,7 @@ impl Shared {
     pub fn new() -> Arc<Shared> {
         Arc::new(Shared {
             sessions: watch::channel(Arc::new(proto::sessions(&serde_json::json!([])))).0,
-            character: watch::channel(Arc::new(proto::character("kulhi", "toy", "cream"))).0,
+            character: watch::channel(Arc::new(proto::character("kulhi", "toy", "cream", "cozy"))).0,
             kick: watch::channel(0).0,
             news: watch::channel(0).0,
             phones: Mutex::new(Vec::new()),
@@ -92,7 +92,7 @@ pub trait Host: Send + Sync + 'static {
     /// A further prompt for a held turn; false when it's no longer held.
     fn reply(&self, rid: &str, text: &str) -> bool;
     /// The user picked a character on the phone; false when it isn't a known one.
-    fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool;
+    fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>, outfit: Option<&str>) -> bool;
     /// The PC's addresses a phone could reach right now.
     fn addresses(&self) -> Vec<String>;
     /// The relay's address while the relay is on (relay.rs).
@@ -227,9 +227,9 @@ where
                         let done = host.reply(&rid, &text);
                         Some(proto::decided(&rid, done))
                     }
-                    Ok(FromPhone::Character { id, look, theme }) => {
+                    Ok(FromPhone::Character { id, look, theme, outfit }) => {
                         // The change comes back to every phone through the `character` channel.
-                        host.set_character(&id, look.as_deref(), theme.as_deref());
+                        host.set_character(&id, look.as_deref(), theme.as_deref(), outfit.as_deref());
                         None
                     }
                     Ok(FromPhone::Away { on }) => {
@@ -347,7 +347,7 @@ mod tests {
             self.replies.lock().unwrap().push((rid.into(), text.into()));
             rid == "held"
         }
-        fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool {
+        fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>, _outfit: Option<&str>) -> bool {
             self.characters.lock().unwrap().push((id.into(), look.map(Into::into), theme.map(Into::into)));
             id != "bogus"
         }
@@ -406,7 +406,7 @@ mod tests {
 
             // Picking a character on the phone goes to the host; a change on the PC reaches the phone.
             w.write_all(b"{\"t\":\"character\",\"id\":\"glim\"}\n").await.unwrap();
-            shared.character.send_replace(Arc::new(proto::character("glim", "toy", "cream")));
+            shared.character.send_replace(Arc::new(proto::character("glim", "toy", "cream", "cozy")));
             let c = read_line(&mut r).await;
             assert_eq!((c["t"].as_str(), c["id"].as_str()), (Some("character"), Some("glim")));
             assert_eq!(host.characters.lock().unwrap()[0].0, "glim");

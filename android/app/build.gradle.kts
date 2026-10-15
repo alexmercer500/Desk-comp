@@ -24,8 +24,8 @@ android {
         // 11+: the combined fingerprint-or-screen-lock prompt for Allow needs it.
         minSdk = 30
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.4.3"
+        versionCode = 9
+        versionName = "0.4.4"
         buildConfigField("String", "UPDATE_URL", "\"$updateUrl\"")
     }
     signingConfigs {

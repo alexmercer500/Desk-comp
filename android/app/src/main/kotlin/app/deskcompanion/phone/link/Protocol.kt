@@ -29,10 +29,11 @@ object Protocol {
         return line(JSONObject().put("t", "answer").put("rid", rid).put("answers", o))
     }
     fun reply(rid: String, text: String) = line(JSONObject().put("t", "reply").put("rid", rid).put("text", text))
-    fun character(id: String, look: String?, theme: String?): String {
+    fun character(id: String, look: String?, theme: String?, outfit: String? = null): String {
         val o = JSONObject().put("t", "character").put("id", id)
         if (look != null) o.put("look", look)
         if (theme != null) o.put("theme", theme)
+        if (outfit != null) o.put("outfit", outfit)
         return line(o)
     }
     fun away(on: Boolean) = line(JSONObject().put("t", "away").put("on", on))
@@ -48,7 +49,7 @@ object Protocol {
         data class Sessions(val sessions: List<Session>) : FromPc
         data class Decided(val rid: String, val ok: Boolean) : FromPc
         /** The character the PC shows (and Rui's look and colour). */
-        data class Character(val id: String, val look: String?, val theme: String?) : FromPc
+        data class Character(val id: String, val look: String?, val theme: String?, val outfit: String? = null) : FromPc
         data object Pong : FromPc
         /** A newer PC's message: ignored. */
         data object Other : FromPc
@@ -71,7 +72,7 @@ object Protocol {
             "error" -> FromPc.Error(o.optString("code"), o.optString("message"))
             "sessions" -> FromPc.Sessions(sessions(o.optJSONArray("sessions") ?: JSONArray()))
             "decided" -> FromPc.Decided(o.optString("rid"), o.optBoolean("ok", false))
-            "character" -> FromPc.Character(o.optString("id"), o.optStringOrNull("look"), o.optStringOrNull("theme"))
+            "character" -> FromPc.Character(o.optString("id"), o.optStringOrNull("look"), o.optStringOrNull("theme"), o.optStringOrNull("outfit"))
             "pong" -> FromPc.Pong
             "" -> null
             else -> FromPc.Other

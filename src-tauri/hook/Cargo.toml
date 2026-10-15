@@ -1,6 +1,6 @@
 [package]
 name = "companion-hook"
-version = "0.10.0"
+version = "0.10.1"
 description = "Relay that coding agents run on each hook event; forwards it to the desktop companion"
 edition = "2021"
 

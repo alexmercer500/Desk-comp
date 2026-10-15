@@ -93,10 +93,13 @@ impl Host for AppHost {
     fn reply(&self, rid: &str, text: &str) -> bool {
         crate::agents::reply_from_phone(&self.0, rid, text)
     }
-    fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>) -> bool {
+    fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>, outfit: Option<&str>) -> bool {
         // Same checks as picking it in Settings: unknown names are refused.
         let set = |key: &str, v: &str| crate::system::update(&self.0, key, &Value::String(v.to_string())).is_ok();
-        set("character", id) && look.is_none_or(|l| set("ruiLook", l)) && theme.is_none_or(|t| set("ruiTheme", t))
+        set("character", id)
+            && look.is_none_or(|l| set("ruiLook", l))
+            && theme.is_none_or(|t| set("ruiTheme", t))
+            && outfit.is_none_or(|o| set("dogeshOutfit", o))
     }
     fn addresses(&self) -> Vec<String> {
         hosts()
@@ -183,10 +186,10 @@ fn publish(link: &PhoneLink) -> Result<(), String> {
     Ok(())
 }
 
-/// The character (or Rui's look or colour) changed on the PC: tell the phones.
+/// The character (or Rui's look or colour, or Dogesh Bhai's outfit) changed on the PC: tell the phones.
 pub fn character_changed(app: &AppHandle) {
     let p = crate::system::current(app);
-    let line = proto::character(&p.character, &p.rui_look, &p.rui_theme);
+    let line = proto::character(&p.character, &p.rui_look, &p.rui_theme, &p.dogesh_outfit);
     app.state::<PhoneLink>().shared.character.send_if_modified(|current| {
         if **current == line {
             return false;

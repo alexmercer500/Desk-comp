@@ -36,9 +36,9 @@ fun MoodOrb(status: Status, modifier: Modifier = Modifier, size: Dp = 96.dp) = C
 
 /** A given character in a mood (the picker shows all of them; everything else shows the chosen one). */
 @Composable
-fun CharacterPicture(character: String, status: Status, size: Dp, modifier: Modifier = Modifier) {
+fun CharacterPicture(character: String, status: Status, size: Dp, modifier: Modifier = Modifier, outfit: String = Look.dogeshOutfit) {
     val ctx = LocalContext.current
-    val name = Characters.picture(character, Look.ruiLook, Look.ruiTheme, status)
+    val name = Characters.picture(character, Look.ruiLook, Look.ruiTheme, status, outfit)
     val id = remember(name) { ctx.resources.getIdentifier(name, "drawable", ctx.packageName).takeIf { it != 0 } ?: R.drawable.char_kulhi_idle }
     val loop = rememberInfiniteTransition(label = "float")
     val t by loop.animateFloat(0f, 1f, infiniteRepeatable(tween(3600, easing = LinearEasing), RepeatMode.Restart), label = "t")

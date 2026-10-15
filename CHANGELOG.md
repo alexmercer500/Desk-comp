@@ -9,6 +9,11 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.10.1 (15 October 2026, Android 0.4.4)
+
+- **Dogesh Bhai's outfits on your phone.** The phone app now shows Dogesh Bhai in the outfit he wears on your PC, in every mood (working, needs you, done, droop, asleep), and takes the outfit's colour. You can pick his outfit on the phone too: Settings → Character → Dogesh Bhai, and the PC changes into it. Both directions need both apps updated; an older one just keeps the Cozy scarf.
+- **Android: the character picker no longer squeezes.** Settings → Character shows the characters three to a line instead of six in one row, so their names fit and the pictures are bigger.
+
 ## 0.10.0 (15 October 2026, Android 0.4.3 carried over)
 
 - **Dogesh Bhai's outfits.** Dogesh Bhai now has nine outfits, each in its own fur colour: **Cozy scarf** (his first look), **Desi Bhai** (kurta, Nehru jacket and cap), **Detective** (trench coat, deerstalker and magnifying glass), **Superhero** (cape, mask and a lightning badge), **Rainy day** (raincoat, rain hat and boots), **Coder Bhai** (hoodie, headphones and glasses), **Pyjamas** (with a floppy nightcap), **Chef** (apron and a tall hat) and **Dapper** (sweater vest, bow tie and flat cap). Pick one in Settings → Character → Dogesh Bhai → **Outfit**. Each outfit has its own way of hiding when an agent needs you: he pulls the cap down, hides in his hood or cape, or behind a frying pan. He changes into a new outfit in a puff of smoke or behind a folding screen with clothes flying over the top. Both 3D and 2D have the outfits, and with the Character theme every window takes the outfit's colours.

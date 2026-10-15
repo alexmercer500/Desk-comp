@@ -230,7 +230,7 @@ pub fn update(app: &AppHandle, key: &str, value: &Value) -> Result<Prefs, String
     } else if (next.phone_relay, &next.relay_url) != (before.phone_relay, &before.relay_url) {
         crate::phone::relay_changed(app);
     }
-    if (&next.character, &next.rui_look, &next.rui_theme) != (&before.character, &before.rui_look, &before.rui_theme) {
+    if (&next.character, &next.rui_look, &next.rui_theme, &next.dogesh_outfit) != (&before.character, &before.rui_look, &before.rui_theme, &before.dogesh_outfit) {
         crate::phone::character_changed(app);
     }
     broadcast(app);

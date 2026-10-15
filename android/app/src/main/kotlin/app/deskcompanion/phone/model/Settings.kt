@@ -26,6 +26,9 @@ class Settings(
     var ruiTheme: String
         get() = readText("ruiTheme", "cream")
         set(v) = writeText("ruiTheme", v)
+    var dogeshOutfit: String
+        get() = readText("dogeshOutfit", "cozy")
+        set(v) = writeText("dogeshOutfit", v)
 
     var notifyDone: Boolean
         get() = read("notifyDone", true)

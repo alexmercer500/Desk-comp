@@ -1,5 +1,6 @@
-// Renders the pictures the Android app shows for the four 2D characters
-// (android/app/src/main/res/drawable-nodpi/char_<id>_<mood>.webp), with
+// Renders the pictures the Android app shows for the 2D characters
+// (android/app/src/main/res/drawable-nodpi/char_<id>_<mood>.webp, and Dogesh
+// Bhai's in every outfit: dogesh_<mood>_<outfit>.webp), with
 // headless Chrome (or Edge) and the Vite dev server. Rui's come from his own
 // stills (scripts/make-rui-stills.mjs) and are copied by this script too.
 // Run it again whenever a character's drawing changes.
@@ -56,13 +57,15 @@ try {
   const bytes = (dataUrl) => Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
 
   mkdirSync(outDir, { recursive: true });
-  for (const f of readdirSync(outDir)) if (/^(char|rui)_.*\.webp$/.test(f)) rmSync(join(outDir, f));
+  for (const f of readdirSync(outDir)) if (/^(char|rui|dogesh)_.*\.webp$/.test(f)) rmSync(join(outDir, f));
   let total = 0;
   for (const [name, dataUrl] of Object.entries(pictures)) {
     if (!dataUrl.startsWith("data:image/webp")) throw new Error(`${name} isn't a WebP picture`);
     const b = bytes(dataUrl);
     total += b.length;
-    writeFileSync(join(outDir, `char_${name.replace("-", "_")}.webp`), b);
+    // dogesh-<mood>-<outfit> → dogesh_<mood>_<outfit>; the others char_<id>_<mood>.
+    const file = name.startsWith("dogesh-") ? name.replaceAll("-", "_") : `char_${name.replace("-", "_")}`;
+    writeFileSync(join(outDir, `${file}.webp`), b);
   }
   // Rui's own stills, as they are: rui_<pose>_<look>_<colour>.
   const ruiDir = join(root, "src", "assets", "rui");

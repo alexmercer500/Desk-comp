@@ -551,7 +551,7 @@ mod tests {
         fn reply(&self, _: &str, _: &str) -> bool {
             false
         }
-        fn set_character(&self, _: &str, _: Option<&str>, _: Option<&str>) -> bool {
+        fn set_character(&self, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> bool {
             false
         }
         fn addresses(&self) -> Vec<String> {
