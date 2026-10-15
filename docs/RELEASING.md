@@ -46,7 +46,9 @@ reinstall. Keep them off chat, email and synced folders.
 
 ### Releasing from a second machine
 
-Install the same tools (Node, Rust, JDK 17 + Android SDK, `gh`), clone the repo, `gh auth login`,
+Step by step, with commands: `docs/RELEASE-MACHINE-SETUP.md`. Afterwards,
+`node scripts/check-release-keys.mjs` confirms the copied keys are the real ones (it never prints a
+secret). In short: install the same tools (Node, Rust, JDK 17 + Android SDK, `gh`), clone the repo, `gh auth login`,
 then copy the three key files above and `.env` from your backup (the `storeFile` path in
 `keystore.properties` must point at where you put the `.jks`). `git pull` before every release,
 `git push` after.
