@@ -400,13 +400,18 @@ function build() {
   controls.set("version", version);
 
   // Updates: what's on offer, and the buttons to get it.
+  // The status (which can be a long error) sits under the title; only the button is on the right.
   const updateLine = el("div", "set-key");
   controls.set("update", updateLine);
+  const updateStatus = el("span", "set-hint set-update-status");
+  controls.set("updateStatus", updateStatus);
+  const updatesRow = row("Updates", null, updateLine);
+  updatesRow.querySelector(".set-text")?.append(updateStatus);
   const system = section(
     "System",
     row("Start with Windows", null, autostart, autostart.id),
     switchRow("autoUpdate", "Check for updates automatically", "Every few hours. Installing always waits for your click."),
-    row("Updates", null, updateLine),
+    updatesRow,
     version,
   );
   void checkUpdates(false);
@@ -449,9 +454,11 @@ async function installUpdate() {
 
 function drawUpdates() {
   const line = controls.get("update");
-  if (!line) return;
+  const status = controls.get("updateStatus");
+  if (!line || !status) return;
   line.replaceChildren();
-  const hint = (text: string) => line.append(el("span", "set-hint", text));
+  status.textContent = "";
+  const hint = (text: string) => (status.textContent = text);
   const button = (text: string, onClick: () => void, disabled = false) => {
     const b = el("button", "set-button", text);
     b.type = "button";

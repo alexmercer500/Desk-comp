@@ -569,6 +569,9 @@ label.set-text { cursor: pointer; }
 .set-button:disabled { opacity: 0.45; cursor: default; }
 .set-button:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
 .set-key { display: flex; align-items: center; gap: 10px; }
+/* A long update error wraps under its title instead of running over it. */
+.set-update-status { overflow-wrap: anywhere; }
+.set-update-status:empty { display: none; }
 
 /* The relay's address: a full-width field under its title. */
 .set-relay-address { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px; }

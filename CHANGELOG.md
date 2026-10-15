@@ -9,6 +9,14 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.8.6 (15 October 2026)
+
+- **Fixed: "Couldn't check for updates" on some networks.** GitHub serves updates from several addresses, and on some networks one of them refuses every connection while the others work. The app used to try only the first one Windows gave it. Now a failed check or download tries again from a different address, up to four times. A bad update signature is never retried.
+- **Clearer update errors.** When a check still fails, the message says why (for example "connection reset"), not just "error sending request".
+- **Fixed:** in Settings → System, a long update message ran over the "Updates" title. It now sits under the title, with the button on the right.
+- If you're on 0.8.4 or 0.8.5 on such a network, that copy can't update itself there: install 0.8.6 by hand once. Updates work from then on.
+- `scripts/release.mjs --skip-android` (or `--skip-windows`) now falls back to this machine's copy of the other app's manifest when it can't download it from GitHub.
+
 ## 0.8.5 (14 October 2026, Android 0.4.2)
 
 - **Test release: The Little Mug That Updated Itself.** Once there was a clay mug on a desk who watched the robots work all day. One morning a note arrived through the post: a new version of you is ready. The mug did not panic. It checked the note was really from home, packed its things, and when the screen blinked it was a little taller, a little wiser, and still the same mug. Nothing else changed in this version; if you can read this on your phone, updating works.

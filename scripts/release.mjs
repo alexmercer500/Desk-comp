@@ -226,8 +226,24 @@ function carryOver() {
     }
     const got = spawnSync("gh", ["release", "download", "--repo", github, "--pattern", file, "--dir", out, "--clobber"], { cwd: root, stdio: "inherit" });
     if (got.status === 0 && existsSync(path.join(out, file))) files.push(file);
+    else if (localCopy(file)) files.push(file);
     else console.log(`Note: no earlier ${file} found on ${github}; that app has no update from this release.`);
   }
+}
+
+/**
+ * The download can fail on a network that can't reach GitHub's download host (the API host is
+ * a different one). Then the file is taken from this machine's copy of the latest release, if
+ * it has one: release/<latest version>/<file>.
+ */
+function localCopy(file) {
+  const latest = spawnSync("gh", ["release", "view", "--repo", github, "--json", "tagName", "--jq", ".tagName"], { cwd: root, encoding: "utf8" });
+  const tag = latest.status === 0 ? latest.stdout.trim() : "";
+  const from = tag && path.join(root, "release", tag.replace(/^v/, ""), file);
+  if (!from || !existsSync(from)) return false;
+  copyFileSync(from, path.join(out, file));
+  console.log(`Couldn't download ${file}; using this machine's copy from ${tag} (${path.relative(root, from)}).`);
+  return true;
 }
 
 /** This version's section of CHANGELOG.md, as plain text. */

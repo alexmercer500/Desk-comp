@@ -10,11 +10,12 @@
 // Check for updates automatically), and says so once per new version. Nothing
 // is installed without a click: installing restarts the app.
 
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 
 use crate::{desktop, system};
 
@@ -22,6 +23,13 @@ use crate::{desktop, system};
 const UPDATE_URL: Option<&str> = option_env!("DESK_COMPANION_UPDATE_URL");
 const FIRST_CHECK: Duration = Duration::from_secs(90);
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// A check is one small file; a dead address resets after ~15 s, so don't wait longer than this.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(20);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// Each attempt starts from a different address of the hosts below.
+const ATTEMPTS: usize = 4;
+/// Where a check and a download go (GitHub sends the files on to its download hosts).
+const HOSTS: [&str; 3] = ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"];
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,11 +42,84 @@ pub struct UpdateInfo {
     notes: Option<String>,
 }
 
+/// Checks for an update. Some networks can't reach one of a host's addresses (GitHub's download
+/// host has four; one reset every connection on a user's network while the others worked), and
+/// the HTTP client sticks to the first address the system gives it. So a failed attempt is
+/// repeated starting from the next address, up to [ATTEMPTS] times.
 async fn find(app: &AppHandle) -> Result<Option<Update>, String> {
     let Some(url) = UPDATE_URL else { return Ok(None) };
+    let addresses = addresses(url).await;
+    let mut last = String::new();
+    for attempt in 0..ATTEMPTS {
+        match updater(app, url, &addresses, attempt, CHECK_TIMEOUT)?.check().await {
+            Ok(found) => return Ok(found),
+            Err(e) => last = chain(&e),
+        }
+    }
+    Err(format!("Couldn't check for updates: {last}"))
+}
+
+/// The update client for one attempt: each host's addresses, rotated by `attempt`, so the
+/// connection starts from a different one each time.
+fn updater(app: &AppHandle, url: &str, addresses: &[(String, Vec<SocketAddr>)], attempt: usize, timeout: Duration) -> Result<Updater, String> {
     let url = url.parse().map_err(|e| format!("bad update address: {e}"))?;
-    let updater = app.updater_builder().endpoints(vec![url]).map_err(|e| e.to_string())?.build().map_err(|e| e.to_string())?;
-    updater.check().await.map_err(|e| format!("Couldn't check for updates: {e}"))
+    let pinned: Vec<(String, Vec<SocketAddr>)> = addresses
+        .iter()
+        .map(|(host, list)| {
+            let mut list = list.clone();
+            let n = list.len();
+            list.rotate_left(attempt % n);
+            (host.clone(), list)
+        })
+        .collect();
+    app.updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| e.to_string())?
+        .timeout(timeout)
+        .configure_client(move |mut client| {
+            for (host, list) in &pinned {
+                client = client.resolve_to_addrs(host, list);
+            }
+            client
+        })
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// The addresses of the update hosts (and of the update address's own host), looked up once.
+/// A host that can't be looked up is left to the client's own lookup.
+async fn addresses(url: &str) -> Vec<(String, Vec<SocketAddr>)> {
+    let mut hosts: Vec<String> = HOSTS.iter().map(|h| h.to_string()).collect();
+    if let Some(own) = url.parse::<tauri::Url>().ok().and_then(|u| u.host_str().map(str::to_owned)) {
+        if !hosts.contains(&own) {
+            hosts.push(own);
+        }
+    }
+    let mut out = Vec::new();
+    for host in hosts {
+        let found = tokio::net::lookup_host((host.as_str(), 443)).await.map(|f| f.collect::<Vec<SocketAddr>>());
+        if let Ok(list) = found {
+            if !list.is_empty() {
+                out.push((host, list));
+            }
+        }
+    }
+    out
+}
+
+/// An error with its causes ("error sending request" alone says nothing about why).
+fn chain(e: &dyn std::error::Error) -> String {
+    let mut text = e.to_string();
+    let mut cause = e.source();
+    while let Some(c) = cause {
+        let more = c.to_string();
+        if !text.contains(&more) {
+            text.push_str(": ");
+            text.push_str(&more);
+        }
+        cause = c.source();
+    }
+    text
 }
 
 fn info(app: &AppHandle, update: Option<&Update>) -> UpdateInfo {
@@ -60,12 +141,29 @@ pub async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
 /// tauri.conf.json before anything runs), installs it and restarts.
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
-    let update = find(&app).await?.ok_or("You already have the latest version.")?;
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| format!("The update didn't install: {e}"))?;
-    app.restart();
+    let Some(url) = UPDATE_URL else { return Err("This build doesn't update.".into()) };
+    let addresses = addresses(url).await;
+    let mut last = String::new();
+    for attempt in 0..ATTEMPTS {
+        // The download goes through the same attempt's client, so it starts from the same address.
+        let update = match updater(&app, url, &addresses, attempt, DOWNLOAD_TIMEOUT)?.check().await {
+            Ok(Some(update)) => update,
+            Ok(None) => return Err("You already have the latest version.".into()),
+            Err(e) => {
+                last = chain(&e);
+                continue;
+            }
+        };
+        match update.download_and_install(|_, _| {}, || {}).await {
+            Ok(()) => app.restart(),
+            // A bad signature is not a network problem: never retry past it.
+            Err(e @ tauri_plugin_updater::Error::Minisign(_)) | Err(e @ tauri_plugin_updater::Error::SignatureUtf8(_)) => {
+                return Err(format!("The update didn't install: {}", chain(&e)))
+            }
+            Err(e) => last = chain(&e),
+        }
+    }
+    Err(format!("The update didn't install: {last}"))
 }
 
 /// Checks in the background and mentions a new version once.
@@ -81,7 +179,7 @@ pub fn spawn(app: AppHandle) {
             match find(&app).await {
                 Ok(Some(update)) => match update.download(|_, _| {}, || {}).await {
                     Ok(bytes) => eprintln!("[updates] self-test: {} offered, {} bytes downloaded, signature verified", update.version, bytes.len()),
-                    Err(e) => eprintln!("[updates] self-test: {} offered, download/verify FAILED: {e}", update.version),
+                    Err(e) => eprintln!("[updates] self-test: {} offered, download/verify FAILED: {}", update.version, chain(&e)),
                 },
                 Ok(None) => eprintln!("[updates] self-test: no newer version offered"),
                 Err(e) => eprintln!("[updates] self-test: {e}"),
