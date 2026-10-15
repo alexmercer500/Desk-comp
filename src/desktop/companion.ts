@@ -50,6 +50,8 @@ export interface Prefs {
   ruiFlatOnBattery?: boolean;
   /** Dogesh Bhai in "3d" (like Rui) or "2d". */
   dogeshStyle?: string;
+  /** Dogesh Bhai's outfit (src/skins/dogesh-outfits.ts). */
+  dogeshOutfit?: string;
   /** A paired phone sees the sessions and can answer requests (phone link). */
   phoneLink?: boolean;
 }

@@ -16,6 +16,17 @@
 // puddle of fear and popping back up. Own identity markers: cream fur, a ROUND
 // cocoa nose, three freckles per cheek, the teal scarf.
 //
+// Outfits (dogesh-outfits.ts, picked in Settings with setDogeshOutfit): each is
+// his clothes and the fur he wears them in. The cozy scarf above is the first;
+// the others (Desi Bhai's kurta, jacket and cap; the detective's trench coat and
+// deerstalker; the hero's cape and mask; the rainy-day coat, hat and boots; the
+// coder's hoodie, headphones and glasses; pyjamas and nightcap; the chef's apron
+// and toque; the dapper vest, bow tie and flat cap) are drawn into the same rig
+// (sleeves on the noodle arms, a top in torso space, hats in head space) and
+// each hides its own way: pulling a hat down over his eyes, the collar up, the
+// cape round him, the hood drawn tight, a frying pan up. Some bring props: the
+// detective's magnifying glass, the coder's laptop and music. See "Outfits" below.
+//
 // Drawing space: units, origin on the ground under him, y down. The rig is
 // computed in "body space"; the torso rotates (hunches) round the hips, the head
 // hangs off the neck, and the whole figure is nudged left by DX so the long
@@ -28,7 +39,9 @@ import {
   DEG, ENGINE_REST, TAU, confusedTilt, crossedAt, dizzyWobble, heldSwing,
   notifyPop, sleepyFace, wakeBlink, workNod,
 } from "./common";
+import { OUTFITS, isOutfit, type OutfitName } from "./dogesh-outfits";
 
+/** His colours. The fur parts change with the outfit picked in Settings (setDogeshOutfit). */
 const C = {
   fur: "#F3DFA8",
   furShade: "#DCC07F",
@@ -52,6 +65,36 @@ const C = {
   sweat: "#B4E3F7",
   sweatEdge: "#5AA9CF",
 };
+
+/** The outfit he's drawn in now. */
+let outfit: OutfitName = "cozy";
+
+/** Dresses him in an outfit (dogesh-outfits.ts): every drawing from now on shows it. */
+export function setDogeshOutfit(name: unknown): void {
+  if (!isOutfit(name)) return;
+  outfit = name;
+  const f = OUTFITS[name].fur;
+  Object.assign(C, {
+    fur: f.fur.color, furShade: f.fur.shade, furLight: f.furLight, pale: f.pale.color, line: f.line,
+    ear: f.ear.color, earTip: f.earTip.color, brow: f.brow.color, freckle: f.freckle.color,
+  });
+}
+
+/** The outfit he's in now. */
+export function dogeshOutfit(): OutfitName {
+  return outfit;
+}
+
+/** Draws in another outfit for a moment (Settings' pictures of each), then back. */
+export function withDogeshOutfit<T>(name: OutfitName, fn: () => T): T {
+  const was = outfit;
+  setDogeshOutfit(name);
+  try {
+    return fn();
+  } finally {
+    setDogeshOutfit(was);
+  }
+}
 
 type Pt = [number, number];
 
@@ -106,6 +149,10 @@ const rest: Pose = {
   shiver: 0,
   /** Curled up asleep (0…1), and a dreaming twitch. */
   curl: 0, dream: 0,
+  /** Outfits: a prop in his paw (detective's magnifying glass, coder's laptop; 0…1), music notes (phase). */
+  prop: 0, music: 0,
+  /** Coder: loosening his drawn-tight hood to peek out (0…1). */
+  peek: 0,
 };
 
 const PAW_L: Pt = [0.05, -0.43];
@@ -206,7 +253,126 @@ function hiding(t: number, m: number): Partial<Pose> {
   };
 }
 
+/** IDLE's quirk clock: every 7 s one of six quirks (`act`), faded in and out by `w`. */
+function idleQuirk(t: number): { into: number; w: number; act: number } {
+  const cycle = Math.floor((t + 3) / 7);
+  const into = t + 3 - cycle * 7;
+  const w = into < 2.6 ? smoothstep(0, 0.25, into) * smoothstep(2.6, 2.3, into) : 0;
+  return { into, w, act: Math.floor(hash01(cycle + 21) * 6) };
+}
+
+/** Paw targets for the outfits (body space, like the others). */
+const GLASS: Pt = [0.235, -0.79];
+/** Coder: the far paw holds the laptop up from below, the near one types. */
+const TYPE_L: Pt = [0.33, -0.468];
+const TYPE_R: Pt = [0.215, -0.522];
+const PAN_L: Pt = [0.25, -0.44];
+const PAN_R: Pt = [0.31, -0.45];
+/** Pulling a hat down: the far paw at its back edge, the near one at its front tip. */
+const BRIM_L: Pt = [-0.06, -0.855];
+const BRIM_R: Pt = [0.36, -0.835];
+const STRINGS_L: Pt = [0.27, -0.58];
+const STRINGS_R: Pt = [0.33, -0.6];
+
+/**
+ * The outfit's own touches on a pose: how he hides in it (pulling a hat down,
+ * a pan up, drawstrings tight), and the props he plays with (the detective's
+ * magnifying glass, the coder's laptop and music).
+ */
+function dress(i: PoseInput, out: PoseOut): PoseOut {
+  if (outfit === "cozy") return out;
+  const p = out.pose;
+  const { st, t, motion: m } = i;
+  const hide = clamp(p.hide ?? 0, 0, 1);
+  const pawsTo = (l: Pt, r: Pt, k: number) => {
+    if (k <= 0) return;
+    p.pawLX = lerp(p.pawLX ?? rest.pawLX, l[0], k);
+    p.pawLY = lerp(p.pawLY ?? rest.pawLY, l[1], k);
+    p.pawRX = lerp(p.pawRX ?? rest.pawRX, r[0], k);
+    p.pawRY = lerp(p.pawRY ?? rest.pawRY, r[1], k);
+  };
+  const nearPawTo = (r: Pt, k: number) => {
+    p.pawRX = lerp(p.pawRX ?? rest.pawRX, r[0], k);
+    p.pawRY = lerp(p.pawRY ?? rest.pawRY, r[1], k);
+  };
+  switch (outfit) {
+    case "desi":
+    case "rainy":
+    case "dapper":
+    case "pyjamas":
+      // Pulls his hat down over his eyes and peeks out from under it.
+      if (hide > 0) {
+        // (Paws reach the brim early and leave it late: they hold the hat as he lifts it.)
+        pawsTo(BRIM_L, BRIM_R, smoothstep(0, 0.3, hide));
+        p.gazeLockY = lerp(p.gazeLockY ?? 0, 0.85, hide);
+      }
+      break;
+    case "chef":
+      // Hides behind a frying pan.
+      pawsTo(PAN_L, PAN_R, hide);
+      break;
+    case "detective": {
+      // Collar up, chin tucked down into it, sinking into his coat (and
+      // screaming into it).
+      if (hide > 0) {
+        p.hunch = lerp(p.hunch ?? rest.hunch, 0.06, hide);
+        p.headX = (p.headX ?? 0) - 0.07 * hide;
+        p.headY = (p.headY ?? 0) + 0.08 * hide;
+        p.headTilt = (p.headTilt ?? 0) + 0.5 * hide;
+        p.neck = (p.neck ?? 0) - 0.02 * hide;
+        p.mouthO = (p.mouthO ?? 0) * (1 - hide);
+        p.tongue = (p.tongue ?? 0) * (1 - hide);
+      }
+      // The magnifying glass up to his eye: while working, and for some idle double takes.
+      let k = 0;
+      if (i.state === "WORKING") k = kf(st, [[0, 0], [350, 1, Ease.outBack]]);
+      else if (i.state === "IDLE") {
+        const q = idleQuirk(t);
+        if (q.act === 0) k = q.w;
+      }
+      if (k > 0) {
+        p.prop = k;
+        nearPawTo(add(GLASS, 0.01 * Math.sin(t * 2.1) * m, 0.008 * Math.sin(t * 3.3) * m), k);
+      }
+      break;
+    }
+    case "coder":
+      // Drawstrings pulled tight; every few seconds he loosens them to peek out.
+      pawsTo(STRINGS_L, STRINGS_R, hide);
+      if (hide > 0) {
+        const c = (t % 3.2) / 3.2;
+        p.peek = hide * smoothstep(0.5, 0.58, c) * smoothstep(0.92, 0.84, c);
+        // Drawn tight, his eyes and brows stay inside the hood.
+        const shut = hide * (1 - p.peek);
+        p.pop = (p.pop ?? 0) * (1 - shut);
+        p.browUp = (p.browUp ?? 0) * (1 - shut);
+      }
+      if (i.state === "WORKING") {
+        // Typing away, bobbing to the music in his headphones.
+        const k = kf(st, [[0, 0], [300, 1, Ease.outBack]]);
+        const tap = Math.sin(t * 22);
+        const beat = Math.abs(Math.sin(t * Math.PI * 2));
+        p.prop = k;
+        pawsTo(TYPE_L, add(TYPE_R, 0.012 * Math.sin(t * 9) * m, -0.014 * Math.max(0, tap) * m), k);
+        Object.assign(p, {
+          grin: 0, mouthCurve: 0.8, lid: 0.3, brow: 0.15, pop: 0, pupil: 1, shiver: 0, sweat: 0, tailTuck: 0,
+          tail: 0.5 * Math.sin(t * Math.PI * 4) * m,
+          headY: (p.headY ?? 0) + 0.014 * beat * m,
+          headTilt: 0.05 * Math.sin(t * Math.PI * 2) * m,
+          gazeLock: 1, gazeLockX: 0.7, gazeLockY: 0.6,
+          music: m ? (st / 1400) % 1 : 0,
+        });
+      }
+      break;
+  }
+  return out;
+}
+
 function pose(i: PoseInput): PoseOut {
+  return dress(i, basePose(i));
+}
+
+function basePose(i: PoseInput): PoseOut {
   const { st, t, motion: m } = i;
 
   switch (i.state) {
@@ -272,11 +438,8 @@ function pose(i: PoseInput): PoseOut {
         tail: 0.5 * Math.sin(t * 5) * m,
         brow: 0.55,
       };
-      const cycle = Math.floor((t + 3) / 7);
-      const into = t + 3 - cycle * 7;
-      const w = into < 2.6 ? smoothstep(0, 0.25, into) * smoothstep(2.6, 2.3, into) : 0;
+      const { into, w, act } = idleQuirk(t);
       if (w <= 0) return { pose: base, eye: "round" };
-      const act = Math.floor(hash01(cycle + 21) * 6);
       let quirk: Partial<Pose>;
       let eye = "round";
       switch (act) {
@@ -894,22 +1057,30 @@ function drawStanding(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Fram
   const footL = mix([p.footLX, p.footLY], wheel(HIP_L, ph + Math.PI), run);
   const footR = mix([p.footRX, p.footRY], wheel(HIP_R, ph), run);
 
+  const cozy = outfit === "cozy";
   drawTail(g, p);
-  drawScarfEnd(g, p, nb, f);
+  if (cozy) drawScarfEnd(g, p, nb, f);
+  else drawOutfitBack(g, p, nb, f);
 
   // The far legs and arm, behind the body.
   if (run > 0.4) drawWheelBlur(g, run);
-  drawLeg(g, HIP_L, footL, p.kneeL, f);
+  drawLeg(g, HIP_L, footL, p.kneeL, f, -1);
   drawArm(g, shL, [p.pawLX, p.pawLY], -1, f);
 
   drawTorso(g, p);
-  drawLeg(g, HIP_R, footR, p.kneeR, f);
+  drawLeg(g, HIP_R, footR, p.kneeR, f, 1);
+  if (!cozy) drawTop(g, p, f);
 
-  // Thin neck, the scarf round it, and the head on top.
+  // Thin neck, the scarf (or the outfit's collar) round it, and the head on top.
   g.save();
   noodle(g, hose(nb, [hc[0] - 0.04, hc[1] + 0.11], 0.1), 0.05);
   g.restore();
-  drawScarfBand(g, p, nb, f);
+  if (cozy) drawScarfBand(g, p, nb, f);
+  else drawCollar(g, p, nb, f);
+  // Pulling a hat down, his near arm reaches up behind his head: only the mitt
+  // shows, on the brim (so the arm never crosses his face).
+  const armBehind = !cozy && HAT_HIDERS.has(outfit) && p.hide > 0.05;
+  if (armBehind) drawArm(g, shR, [p.pawRX, p.pawRY], 1, f, "arm");
 
   g.save();
   g.translate(hc[0], hc[1]);
@@ -918,7 +1089,9 @@ function drawStanding(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Fram
   drawHead(g, p, eye, f);
   g.restore();
 
-  drawArm(g, shR, [p.pawRX, p.pawRY], 1, f);
+  if (!cozy) drawHeldProp(g, p, hc, eye, f);
+  drawArm(g, shR, [p.pawRX, p.pawRY], 1, f, armBehind ? "mitt" : "all");
+  if (!cozy) drawOutfitFront(g, p, hc, nb);
   drawOverlays(g, p, hc, f);
 }
 
@@ -936,19 +1109,29 @@ function drawWheelBlur(g: CanvasRenderingContext2D, run: number) {
   g.restore();
 }
 
-function drawLeg(g: CanvasRenderingContext2D, hip: Pt, foot: Pt, knee: number, f: Frame) {
+function drawLeg(g: CanvasRenderingContext2D, hip: Pt, foot: Pt, knee: number, f: Frame, side: -1 | 1) {
   g.save();
   noodle(g, hose(hip, foot, -knee), 0.034);
-  // A small knobby foot, toes forward.
+  const boot = outfit === "rainy";
+  if (outfit !== "cozy") dressLeg(g, hip, foot, -knee, side);
+  // A small knobby foot, toes forward (or a rubber boot).
   g.translate(foot[0] + 0.02, foot[1]);
-  g.fillStyle = C.furLight;
+  g.fillStyle = boot ? (side < 0 ? KS("boots") : K("boots")) : C.furLight;
   g.beginPath();
-  g.ellipse(0, 0, 0.043, 0.022, 0, 0, TAU);
+  if (boot) g.ellipse(0.004, -0.004, 0.05, 0.028, 0, 0, TAU);
+  else g.ellipse(0, 0, 0.043, 0.022, 0, 0, TAU);
   g.fill();
   g.strokeStyle = C.line;
   g.lineWidth = 0.008;
   g.stroke();
-  if (f.detail > 0.3) {
+  if (boot) {
+    // The sole.
+    g.lineWidth = 0.007;
+    g.beginPath();
+    g.moveTo(-0.044, 0.008);
+    g.quadraticCurveTo(0.004, 0.026, 0.052, 0.006);
+    g.stroke();
+  } else if (f.detail > 0.3) {
     g.lineWidth = 0.006;
     g.beginPath();
     for (const x of [0.012, 0.027]) {
@@ -960,12 +1143,21 @@ function drawLeg(g: CanvasRenderingContext2D, hip: Pt, foot: Pt, knee: number, f
   g.restore();
 }
 
-function drawArm(g: CanvasRenderingContext2D, shoulder: Pt, paw: Pt, side: -1 | 1, f: Frame) {
+/** An arm and its mitt (or, for an arm drawn behind something, just one of them). */
+function drawArm(g: CanvasRenderingContext2D, shoulder: Pt, paw: Pt, side: -1 | 1, f: Frame, part: "all" | "arm" | "mitt" = "all") {
   // Elbows bow forward, except reaching up behind his head (scratching), where
   // the arm curves back so it never crosses his eyes.
   const behind = clamp((-paw[1] - 0.8) / 0.15, 0, 1) * clamp((shoulder[0] + 0.1 - paw[0]) / 0.06, 0, 1);
+  const bend = 0.35 * side * (1 - 2 * behind);
   g.save();
-  noodle(g, hose(shoulder, paw, 0.35 * side * (1 - 2 * behind)), 0.03);
+  if (part !== "mitt") {
+    noodle(g, hose(shoulder, paw, bend), 0.03);
+    if (outfit !== "cozy") drawSleeve(g, shoulder, paw, bend, side);
+  }
+  if (part === "arm") {
+    g.restore();
+    return;
+  }
   // A little three-fingered mitt.
   const a = Math.atan2(paw[1] - shoulder[1], paw[0] - shoulder[0]);
   g.translate(paw[0], paw[1]);
@@ -1108,14 +1300,18 @@ function drawHead(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Frame) {
   g.restore();
 
   if (earHangs(p.earR)) drawEar(g, p, 1, f);
+  const cozy = outfit === "cozy";
+  if (!cozy) drawHeadwear(g, p, f, "back");
 
   drawMuzzle(g);
   drawCheek(g, p, f);
+  if (!cozy) drawHeadwear(g, p, f, "face");
   drawEye(g, EYE_L, -1, eye, p, f);
   drawEye(g, EYE_R, 1, eye, p, f);
   drawNose(g, 0.262, 0.045);
   drawMouth(g, p, f);
-  if (p.hide > 0.01) drawHood(g, p, f);
+  if (!cozy) drawHeadwear(g, p, f, "front");
+  else if (p.hide > 0.01) drawHood(g, p, f);
 }
 
 /** The long, narrow muzzle, ending under the big round nose. */
@@ -1621,7 +1817,7 @@ function drawCurled(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
   g.stroke();
   g.restore();
 
-  // The scarf spread over him like a blanket, fringe hanging down at the back.
+  // The scarf (or the outfit) spread over him like a blanket.
   const bl = new Path2D();
   bl.moveTo(-0.35, -0.03);
   bl.bezierCurveTo(-0.37, -0.17, -0.26, -0.27, -0.11, -0.265);
@@ -1629,6 +1825,36 @@ function drawCurled(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
   bl.quadraticCurveTo(0.0, -0.08, 0.02, -0.025);
   bl.quadraticCurveTo(-0.16, -0.005, -0.35, -0.03);
   bl.closePath();
+  if (outfit === "cozy") drawScarfBlanket(g, bl);
+  else drawBlanket(g, bl, f);
+
+  // A pillow under his head, in his pyjamas.
+  if (outfit === "pyjamas") drawPillow(g);
+
+  // Front paws under his chin, paddling when he dreams.
+  g.save();
+  g.fillStyle = C.furLight;
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.008;
+  for (const [x, ph] of [[0.12, 0], [0.18, 2]] as const) {
+    g.beginPath();
+    g.ellipse(x + 0.014 * d * Math.sin(f.t * 14 + ph), -0.022, 0.034, 0.02, 0, 0, TAU);
+    g.fill();
+    g.stroke();
+  }
+  g.restore();
+
+  // Head resting on them.
+  g.save();
+  g.translate(0.13, -0.14);
+  g.rotate(0.2);
+  g.scale(1.1, 1.1);
+  drawHead(g, { ...p, pop: 0, earL: Math.min(p.earL, 0.4), earR: Math.min(p.earR, 0.4), hide: 0 }, "closed", f);
+  g.restore();
+}
+
+/** The scarf spread over him like a blanket, fringe hanging down at the back. */
+function drawScarfBlanket(g: CanvasRenderingContext2D, bl: Path2D) {
   g.save();
   g.fillStyle = C.scarf;
   g.fill(bl);
@@ -1654,27 +1880,6 @@ function drawCurled(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
     g.lineTo(-0.335 + j * 0.016, -0.004 + j * 0.002);
   }
   g.stroke();
-  g.restore();
-
-  // Front paws under his chin, paddling when he dreams.
-  g.save();
-  g.fillStyle = C.furLight;
-  g.strokeStyle = C.line;
-  g.lineWidth = 0.008;
-  for (const [x, ph] of [[0.12, 0], [0.18, 2]] as const) {
-    g.beginPath();
-    g.ellipse(x + 0.014 * d * Math.sin(f.t * 14 + ph), -0.022, 0.034, 0.02, 0, 0, TAU);
-    g.fill();
-    g.stroke();
-  }
-  g.restore();
-
-  // Head resting on them.
-  g.save();
-  g.translate(0.13, -0.14);
-  g.rotate(0.2);
-  g.scale(1.1, 1.1);
-  drawHead(g, { ...p, pop: 0, earL: Math.min(p.earL, 0.4), earR: Math.min(p.earR, 0.4), hide: 0 }, "closed", f);
   g.restore();
 }
 
@@ -1716,22 +1921,15 @@ function drawOverlays(g: CanvasRenderingContext2D, p: Pose, hc: Pt, f: Frame) {
   // A whistled note floating up from his lips.
   if (p.note > 0.01) {
     const k = clamp(p.note, 0, 1);
-    g.save();
-    g.globalAlpha *= Math.sin(Math.PI * k);
-    g.translate(hx + 0.36 + 0.04 * Math.sin(k * 9), hy + 0.04 - 0.2 * k);
-    g.rotate(0.15);
-    g.fillStyle = C.line;
-    g.strokeStyle = C.line;
-    g.lineWidth = 0.008;
-    g.beginPath();
-    g.ellipse(0, 0, 0.018, 0.013, -0.4, 0, TAU);
-    g.fill();
-    g.beginPath();
-    g.moveTo(0.016, -0.004);
-    g.lineTo(0.016, -0.065);
-    g.quadraticCurveTo(0.04, -0.05, 0.036, -0.03);
-    g.stroke();
-    g.restore();
+    drawNote(g, hx + 0.36 + 0.04 * Math.sin(k * 9), hy + 0.04 - 0.2 * k, Math.sin(Math.PI * k));
+  }
+
+  // Music leaking out of his headphones.
+  if (p.music > 0.01 && outfit === "coder") {
+    for (const [dx, delay] of [[0, 0], [0.07, 0.5]] as const) {
+      const k = (p.music + delay) % 1;
+      drawNote(g, hx - 0.17 + dx - 0.05 * k, hy - 0.1 - 0.22 * k + 0.02 * Math.sin(k * 12), Math.sin(Math.PI * k));
+    }
   }
 
   // Muttering to himself: a tiny bubble full of scribble.
@@ -1768,19 +1966,39 @@ function drawOverlays(g: CanvasRenderingContext2D, p: Pose, hc: Pt, f: Frame) {
     g.translate(hx + 0.04, hy - 0.36 + 0.01 * Math.sin(f.t * 3));
     g.scale(p.qmark, p.qmark);
     g.rotate(0.15);
-    g.strokeStyle = C.scarfDark;
+    g.strokeStyle = outfit === "cozy" ? C.scarfDark : markColour();
     g.lineWidth = 0.024;
     g.lineCap = "round";
     g.beginPath();
     g.arc(0, -0.035, 0.035, Math.PI * 1.05, Math.PI * 2.45);
     g.quadraticCurveTo(0.003, 0.01, 0.0, 0.03);
     g.stroke();
-    g.fillStyle = C.scarfDark;
+    g.fillStyle = outfit === "cozy" ? C.scarfDark : markColour();
     g.beginPath();
     g.arc(0, 0.065, 0.014, 0, TAU);
     g.fill();
     g.restore();
   }
+}
+
+/** A little music note. */
+function drawNote(g: CanvasRenderingContext2D, x: number, y: number, alpha: number) {
+  g.save();
+  g.globalAlpha *= alpha;
+  g.translate(x, y);
+  g.rotate(0.15);
+  g.fillStyle = C.line;
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.008;
+  g.beginPath();
+  g.ellipse(0, 0, 0.018, 0.013, -0.4, 0, TAU);
+  g.fill();
+  g.beginPath();
+  g.moveTo(0.016, -0.004);
+  g.lineTo(0.016, -0.065);
+  g.quadraticCurveTo(0.04, -0.05, 0.036, -0.03);
+  g.stroke();
+  g.restore();
 }
 
 function drawDrop(g: CanvasRenderingContext2D, x: number, y: number, a: number, alpha: number) {
@@ -1799,6 +2017,1453 @@ function drawDrop(g: CanvasRenderingContext2D, x: number, y: number, a: number, 
   g.strokeStyle = C.sweatEdge;
   g.lineWidth = 0.006;
   g.stroke(d);
+  g.restore();
+}
+
+// ── Outfits ───────────────────────────────────────────────────────────────────
+// Each outfit (dogesh-outfits.ts) draws its clothes into the same rig: sleeves
+// along the noodle arms, trousers and boots on the legs, a top in torso space,
+// a collar at the neck, headwear in head space, and its own way of hiding.
+
+const NO_TONE = { color: "#888888", shade: "#666666" };
+const tone = (k: string) => OUTFITS[outfit].cloth[k] ?? NO_TONE;
+/** A cloth colour of the current outfit, and its shaded side. */
+const K = (k: string) => tone(k).color;
+const KS = (k: string) => tone(k).shade;
+
+/** Each outfit's colour for his "?". */
+const MARK: Record<OutfitName, string> = {
+  cozy: "scarfDark", desi: "jacket", detective: "coatDark", hero: "cape", rainy: "coatDark",
+  coder: "logo", pyjamas: "pj", chef: "neckerchief", dapper: "vest",
+};
+const markColour = () => KS(MARK[outfit]);
+
+/** Fills a shape and outlines it in his line. */
+function paint(g: CanvasRenderingContext2D, path: Path2D, fill: string | CanvasGradient, lw = 0.008) {
+  g.fillStyle = fill;
+  g.fill(path);
+  g.strokeStyle = C.line;
+  g.lineWidth = lw;
+  g.lineJoin = "round";
+  g.stroke(path);
+}
+
+/** Cloth shading: lit up and to the left, shaded down and to the right. */
+function clothShade(g: CanvasRenderingContext2D, name: string, x: number, y: number, r: number): CanvasGradient {
+  const gr = g.createRadialGradient(x - r * 0.4, y - r * 0.5, r * 0.05, x, y, r);
+  gr.addColorStop(0, K(name));
+  gr.addColorStop(0.55, K(name));
+  gr.addColorStop(1, KS(name));
+  return gr;
+}
+
+function dot(g: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, lw = 0.005) {
+  g.beginPath();
+  g.arc(x, y, r, 0, TAU);
+  g.fillStyle = fill;
+  g.fill();
+  g.strokeStyle = C.line;
+  g.lineWidth = lw;
+  g.stroke();
+}
+
+function poly(pts: Pt[]): Path2D {
+  const q = new Path2D();
+  pts.forEach(([x, y], k) => (k ? q.lineTo(x, y) : q.moveTo(x, y)));
+  q.closePath();
+  return q;
+}
+
+/** A point along a rubber-hose limb (the same curve as `hose`), t from 0 at a to 1 at b. */
+function hoseAt(a: Pt, b: Pt, bend: number, t: number): Pt {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1e-6;
+  const nx = -dy / len, ny = dx / len;
+  const k = bend * len * 0.6;
+  const c1: Pt = [a[0] + dx / 3 + nx * k, a[1] + dy / 3 + ny * k];
+  const c2: Pt = [a[0] + (2 * dx) / 3 + nx * k, a[1] + (2 * dy) / 3 + ny * k];
+  const u = 1 - t;
+  const w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
+  return [w0 * a[0] + w1 * c1[0] + w2 * c2[0] + w3 * b[0], w0 * a[1] + w1 * c1[1] + w2 * c2[1] + w3 * b[1]];
+}
+
+/** The part of a limb from t0 to t1 (for sleeves, trousers, boots). */
+function hoseSeg(a: Pt, b: Pt, bend: number, t0: number, t1: number): Path2D {
+  const q = new Path2D();
+  for (let k = 0; k <= 10; k++) {
+    const [x, y] = hoseAt(a, b, bend, lerp(t0, t1, k / 10));
+    if (k) q.lineTo(x, y);
+    else q.moveTo(x, y);
+  }
+  return q;
+}
+
+/** A sleeve: its cloth, how far down the arm it reaches, its width, a cuff, stripes. */
+interface Sleeve { cloth: string; len: number; w: number; cuff?: string; stripe?: string }
+const SLEEVES: Partial<Record<OutfitName, Sleeve>> = {
+  desi: { cloth: "kurta", len: 0.84, w: 0.046 },
+  detective: { cloth: "coat", len: 0.8, w: 0.052, cuff: "coatDark" },
+  rainy: { cloth: "coat", len: 0.82, w: 0.054, cuff: "coatDark" },
+  coder: { cloth: "hoodie", len: 0.84, w: 0.05, cuff: "hoodieLight" },
+  pyjamas: { cloth: "pj", len: 0.84, w: 0.048, cuff: "pj", stripe: "stripe" },
+  dapper: { cloth: "shirt", len: 0.84, w: 0.044, cuff: "shirt" },
+};
+
+/** Stripes along a limb: a broad light band with a thin dark one down its middle. */
+function stripeAlong(g: CanvasRenderingContext2D, path: Path2D, w: number, light: string, dark: string) {
+  g.strokeStyle = light;
+  g.lineWidth = w * 0.55;
+  g.stroke(path);
+  g.strokeStyle = dark;
+  g.lineWidth = w * 0.18;
+  g.stroke(path);
+}
+
+function drawSleeve(g: CanvasRenderingContext2D, a: Pt, b: Pt, bend: number, side: -1 | 1) {
+  const s = SLEEVES[outfit];
+  if (!s) return;
+  const pick = (n: string) => (side < 0 ? KS(n) : K(n));
+  const sleeve = hoseSeg(a, b, bend, 0, s.len);
+  noodle(g, sleeve, s.w, pick(s.cloth));
+  if (s.stripe) stripeAlong(g, sleeve, s.w, pick(s.stripe), pick(s.cloth));
+  if (s.cuff) noodle(g, hoseSeg(a, b, bend, s.len - 0.08, s.len), s.w + 0.006, pick(s.cuff));
+}
+
+/** Pyjama trousers, or rubber boots. */
+function dressLeg(g: CanvasRenderingContext2D, hip: Pt, foot: Pt, bend: number, side: -1 | 1) {
+  const pick = (n: string) => (side < 0 ? KS(n) : K(n));
+  if (outfit === "pyjamas") {
+    const leg = hoseSeg(hip, foot, bend, 0, 0.84);
+    noodle(g, leg, 0.05, pick("pj"));
+    stripeAlong(g, leg, 0.05, pick("stripe"), pick("pj"));
+    noodle(g, hoseSeg(hip, foot, bend, 0.78, 0.84), 0.056, pick("pj"));
+  } else if (outfit === "rainy") {
+    noodle(g, hoseSeg(hip, foot, bend, 0.62, 0.97), 0.052, pick("boots"));
+    noodle(g, hoseSeg(hip, foot, bend, 0.6, 0.64), 0.06, pick("boots"));
+  }
+}
+
+/** A point on the torso's bean (torso space), grown about its middle. */
+function beanPt(a: number, grow: number): Pt {
+  const s = Math.sin(a);
+  const x = 0.1 * Math.cos(a) * (1 + 0.18 * s) + 0.02 * (1 - s * s);
+  return [x * grow, -0.15 + 0.165 * s * grow];
+}
+
+/** A top that follows his torso down to the waist, then hangs to `hem`, flaring out. */
+function garmentPath(hem: number, flare: number, grow = 1.07): Path2D {
+  const q = new Path2D();
+  const a0 = (Math.PI * 5) / 6, a1 = TAU + Math.PI / 6;
+  for (let k = 0; k <= 32; k++) {
+    const [x, y] = beanPt(lerp(a0, a1, k / 32), grow);
+    if (k) q.lineTo(x, y);
+    else q.moveTo(x, y);
+  }
+  const fw = beanPt(a1, grow), bw = beanPt(a0, grow);
+  q.quadraticCurveTo(fw[0] + flare * 0.2, (fw[1] + hem) / 2, fw[0] + flare, hem);
+  q.quadraticCurveTo((fw[0] + bw[0]) / 2, hem + 0.025, bw[0] - flare, hem);
+  q.quadraticCurveTo(bw[0] - flare * 0.2, (bw[1] + hem) / 2, bw[0], bw[1]);
+  q.closePath();
+  return q;
+}
+
+/** Argyle diamonds over an area, with thin crossing lines. */
+function argyle(g: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, a: number, b: number, f: Frame) {
+  g.fillStyle = K("argyle");
+  for (let j = 0; y0 + j * b <= y1 + b; j++) {
+    for (let i = 0; x0 + i * 2 * a <= x1 + 2 * a; i++) {
+      if ((i + j) % 2) continue;
+      const x = x0 + i * 2 * a + (j % 2) * a, y = y0 + j * b;
+      g.fill(poly([[x, y - b], [x + a, y], [x, y + b], [x - a, y]]));
+    }
+  }
+  if (f.detail > 0.2) {
+    g.strokeStyle = "rgba(255,248,230,0.55)";
+    g.lineWidth = 0.004;
+    g.beginPath();
+    for (let x = x0 - (y1 - y0); x < x1 + (y1 - y0); x += 4 * a) {
+      g.moveTo(x, y0);
+      g.lineTo(x + ((y1 - y0) * a) / b, y1);
+      g.moveTo(x, y1);
+      g.lineTo(x + ((y1 - y0) * a) / b, y0);
+    }
+    g.stroke();
+  }
+}
+
+/** The lightning bolt of his badge. */
+const BOLT: Pt[] = [[0.01, -0.032], [-0.016, 0.004], [0.0, 0.004], [-0.01, 0.033], [0.018, -0.008], [0.002, -0.008], [0.014, -0.032]];
+
+/** His top (kurta and jacket, coat, raincoat, hoodie, pyjama top, apron, vest; or the hero's badge), in torso space. */
+function drawTop(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
+  g.save();
+  g.translate(0, HIP_Y);
+  g.rotate(p.hunch);
+  g.scale(1, p.torsoSY);
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  const sh = (n: string) => clothShade(g, n, 0.0, -0.12, 0.27);
+  const inside = (path: Path2D, fn: () => void) => {
+    g.save();
+    g.clip(path);
+    fn();
+    g.restore();
+  };
+  const line = (color: string, w: number, fn: () => void) => {
+    g.strokeStyle = color;
+    g.lineWidth = w;
+    g.beginPath();
+    fn();
+    g.stroke();
+  };
+  switch (outfit) {
+    case "desi": {
+      // A long ivory kurta to mid-thigh, under a maroon Nehru jacket with gold buttons.
+      const kurta = garmentPath(0.15, 0.035);
+      paint(g, kurta, sh("kurta"), 0.009);
+      inside(kurta, () => line(K("gold"), 0.008, () => {
+        g.moveTo(-0.22, 0.128);
+        g.quadraticCurveTo(0.0, 0.155, 0.22, 0.12);
+      }));
+      const jacket = garmentPath(0.035, 0.008, 1.1);
+      paint(g, jacket, sh("jacket"), 0.009);
+      inside(jacket, () => {
+        line(K("gold"), 0.01, () => {
+          g.moveTo(0.06, -0.34);
+          g.quadraticCurveTo(0.118, -0.16, 0.104, 0.07);
+        });
+        line(K("gold"), 0.007, () => {
+          g.moveTo(-0.22, 0.034);
+          g.quadraticCurveTo(0.0, 0.058, 0.22, 0.03);
+        });
+        line(K("gold"), 0.006, () => {
+          g.moveTo(-0.01, -0.2);
+          g.lineTo(0.038, -0.206);
+        });
+      });
+      for (const [x, y] of [[0.09, -0.25], [0.102, -0.18], [0.108, -0.11], [0.108, -0.04]] as const) dot(g, x, y, 0.01, K("gold"));
+      break;
+    }
+    case "detective": {
+      // A belted khaki trench coat with wide lapels and a flared skirt.
+      const coat = garmentPath(0.17, 0.05, 1.09);
+      paint(g, coat, sh("coat"), 0.009);
+      inside(coat, () => {
+        line(C.line, 0.006, () => {
+          g.moveTo(0.1, -0.05);
+          g.quadraticCurveTo(0.13, 0.06, 0.16, 0.22);
+          g.moveTo(-0.03, 0.035);
+          g.lineTo(0.05, 0.025);
+        });
+        const belt = new Path2D();
+        belt.rect(-0.25, -0.088, 0.5, 0.036);
+        paint(g, belt, K("coatDark"), 0.006);
+        paint(g, poly([[0.035, -0.34], [0.13, -0.32], [0.088, -0.19]]), C.pale, 0.006);
+        paint(g, poly([[0.025, -0.34], [0.088, -0.19], [0.05, -0.2], [-0.005, -0.27]]), K("coat"), 0.007);
+        paint(g, poly([[0.13, -0.32], [0.088, -0.19], [0.135, -0.215], [0.15, -0.29]]), KS("coat"), 0.007);
+      });
+      g.strokeStyle = K("brass");
+      g.lineWidth = 0.007;
+      g.strokeRect(0.082, -0.094, 0.034, 0.048);
+      for (const [x, y] of [[0.04, -0.155], [0.095, -0.15], [0.045, -0.115], [0.1, -0.11]] as const) dot(g, x, y, 0.009, K("coatDark"));
+      break;
+    }
+    case "hero": {
+      // Just a badge on his chest: a gold bolt on red.
+      g.translate(0.072, -0.2);
+      g.scale(0.82, 1);
+      const badge = new Path2D();
+      badge.arc(0, 0, 0.043, 0, TAU);
+      g.fillStyle = K("cape");
+      g.fill(badge);
+      g.strokeStyle = K("emblem");
+      g.lineWidth = 0.01;
+      g.stroke(badge);
+      g.beginPath();
+      g.arc(0, 0, 0.049, 0, TAU);
+      g.strokeStyle = C.line;
+      g.lineWidth = 0.005;
+      g.stroke();
+      paint(g, poly(BOLT), K("emblem"), 0.004);
+      break;
+    }
+    case "rainy": {
+      // A glossy yellow raincoat with toggles and a pocket flap.
+      const coat = garmentPath(0.13, 0.045, 1.09);
+      paint(g, coat, sh("coat"), 0.009);
+      inside(coat, () => {
+        line(KS("coatDark"), 0.006, () => {
+          g.moveTo(0.08, -0.34);
+          g.quadraticCurveTo(0.122, -0.12, 0.128, 0.18);
+        });
+        paint(g, poly([[-0.035, 0.02], [0.06, 0.012], [0.058, 0.042], [-0.032, 0.048]]), KS("coat"), 0.006);
+        line("rgba(255,255,255,0.55)", 0.012, () => {
+          g.moveTo(-0.045, -0.29);
+          g.quadraticCurveTo(-0.09, -0.22, -0.085, -0.12);
+        });
+      });
+      for (const y of [-0.25, -0.17, -0.09]) {
+        const x = 0.098 + 0.06 * (y + 0.25) * 0.4;
+        line(K("coatDark"), 0.005, () => {
+          g.moveTo(x - 0.022, y);
+          g.lineTo(x + 0.02, y + 0.002);
+        });
+        g.save();
+        g.translate(x, y);
+        g.rotate(-0.15);
+        const tog = new Path2D();
+        tog.ellipse(0, 0, 0.019, 0.008, 0, 0, TAU);
+        paint(g, tog, K("coatDark"), 0.005);
+        g.restore();
+      }
+      break;
+    }
+    case "coder": {
+      // A charcoal hoodie: ribbed hem, kangaroo pocket, a little orange logo.
+      const hoodie = garmentPath(0.035, 0.012, 1.09);
+      paint(g, hoodie, sh("hoodie"), 0.009);
+      inside(hoodie, () => {
+        g.fillStyle = K("hoodieLight");
+        g.fillRect(-0.3, 0.008, 0.6, 0.1);
+        line(C.line, 0.006, () => {
+          g.moveTo(-0.3, 0.008);
+          g.lineTo(0.3, 0.008);
+        });
+        line(K("hoodieLight"), 0.007, () => {
+          g.moveTo(0.0, 0.008);
+          g.lineTo(0.012, -0.07);
+          g.quadraticCurveTo(0.07, -0.092, 0.135, -0.075);
+        });
+      });
+      g.save();
+      g.translate(0.064, -0.205);
+      g.scale(0.85, 1);
+      dot(g, 0, 0, 0.022, K("logo"));
+      if (f.detail > 0.25) {
+        line("#FFFFFF", 0.005, () => {
+          g.moveTo(-0.004, -0.01);
+          g.lineTo(-0.012, 0);
+          g.lineTo(-0.004, 0.01);
+          g.moveTo(0.004, -0.01);
+          g.lineTo(0.012, 0);
+          g.lineTo(0.004, 0.01);
+        });
+      }
+      g.restore();
+      break;
+    }
+    case "pyjamas": {
+      // A blue-and-white striped pyjama top with white buttons.
+      const top = garmentPath(0.055, 0.015, 1.08);
+      g.fillStyle = K("pj");
+      g.fill(top);
+      inside(top, () => {
+        g.fillStyle = K("stripe");
+        for (let x = -0.16; x < 0.2; x += 0.05) g.fillRect(x, -0.4, 0.019, 0.5);
+        const sd = g.createRadialGradient(-0.03, -0.24, 0.02, 0, -0.12, 0.26);
+        sd.addColorStop(0, "rgba(40,50,100,0)");
+        sd.addColorStop(1, "rgba(40,50,100,0.22)");
+        g.fillStyle = sd;
+        g.fillRect(-0.3, -0.4, 0.6, 0.5);
+        line(KS("pj"), 0.014, () => {
+          g.moveTo(0.085, -0.33);
+          g.quadraticCurveTo(0.112, -0.12, 0.106, 0.09);
+        });
+        g.strokeStyle = C.line;
+        g.lineWidth = 0.005;
+        g.strokeRect(-0.012, -0.228, 0.042, 0.04);
+      });
+      g.strokeStyle = C.line;
+      g.lineWidth = 0.009;
+      g.stroke(top);
+      for (const [x, y] of [[0.094, -0.25], [0.103, -0.17], [0.107, -0.09], [0.107, -0.01]] as const) dot(g, x, y, 0.008, K("pom"));
+      break;
+    }
+    case "chef": {
+      // A white bib apron tied at the back.
+      const tie = new Path2D();
+      tie.moveTo(-0.035, -0.07);
+      tie.lineTo(-0.1, -0.078);
+      noodle(g, tie, 0.012, KS("apron"));
+      g.save();
+      g.translate(-0.105, -0.078);
+      for (const a of [-0.7, 0.7]) {
+        g.save();
+        g.rotate(a + Math.PI);
+        const loop = new Path2D();
+        loop.ellipse(0.02, 0, 0.022, 0.011, 0, 0, TAU);
+        paint(g, loop, KS("apron"), 0.006);
+        g.restore();
+      }
+      dot(g, 0, 0, 0.009, KS("apron"));
+      g.restore();
+      const apron = new Path2D();
+      apron.moveTo(0.012, -0.255);
+      apron.lineTo(0.098, -0.258);
+      apron.quadraticCurveTo(0.138, -0.16, 0.13, -0.07);
+      apron.quadraticCurveTo(0.152, 0.04, 0.168, 0.135);
+      apron.quadraticCurveTo(0.06, 0.16, -0.055, 0.138);
+      apron.quadraticCurveTo(-0.048, 0.03, -0.035, -0.07);
+      apron.quadraticCurveTo(0.0, -0.13, 0.012, -0.255);
+      apron.closePath();
+      paint(g, apron, clothShade(g, "apron", 0.06, -0.08, 0.24), 0.009);
+      inside(apron, () => {
+        g.strokeStyle = C.line;
+        g.lineWidth = 0.005;
+        g.strokeRect(0.025, 0.005, 0.08, 0.055);
+        line(K("neckerchief"), 0.006, () => {
+          g.moveTo(-0.1, -0.072);
+          g.quadraticCurveTo(0.05, -0.08, 0.16, -0.075);
+        });
+      });
+      break;
+    }
+    case "dapper": {
+      // A green argyle sweater vest over a cream shirt.
+      const vest = garmentPath(0.03, 0.004, 1.08);
+      paint(g, vest, sh("vest"), 0.009);
+      inside(vest, () => {
+        argyle(g, -0.2, -0.34, 0.2, 0.06, 0.03, 0.042, f);
+        g.fillStyle = KS("vest");
+        g.fillRect(-0.3, 0.004, 0.6, 0.1);
+        line(C.line, 0.005, () => {
+          g.moveTo(-0.3, 0.004);
+          g.lineTo(0.3, 0.004);
+        });
+      });
+      g.strokeStyle = C.line;
+      g.lineWidth = 0.009;
+      g.stroke(vest);
+      paint(g, poly([[0.012, -0.32], [0.128, -0.3], [0.082, -0.175]]), K("shirt"), 0.006);
+      line(KS("vest"), 0.008, () => {
+        g.moveTo(0.012, -0.315);
+        g.lineTo(0.082, -0.18);
+        g.lineTo(0.126, -0.296);
+      });
+      break;
+    }
+  }
+  g.restore();
+}
+
+/** Behind him: the hero's cape, the coder's hood hanging down his back. */
+function drawOutfitBack(g: CanvasRenderingContext2D, p: Pose, nb: Pt, f: Frame) {
+  if (outfit === "hero") drawCape(g, p, nb, f);
+  if (outfit === "coder") {
+    const k = 1 - clamp(p.hide, 0, 1);
+    if (k < 0.05) return;
+    g.save();
+    g.translate(nb[0] - 0.05, nb[1] - 0.005);
+    g.rotate(p.hunch * 0.6 - 0.35);
+    g.scale(k, k);
+    const hood = new Path2D();
+    hood.ellipse(0, 0, 0.082, 0.056, 0, 0, TAU);
+    paint(g, hood, K("hoodie"), 0.009);
+    const opening = new Path2D();
+    opening.ellipse(0.018, -0.012, 0.05, 0.026, 0, 0, TAU);
+    paint(g, opening, KS("hoodie"), 0.006);
+    g.restore();
+  }
+}
+
+/** The red cape: hangs down his back, flies out behind him like the scarf does. */
+function drawCape(g: CanvasRenderingContext2D, p: Pose, nb: Pt, f: Frame) {
+  const gone = smoothstep(0.05, 0.4, p.hide);
+  if (gone > 0.99) return;
+  const top: Pt = [nb[0] - 0.035, nb[1] + 0.005];
+  const fly = clamp(p.flag + Math.abs(p.lagX) * 5, 0, 1);
+  const dir = mix([-0.28, 1], [-1, -0.18], fly);
+  const dl = Math.hypot(dir[0], dir[1]);
+  const dx = dir[0] / dl, dy = dir[1] / dl;
+  const L = 0.5 - 0.06 * fly;
+  const N = 16;
+  const amp = 0.006 + 0.03 * fly;
+  const pts: Pt[] = [];
+  for (let k = 0; k <= N; k++) {
+    const s = k / N;
+    const wave = amp * Math.sin(s * 6 - f.t * 10) * s;
+    pts.push([top[0] + dx * L * s - dy * wave - p.lagX * 0.7 * s * s, top[1] + dy * L * s + dx * wave + p.lagY * 0.3 * s * s]);
+  }
+  const half = (s: number) => 0.04 + 0.12 * Math.pow(s, 0.8);
+  const normal = (k: number): Pt => {
+    const a = pts[Math.max(0, k - 1)], b = pts[Math.min(N, k + 1)];
+    const ex = b[0] - a[0], ey = b[1] - a[1];
+    const len = Math.hypot(ex, ey) || 1;
+    return [-ey / len, ex / len];
+  };
+  const ribbon = (shift: number) => {
+    const q = new Path2D();
+    for (let k = 0; k <= N; k++) {
+      const [nx, ny] = normal(k);
+      const h = half(k / N) + shift;
+      if (k) q.lineTo(pts[k][0] + nx * h, pts[k][1] + ny * h);
+      else q.moveTo(pts[k][0] + nx * h, pts[k][1] + ny * h);
+    }
+    // The bottom hem, scalloped where the cloth folds.
+    const [ex, ey] = pts[N];
+    const [nx, ny] = normal(N);
+    const tx = ex - pts[N - 1][0], ty = ey - pts[N - 1][1];
+    const h = half(1);
+    for (let j = 1; j <= 4; j++) {
+      const s = 1 - j / 2;
+      const bump = 0.6 * (j % 2 ? 1 : -0.4);
+      q.lineTo(ex + nx * (h * s + shift) + tx * bump, ey + ny * (h * s + shift) + ty * bump);
+    }
+    for (let k = N; k >= 0; k--) {
+      const [mx, my] = normal(k);
+      const hh = half(k / N) - shift;
+      q.lineTo(pts[k][0] - mx * hh, pts[k][1] - my * hh);
+    }
+    q.closePath();
+    return q;
+  };
+  g.save();
+  g.globalAlpha *= 1 - gone;
+  g.lineJoin = "round";
+  // The darker lining shows along one edge as it turns.
+  paint(g, ribbon(0.014), K("capeInside"), 0.009);
+  const cape = ribbon(0);
+  paint(g, cape, K("cape"), 0.009);
+  // Folds.
+  g.save();
+  g.clip(cape);
+  g.strokeStyle = KS("cape");
+  g.lineWidth = 0.012;
+  g.lineCap = "round";
+  g.beginPath();
+  for (const off of [-0.45, 0.4]) {
+    for (let k = 3; k <= N; k++) {
+      const [nx, ny] = normal(k);
+      const h = half(k / N) * off;
+      if (k === 3) g.moveTo(pts[k][0] + nx * h, pts[k][1] + ny * h);
+      else g.lineTo(pts[k][0] + nx * h, pts[k][1] + ny * h);
+    }
+  }
+  g.stroke();
+  g.restore();
+  g.restore();
+}
+
+/** Round his neck: the outfit's collar, neckerchief or bow tie. */
+function drawCollar(g: CanvasRenderingContext2D, p: Pose, nb: Pt, f: Frame) {
+  g.save();
+  g.translate(nb[0] + 0.012, nb[1] - 0.035);
+  g.rotate(p.hunch * 0.6 - 0.05);
+  g.lineCap = "round";
+  const band = (rx: number, ry: number, fill: string, dy = 0) => {
+    const b = new Path2D();
+    b.ellipse(0, dy, rx, ry, 0, 0, TAU);
+    paint(g, b, fill, 0.008);
+  };
+  switch (outfit) {
+    case "desi":
+      // The jacket's mandarin collar, piped in gold.
+      band(0.064, 0.032, K("jacket"), 0.006);
+      g.strokeStyle = K("gold");
+      g.lineWidth = 0.006;
+      g.beginPath();
+      g.ellipse(0, 0.002, 0.058, 0.024, 0, Math.PI * 1.05, Math.PI * 1.95);
+      g.stroke();
+      break;
+    case "detective":
+      band(0.076, 0.037, K("coat"));
+      paint(g, poly([[0.015, 0.0], [0.098, -0.012], [0.07, 0.065]]), K("coat"), 0.007);
+      break;
+    case "hero":
+      band(0.058, 0.024, K("cape"));
+      dot(g, 0.056, 0.008, 0.022, K("emblem"), 0.006);
+      break;
+    case "rainy":
+      band(0.076, 0.038, K("coat"));
+      paint(g, poly([[0.02, 0.0], [0.1, -0.008], [0.072, 0.066]]), K("coat"), 0.007);
+      break;
+    case "coder": {
+      band(0.068, 0.033, K("hoodie"));
+      if (p.hide < 0.5) {
+        // Drawstrings, swinging.
+        const sway = clamp(-p.lagX * 0.6, -0.04, 0.04) + 0.004 * Math.sin(f.t * 3);
+        for (const x0 of [0.032, 0.06]) {
+          const end: Pt = [x0 + 0.004 + sway, 0.12];
+          noodle(g, hose([x0, 0.026], end, 0.15), 0.006, K("hoodieLight"));
+          g.fillStyle = K("logo");
+          g.fillRect(end[0] - 0.006, end[1] - 0.004, 0.012, 0.016);
+        }
+      }
+      break;
+    }
+    case "pyjamas":
+      band(0.064, 0.031, K("pj"));
+      paint(g, poly([[0.018, -0.002], [0.074, -0.008], [0.052, 0.048]]), K("stripe"), 0.006);
+      paint(g, poly([[0.062, -0.006], [0.104, -0.012], [0.098, 0.036]]), K("stripe"), 0.006);
+      break;
+    case "chef":
+      // A red neckerchief, knotted in front.
+      band(0.068, 0.033, K("neckerchief"));
+      paint(g, poly([[0.044, 0.024], [0.082, 0.02], [0.058, 0.104]]), KS("neckerchief"), 0.007);
+      paint(g, poly([[0.06, 0.024], [0.1, 0.018], [0.104, 0.094]]), K("neckerchief"), 0.007);
+      dot(g, 0.064, 0.018, 0.02, K("neckerchief"), 0.007);
+      break;
+    case "dapper":
+      // Shirt collar points and a red bow tie.
+      band(0.062, 0.029, K("shirt"));
+      paint(g, poly([[0.018, -0.002], [0.07, -0.008], [0.046, 0.048]]), K("shirt"), 0.006);
+      paint(g, poly([[0.052, -0.006], [0.096, -0.014], [0.09, 0.036]]), K("shirt"), 0.006);
+      g.save();
+      g.translate(0.074, 0.03);
+      g.rotate(-0.15);
+      paint(g, poly([[0, 0], [-0.04, -0.024], [-0.042, 0.024]]), KS("bow"), 0.006);
+      paint(g, poly([[0, 0], [0.04, -0.026], [0.042, 0.022]]), K("bow"), 0.006);
+      dot(g, 0, 0, 0.012, K("bow"), 0.006);
+      g.restore();
+      break;
+  }
+  g.restore();
+}
+
+// ── Outfits: headwear (head space) ────────────────────────────────────────────
+
+/** Outfits whose hat he pulls down over his eyes to hide. */
+const HAT_HIDERS = new Set<OutfitName>(["desi", "rainy", "dapper", "pyjamas"]);
+/** How far into hiding (0…1) the hat goes from behind his eyes to in front of them: it's lifted clear of them then. */
+const HAT_SWAP = 0.25;
+
+/**
+ * Where a hat sits: on the crown, tipped back. As he hides (`hide` 0…1) he
+ * first lifts it clear of his eyes, then pulls it down over them.
+ */
+function hatFrame(g: CanvasRenderingContext2D, hide: number) {
+  const lift = 0.1 * Math.sin(Math.PI * clamp(hide / (2 * HAT_SWAP), 0, 1));
+  const down = smoothstep(HAT_SWAP, 1, hide);
+  g.translate(lerp(-0.035, 0.02, down), lerp(-0.13, -0.045, down) - lift);
+  g.rotate(lerp(-0.25, 0.1, down) - 0.15 * lift);
+  g.scale(lerp(1, 1.18, down), lerp(1, 1.3, down));
+}
+
+function drawHeadwear(g: CanvasRenderingContext2D, p: Pose, f: Frame, layer: "back" | "face" | "front") {
+  const hide = clamp(p.hide, 0, 1);
+  g.save();
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  switch (outfit) {
+    case "desi":
+    case "rainy":
+    case "dapper":
+    case "pyjamas": {
+      // Hats he pulls down over his eyes to hide: in front of his eyes then.
+      const front = hide > HAT_SWAP;
+      if (layer === "face" || (layer === "front") !== front) break;
+      hatFrame(g, hide);
+      if (outfit === "desi") drawBoatCap(g);
+      else if (outfit === "rainy") drawSouwester(g, f);
+      else if (outfit === "dapper") drawFlatCap(g, f);
+      else drawNightcap(g, p, f);
+      break;
+    }
+    case "detective":
+      if (layer !== "back") break;
+      hatFrame(g, 0);
+      drawDeerstalker(g, f);
+      break;
+    case "chef":
+      if (layer !== "back") break;
+      hatFrame(g, 0);
+      drawToque(g, f);
+      break;
+    case "hero":
+      if (layer === "face") drawMask(g, p, f);
+      break;
+    case "coder":
+      // (The headphones stay on under the hood.)
+      if (layer === "back" && hide < 0.4) drawHeadphones(g);
+      else if (layer === "front") {
+        drawGlasses(g, p);
+        if (hide > 0.01) drawCoderHood(g, hide, clamp(p.peek, 0, 1));
+      }
+      break;
+  }
+  g.restore();
+}
+
+/** Desi Bhai's boat-shaped cap, piped in gold. */
+function drawBoatCap(g: CanvasRenderingContext2D) {
+  const cap = new Path2D();
+  cap.moveTo(-0.165, 0.026);
+  cap.quadraticCurveTo(-0.17, -0.03, -0.135, -0.066);
+  cap.quadraticCurveTo(-0.01, -0.04, 0.115, -0.062);
+  cap.quadraticCurveTo(0.15, -0.025, 0.14, 0.016);
+  cap.quadraticCurveTo(-0.01, 0.0, -0.165, 0.026);
+  cap.closePath();
+  paint(g, cap, clothShade(g, "cap", -0.02, -0.03, 0.17), 0.009);
+  g.save();
+  g.clip(cap);
+  g.strokeStyle = K("gold");
+  g.lineWidth = 0.008;
+  g.beginPath();
+  g.moveTo(-0.17, 0.006);
+  g.quadraticCurveTo(-0.01, -0.016, 0.15, -0.004);
+  g.stroke();
+  g.strokeStyle = KS("cap");
+  g.lineWidth = 0.007;
+  g.beginPath();
+  g.moveTo(-0.125, -0.058);
+  g.quadraticCurveTo(-0.01, -0.025, 0.105, -0.054);
+  g.stroke();
+  g.restore();
+}
+
+/** The detective's check deerstalker: peaks front and back, ear flaps tied on top. */
+function drawDeerstalker(g: CanvasRenderingContext2D, f: Frame) {
+  const back = new Path2D();
+  back.moveTo(-0.08, 0.0);
+  back.quadraticCurveTo(-0.17, -0.005, -0.205, 0.058);
+  back.quadraticCurveTo(-0.13, 0.06, -0.08, 0.03);
+  back.closePath();
+  paint(g, back, KS("hat"));
+  const crown = new Path2D();
+  crown.moveTo(-0.125, 0.028);
+  crown.bezierCurveTo(-0.145, -0.11, 0.095, -0.14, 0.11, 0.006);
+  crown.quadraticCurveTo(-0.01, 0.032, -0.125, 0.028);
+  crown.closePath();
+  g.fillStyle = clothShade(g, "hat", -0.01, -0.03, 0.15);
+  g.fill(crown);
+  if (f.detail > 0.1) {
+    g.save();
+    g.clip(crown);
+    g.strokeStyle = K("check");
+    g.globalAlpha *= 0.6;
+    g.lineWidth = 0.007;
+    g.beginPath();
+    for (let x = -0.14; x < 0.13; x += 0.036) {
+      g.moveTo(x, -0.15);
+      g.lineTo(x + 0.02, 0.05);
+    }
+    for (let y = -0.1; y < 0.05; y += 0.036) {
+      g.moveTo(-0.16, y);
+      g.lineTo(0.13, y - 0.012);
+    }
+    g.stroke();
+    g.restore();
+  }
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.008;
+  g.stroke(crown);
+  const peak = new Path2D();
+  peak.moveTo(0.06, -0.004);
+  peak.quadraticCurveTo(0.16, -0.03, 0.205, 0.032);
+  peak.quadraticCurveTo(0.13, 0.048, 0.06, 0.026);
+  peak.closePath();
+  paint(g, peak, K("hat"));
+  // Ear flaps tied in a bow on top.
+  g.save();
+  g.translate(-0.012, -0.1);
+  for (const a of [-0.5, 0.5]) {
+    const loop = new Path2D();
+    loop.ellipse(a * 0.05, -0.008, 0.022, 0.011, a, 0, TAU);
+    paint(g, loop, K("hat"), 0.005);
+  }
+  dot(g, 0, -0.004, 0.009, K("check"));
+  g.restore();
+}
+
+/** The yellow sou'wester: a round crown, the brim long at the back. */
+function drawSouwester(g: CanvasRenderingContext2D, f: Frame) {
+  const brim = new Path2D();
+  brim.moveTo(-0.25, 0.095);
+  brim.quadraticCurveTo(-0.18, 0.0, -0.09, 0.01);
+  brim.lineTo(0.09, -0.006);
+  brim.quadraticCurveTo(0.175, -0.012, 0.188, 0.032);
+  brim.quadraticCurveTo(0.08, 0.038, -0.02, 0.044);
+  brim.quadraticCurveTo(-0.16, 0.055, -0.25, 0.095);
+  brim.closePath();
+  paint(g, brim, KS("hat"));
+  if (f.detail > 0.2) {
+    g.save();
+    g.clip(brim);
+    g.setLineDash([0.012, 0.009]);
+    g.strokeStyle = K("coatDark");
+    g.lineWidth = 0.004;
+    g.beginPath();
+    g.moveTo(-0.23, 0.08);
+    g.quadraticCurveTo(-0.15, 0.04, -0.02, 0.034);
+    g.quadraticCurveTo(0.08, 0.028, 0.175, 0.026);
+    g.stroke();
+    g.restore();
+  }
+  const crown = new Path2D();
+  crown.moveTo(-0.115, 0.026);
+  crown.bezierCurveTo(-0.125, -0.125, 0.095, -0.135, 0.105, 0.01);
+  crown.quadraticCurveTo(0.0, 0.03, -0.115, 0.026);
+  crown.closePath();
+  paint(g, crown, clothShade(g, "hat", -0.01, -0.03, 0.15));
+  g.strokeStyle = K("coatDark");
+  g.lineWidth = 0.005;
+  g.beginPath();
+  g.moveTo(-0.012, -0.09);
+  g.quadraticCurveTo(-0.03, -0.04, -0.03, 0.022);
+  g.stroke();
+  g.strokeStyle = "rgba(255,255,255,0.6)";
+  g.lineWidth = 0.01;
+  g.beginPath();
+  g.moveTo(-0.08, -0.04);
+  g.quadraticCurveTo(-0.07, -0.08, -0.04, -0.09);
+  g.stroke();
+}
+
+/** The dapper grey tweed flat cap, its short brim forward. */
+function drawFlatCap(g: CanvasRenderingContext2D, f: Frame) {
+  const brim = new Path2D();
+  brim.moveTo(0.04, -0.012);
+  brim.quadraticCurveTo(0.15, -0.03, 0.18, 0.016);
+  brim.quadraticCurveTo(0.12, 0.034, 0.04, 0.02);
+  brim.closePath();
+  paint(g, brim, KS("cap"));
+  const crown = new Path2D();
+  crown.moveTo(-0.135, 0.024);
+  crown.bezierCurveTo(-0.16, -0.065, -0.02, -0.105, 0.1, -0.06);
+  crown.quadraticCurveTo(0.145, -0.035, 0.115, 0.0);
+  crown.quadraticCurveTo(-0.01, 0.012, -0.135, 0.024);
+  crown.closePath();
+  g.fillStyle = clothShade(g, "cap", -0.02, -0.03, 0.15);
+  g.fill(crown);
+  if (f.detail > 0.1) {
+    g.save();
+    g.clip(crown);
+    g.strokeStyle = K("capCheck");
+    g.globalAlpha *= 0.55;
+    g.lineWidth = 0.005;
+    g.beginPath();
+    for (let x = -0.24; x < 0.16; x += 0.026) {
+      g.moveTo(x, -0.12);
+      g.lineTo(x + 0.12, 0.04);
+      g.moveTo(x + 0.12, -0.12);
+      g.lineTo(x, 0.04);
+    }
+    g.stroke();
+    g.restore();
+  }
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.008;
+  g.stroke(crown);
+  g.beginPath();
+  g.moveTo(-0.11, 0.0);
+  g.quadraticCurveTo(0.0, -0.05, 0.1, -0.03);
+  g.strokeStyle = KS("cap");
+  g.lineWidth = 0.006;
+  g.stroke();
+  dot(g, -0.04, -0.078, 0.01, KS("cap"));
+}
+
+/** The long floppy nightcap; its pom-pom swings behind him. */
+function drawNightcap(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
+  const flop = clamp(p.flag, 0, 1);
+  const sw = clamp(-p.lagX * 2.5, -0.12, 0.12) + 0.02 * Math.sin(f.t * 2.3);
+  const B: Pt = [-0.01, -0.035];
+  const c1: Pt = [0.0, -0.2];
+  const c2: Pt = [-0.16, -0.25 - 0.05 * flop];
+  const tip: Pt = [-0.25 + sw + 0.04 * flop, -0.07 - 0.14 * flop + clamp(p.lagY, -0.1, 0.1) * 0.5];
+  const N = 16;
+  const pts: Pt[] = [];
+  for (let k = 0; k <= N; k++) {
+    const t = k / N, u = 1 - t;
+    pts.push([
+      u * u * u * B[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * tip[0],
+      u * u * u * B[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * tip[1],
+    ]);
+  }
+  const half = (s: number) => lerp(0.108, 0.014, Math.pow(s, 0.75));
+  const normal = (k: number): Pt => {
+    const a = pts[Math.max(0, k - 1)], b = pts[Math.min(N, k + 1)];
+    const ex = b[0] - a[0], ey = b[1] - a[1];
+    const len = Math.hypot(ex, ey) || 1;
+    return [-ey / len, ex / len];
+  };
+  const ribbon = (k0: number, k1: number) => {
+    const q = new Path2D();
+    for (let k = k0; k <= k1; k++) {
+      const [nx, ny] = normal(k);
+      const h = half(k / N);
+      if (k === k0) q.moveTo(pts[k][0] + nx * h, pts[k][1] + ny * h);
+      else q.lineTo(pts[k][0] + nx * h, pts[k][1] + ny * h);
+    }
+    for (let k = k1; k >= k0; k--) {
+      const [nx, ny] = normal(k);
+      const h = half(k / N);
+      q.lineTo(pts[k][0] - nx * h, pts[k][1] - ny * h);
+    }
+    q.closePath();
+    return q;
+  };
+  const cap = ribbon(0, N);
+  g.fillStyle = clothShade(g, "cap", -0.05, -0.15, 0.22);
+  g.fill(cap);
+  g.fillStyle = K("stripe");
+  g.fill(ribbon(5, 6));
+  g.fill(ribbon(10, 11));
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.008;
+  g.stroke(cap);
+  // The cuff round his head.
+  const cuff = new Path2D();
+  cuff.moveTo(-0.135, 0.028);
+  cuff.quadraticCurveTo(-0.01, -0.012, 0.112, 0.004);
+  cuff.lineTo(0.108, -0.042);
+  cuff.quadraticCurveTo(-0.01, -0.062, -0.13, -0.02);
+  cuff.closePath();
+  paint(g, cuff, K("stripe"));
+  // The pom-pom.
+  dot(g, tip[0], tip[1], 0.038, K("pom"), 0.007);
+  g.fillStyle = KS("pom");
+  g.beginPath();
+  g.arc(tip[0] + 0.01, tip[1] + 0.01, 0.016, 0, TAU);
+  g.fill();
+}
+
+/** The chef's tall pleated toque. */
+function drawToque(g: CanvasRenderingContext2D, f: Frame) {
+  g.rotate(-0.08);
+  const puff = new Path2D();
+  puff.moveTo(-0.095, -0.05);
+  puff.bezierCurveTo(-0.18, -0.09, -0.16, -0.21, -0.075, -0.2);
+  puff.bezierCurveTo(-0.065, -0.275, 0.065, -0.275, 0.075, -0.2);
+  puff.bezierCurveTo(0.16, -0.21, 0.17, -0.09, 0.092, -0.055);
+  puff.closePath();
+  paint(g, puff, clothShade(g, "hat", -0.01, -0.13, 0.18), 0.008);
+  if (f.detail > 0.1) {
+    g.save();
+    g.clip(puff);
+    g.strokeStyle = KS("hat");
+    g.lineWidth = 0.006;
+    g.beginPath();
+    for (const x of [-0.05, 0.0, 0.05]) {
+      g.moveTo(x, -0.06);
+      g.quadraticCurveTo(x * 1.2 - 0.005, -0.14, x * 1.4, -0.2);
+    }
+    g.stroke();
+    g.restore();
+  }
+  const band = new Path2D();
+  band.moveTo(-0.11, 0.024);
+  band.lineTo(-0.1, -0.058);
+  band.quadraticCurveTo(0.0, -0.075, 0.094, -0.062);
+  band.lineTo(0.104, 0.008);
+  band.quadraticCurveTo(0.0, 0.004, -0.11, 0.024);
+  band.closePath();
+  paint(g, band, K("hat"), 0.008);
+}
+
+/** The hero's black eye mask (behind the eyes, so they show through), ties fluttering. */
+function drawMask(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
+  const pop = Math.max(0, p.pop);
+  const dy = -0.045 * pop;
+  const grow = 1 + 0.3 * pop;
+  const mask = new Path2D();
+  mask.ellipse(EYE_L[0] - 0.004, EYE_L[1] + dy + 0.006, 0.07, 0.082 * grow, 0, 0, TAU);
+  mask.ellipse(EYE_R[0] + 0.004, EYE_R[1] + dy + 0.006, 0.072, 0.084 * grow, 0, 0, TAU);
+  g.fillStyle = K("mask");
+  g.fill(mask);
+  // The band round his head and its knot and ties at the back.
+  const flap = 0.012 * Math.sin(f.t * 9) + clamp(-p.lagX * 0.8, -0.05, 0.05);
+  const knot: Pt = [-0.16, -0.045];
+  g.strokeStyle = K("mask");
+  g.lineWidth = 0.036;
+  g.beginPath();
+  g.moveTo(EYE_L[0] - 0.04, EYE_L[1] + dy * 0.5);
+  g.quadraticCurveTo(-0.12, -0.06, knot[0], knot[1]);
+  g.stroke();
+  for (const [ex, ey, ph] of [[-0.25, -0.01, 0], [-0.245, -0.085, 1.7]] as const) {
+    g.lineWidth = 0.024;
+    g.beginPath();
+    g.moveTo(knot[0], knot[1]);
+    g.quadraticCurveTo(-0.205, knot[1] + (ey - knot[1]) * 0.4 + flap * Math.sin(ph + 1), ex + flap, ey + flap * Math.cos(ph));
+    g.stroke();
+  }
+  dot(g, knot[0], knot[1], 0.02, K("mask"), 0.005);
+  // Eye holes (fur shows through when his eyes are shut).
+  g.fillStyle = C.fur;
+  for (const [at, side] of [[EYE_L, -1], [EYE_R, 1]] as const) {
+    const sc = p.eyeScale * (side < 0 ? p.eyeScaleL : p.eyeScaleR);
+    g.beginPath();
+    g.ellipse(at[0], at[1] + dy, 0.05 * sc * (1 + 0.15 * pop), 0.066 * sc * (1 + 0.45 * pop), 0, 0, TAU);
+    g.fill();
+  }
+}
+
+/** Teal over-ear headphones: the band over his crown, a cup over his near ear. */
+function drawHeadphones(g: CanvasRenderingContext2D) {
+  const band = new Path2D();
+  band.moveTo(-0.12, -0.02);
+  band.bezierCurveTo(-0.15, -0.17, 0.0, -0.235, 0.035, -0.15);
+  noodle(g, band, 0.022, K("phones"));
+  g.save();
+  g.translate(-0.118, 0.0);
+  g.rotate(0.25);
+  const cup = new Path2D();
+  cup.ellipse(0, 0, 0.044, 0.056, 0, 0, TAU);
+  paint(g, cup, clothShade(g, "phones", 0, 0, 0.06), 0.008);
+  const pad = new Path2D();
+  pad.ellipse(0.012, 0.0, 0.028, 0.04, 0, 0, TAU);
+  paint(g, pad, KS("phones"), 0.005);
+  dot(g, 0.012, 0, 0.01, K("logo"), 0.004);
+  g.restore();
+}
+
+/** Round glasses on his big eyes. */
+function drawGlasses(g: CanvasRenderingContext2D, p: Pose) {
+  const dy = -0.045 * Math.max(0, p.pop);
+  // The arm back to his ear.
+  g.strokeStyle = K("frames");
+  g.lineWidth = 0.009;
+  g.beginPath();
+  g.moveTo(EYE_L[0] - 0.062, EYE_L[1] + dy);
+  g.lineTo(-0.13, -0.05);
+  g.stroke();
+  for (const [x, y, r] of [[EYE_L[0], EYE_L[1], 0.064], [EYE_R[0], EYE_R[1], 0.067]] as const) {
+    g.beginPath();
+    g.arc(x, y + dy, r, 0, TAU);
+    g.fillStyle = "rgba(200,232,245,0.22)";
+    g.fill();
+    g.strokeStyle = K("frames");
+    g.lineWidth = 0.011;
+    g.stroke();
+  }
+  g.strokeStyle = "rgba(255,255,255,0.75)";
+  g.lineWidth = 0.008;
+  g.beginPath();
+  g.arc(EYE_R[0], EYE_R[1] + dy, 0.048, -2.5, -1.9);
+  g.stroke();
+}
+
+/**
+ * The hoodie's hood pulled up and drawn tight round his nose, so only the nose
+ * pokes out; loosened (`peek`) the opening widens round his face and his eyes
+ * look out. Pulled up over his head from behind (`k`).
+ */
+function drawCoderHood(g: CanvasRenderingContext2D, k: number, peek: number) {
+  g.save();
+  g.beginPath();
+  g.rect(-0.5, -0.5, lerp(0.22, 0.95, k), 1);
+  g.clip();
+  // The face opening (its back half is the hood's front edge).
+  const ox = lerp(0.236, 0.125, peek), oy = lerp(0.045, -0.025, peek);
+  const rx = lerp(0.04, 0.165, peek), ry = lerp(0.075, 0.135, peek);
+  const top: Pt = [ox, oy - ry], bottom: Pt = [ox, oy + ry];
+  const hood = new Path2D();
+  hood.moveTo(bottom[0], bottom[1]);
+  hood.bezierCurveTo(lerp(0.15, 0.06, peek), 0.16, 0.0, 0.175, -0.12, 0.16);
+  hood.bezierCurveTo(-0.2, 0.09, -0.215, -0.07, -0.165, -0.15);
+  // A soft point at the back of the crown.
+  hood.quadraticCurveTo(-0.135, -0.185, -0.08, -0.178);
+  hood.bezierCurveTo(lerp(0.1, 0.02, peek), lerp(-0.205, -0.19, peek), lerp(0.235, 0.1, peek), lerp(-0.12, -0.19, peek), top[0], top[1]);
+  hood.ellipse(ox, oy, rx, ry, 0, -Math.PI / 2, Math.PI / 2, true);
+  hood.closePath();
+  const hg = g.createRadialGradient(-0.08, -0.12, 0.01, -0.02, -0.02, 0.26);
+  hg.addColorStop(0, K("hoodieLight"));
+  hg.addColorStop(0.75, K("hoodie"));
+  hg.addColorStop(1, KS("hoodie"));
+  paint(g, hood, hg, 0.009);
+  g.save();
+  g.clip(hood);
+  // The seam over the crown, a soft sheen, and the gathers round the opening.
+  g.strokeStyle = KS("hoodie");
+  g.lineWidth = 0.007;
+  g.beginPath();
+  g.moveTo(-0.16, 0.06);
+  g.bezierCurveTo(-0.2, -0.1, -0.1, -0.2, top[0] - 0.02, top[1] + 0.005);
+  g.stroke();
+  g.strokeStyle = "rgba(150,160,180,0.55)";
+  g.lineWidth = 0.006;
+  g.beginPath();
+  for (const a of [-1.1, -0.55, 0, 0.55, 1.1]) {
+    const c = Math.PI + a;
+    g.moveTo(ox + Math.cos(c) * rx, oy + Math.sin(c) * ry);
+    g.lineTo(ox + Math.cos(c) * (rx + 0.08), oy + Math.sin(c) * (ry + 0.06));
+  }
+  g.stroke();
+  g.strokeStyle = "rgba(255,255,255,0.2)";
+  g.lineWidth = 0.022;
+  g.beginPath();
+  g.arc(-0.05, -0.01, 0.13, -2.7, -1.6);
+  g.stroke();
+  // Drawn tight, the fabric bunches round his nose: a lighter puckered patch.
+  const tight = 1 - peek;
+  if (tight > 0.02) {
+    const pk = new Path2D();
+    pk.ellipse(0.175, 0.045, 0.085 * tight + 0.02, 0.11 * tight + 0.04, 0, 0, TAU);
+    const pg = g.createRadialGradient(0.22, 0.045, 0.01, 0.18, 0.045, 0.12);
+    pg.addColorStop(0, K("hoodieLight"));
+    pg.addColorStop(0.6, K("hoodieLight"));
+    pg.addColorStop(1, K("hoodie"));
+    g.globalAlpha *= tight;
+    g.fillStyle = pg;
+    g.fill(pk);
+    g.fillStyle = "rgba(255,255,255,0.1)";
+    g.fill(pk);
+    // His big eyes push the fabric out: two round bulges.
+    for (const [ex, ey] of [EYE_L, EYE_R]) {
+      g.fillStyle = "rgba(255,255,255,0.1)";
+      g.beginPath();
+      g.ellipse(ex, ey, 0.05, 0.064, 0, 0, TAU);
+      g.fill();
+      g.lineWidth = 0.009;
+      g.strokeStyle = "rgba(255,255,255,0.32)";
+      g.beginPath();
+      g.ellipse(ex, ey, 0.046, 0.06, 0, Math.PI * 1.05, Math.PI * 1.6);
+      g.stroke();
+      g.strokeStyle = KS("hoodie");
+      g.beginPath();
+      g.ellipse(ex, ey, 0.05, 0.064, 0, 0.1, 1.5);
+      g.stroke();
+    }
+    g.strokeStyle = KS("hoodie");
+    g.lineWidth = 0.006;
+    g.beginPath();
+    for (let a = 1.75; a < TAU - 1.7; a += 0.36) {
+      g.moveTo(0.236 + Math.cos(a) * 0.04, 0.045 + Math.sin(a) * 0.07);
+      g.lineTo(0.175 + Math.cos(a) * (0.085 * tight + 0.02), 0.045 + Math.sin(a) * (0.11 * tight + 0.04));
+    }
+    g.stroke();
+  }
+  g.restore();
+  // The cinched rim: a ring round his nose, opening to frame his face.
+  const sweep = lerp(TAU, Math.PI * 1.05, peek);
+  g.lineCap = "round";
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.034;
+  g.beginPath();
+  g.ellipse(ox, oy, rx, ry, 0, Math.PI - sweep / 2, Math.PI + sweep / 2);
+  g.stroke();
+  g.strokeStyle = K("hoodieLight");
+  g.lineWidth = 0.02;
+  g.stroke();
+  // Scrunched where the drawstring pulls it tight: little puffs of fabric round the rim.
+  const puffs = Math.round(lerp(11, 7, peek));
+  for (let j = 0; j < puffs; j++) {
+    const a = Math.PI - sweep / 2 + (sweep * (j + 0.5)) / puffs;
+    dot(g, ox + Math.cos(a) * rx, oy + Math.sin(a) * ry, 0.014, K("hoodieLight"), 0.005);
+  }
+  g.restore();
+  if (k < 0.6) return;
+  if (peek < 0.5) drawNose(g, 0.262, 0.045);
+  // The drawstrings, dangling under his chin with orange tips.
+  const sway = 0.01 * Math.sin(k * 7);
+  for (const [dx, len] of [[-0.012, 0.13], [0.014, 0.115]] as const) {
+    const a: Pt = [bottom[0] + dx, bottom[1] - 0.005];
+    const b: Pt = [a[0] + dx * 0.8 + sway, a[1] + len];
+    noodle(g, hose(a, b, 0.15), 0.006, K("hoodieLight"));
+    g.fillStyle = K("logo");
+    g.strokeStyle = C.line;
+    g.lineWidth = 0.004;
+    g.beginPath();
+    g.roundRect(b[0] - 0.007, b[1] - 0.004, 0.014, 0.022, 0.004);
+    g.fill();
+    g.stroke();
+  }
+}
+
+// ── Outfits: props and hiding (body space) ────────────────────────────────────
+
+/** What he holds: the magnifying glass, the laptop, the frying pan. Drawn under his near paw. */
+function drawHeldProp(g: CanvasRenderingContext2D, p: Pose, hc: Pt, eye: string, f: Frame) {
+  const paw: Pt = [p.pawRX, p.pawRY];
+  g.save();
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  if (outfit === "detective" && p.prop > 0.01) {
+    const k = clamp(p.prop, 0, 1);
+    g.translate(paw[0], paw[1]);
+    g.scale(k, k);
+    g.translate(-paw[0], -paw[1]);
+    const lc: Pt = [paw[0] - 0.02, paw[1] - 0.11];
+    noodle(g, hose([paw[0] + 0.006, paw[1] + 0.03], [lc[0] + 0.008, lc[1] + 0.065], 0), 0.018, K("handle"));
+    const lens = new Path2D();
+    lens.arc(lc[0], lc[1], 0.066, 0, TAU);
+    g.save();
+    g.clip(lens);
+    // Everything behind it, bigger: his eye, huge.
+    if (k > 0.8) {
+      g.translate(lc[0], lc[1]);
+      g.scale(1.6, 1.6);
+      g.translate(-lc[0], -lc[1]);
+      g.translate(hc[0], hc[1]);
+      g.rotate(p.headTilt);
+      g.scale(HEAD_SCALE, HEAD_SCALE);
+      drawHead(g, { ...p, prop: 0 }, eye, f);
+    }
+    g.restore();
+    g.fillStyle = "rgba(207,232,242,0.25)";
+    g.fill(lens);
+    g.strokeStyle = C.line;
+    g.lineWidth = 0.024;
+    g.stroke(lens);
+    g.strokeStyle = K("brass");
+    g.lineWidth = 0.014;
+    g.stroke(lens);
+    g.strokeStyle = "rgba(255,255,255,0.8)";
+    g.lineWidth = 0.008;
+    g.beginPath();
+    g.arc(lc[0], lc[1], 0.046, -2.6, -1.8);
+    g.stroke();
+  } else if (outfit === "coder" && p.prop > 0.01) {
+    // A little laptop resting on his far forearm (that paw holds it from
+    // below), its lid towards us with the logo on it; the near paw types.
+    const k = clamp(p.prop, 0, 1);
+    g.translate(0.235, -0.497);
+    g.scale(k, k);
+    paint(g, poly([[-0.125, 0.0], [0.085, -0.014], [0.105, 0.006], [0.105, 0.02], [-0.105, 0.034], [-0.125, 0.014]]), K("laptop"), 0.007);
+    g.strokeStyle = C.line;
+    g.lineWidth = 0.004;
+    g.beginPath();
+    g.moveTo(-0.122, 0.012);
+    g.lineTo(0.104, -0.002);
+    g.stroke();
+    // The screen's glowing edge, then the lid.
+    paint(g, poly([[0.052, -0.012], [0.066, -0.01], [0.044, -0.17], [0.03, -0.17]]), "#BFE6FF", 0.005);
+    const lid = poly([[0.066, -0.01], [0.1, 0.002], [0.08, -0.165], [0.044, -0.172]]);
+    paint(g, lid, clothShade(g, "laptop", 0.06, -0.1, 0.12), 0.008);
+    dot(g, 0.071, -0.085, 0.011, K("logo"), 0.004);
+  } else if (outfit === "chef" && p.hide > 0.02) {
+    // The frying pan he hides behind.
+    const k = clamp(p.hide, 0, 1);
+    g.translate(paw[0], paw[1]);
+    g.scale(k, k);
+    const c: Pt = [0.045, -0.21];
+    noodle(g, hose([0.0, 0.02], [c[0] - 0.02, c[1] + 0.12], 0), 0.026, KS("pan"));
+    const pan = new Path2D();
+    pan.ellipse(c[0], c[1], 0.135, 0.128, 0, 0, TAU);
+    const pg = g.createRadialGradient(c[0] - 0.03, c[1] - 0.04, 0.01, c[0], c[1], 0.14);
+    pg.addColorStop(0, "#5A5E68");
+    pg.addColorStop(1, K("pan"));
+    paint(g, pan, pg, 0.01);
+    g.strokeStyle = "rgba(255,255,255,0.18)";
+    g.lineWidth = 0.012;
+    g.beginPath();
+    g.ellipse(c[0], c[1], 0.105, 0.098, 0, 0, TAU);
+    g.stroke();
+    g.strokeStyle = "rgba(255,255,255,0.55)";
+    g.lineWidth = 0.012;
+    g.beginPath();
+    g.ellipse(c[0], c[1], 0.11, 0.104, 0, -2.7, -1.9);
+    g.stroke();
+    dot(g, c[0] - 0.012, c[1] + 0.11, 0.008, KS("pan"), 0.004);
+  }
+  g.restore();
+}
+
+/** In front of everything: the hero wrapped in his cape, the detective's collar turned up. */
+function drawOutfitFront(g: CanvasRenderingContext2D, p: Pose, hc: Pt, nb: Pt) {
+  const k = clamp(p.hide, 0, 1);
+  if (k < 0.01) return;
+  g.save();
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  if (outfit === "hero") {
+    // Wrapped up to his eyes, peeking over the top, paws on the edge.
+    const top = hc[1] + 0.012;
+    const L = hc[0] - 0.19, R = hc[0] + 0.3;
+    g.beginPath();
+    g.rect(-1, lerp(0.1, top - 0.1, k), 2, 2);
+    g.clip();
+    const wrap = new Path2D();
+    wrap.moveTo(L, top + 0.035);
+    wrap.quadraticCurveTo(hc[0] + 0.05, top - 0.04, R, top + 0.01);
+    wrap.bezierCurveTo(R + 0.07, top + 0.1, R - 0.02, top + 0.4, hc[0] + 0.03, -0.07);
+    wrap.quadraticCurveTo(hc[0] - 0.08, -0.05, hc[0] - 0.16, -0.085);
+    wrap.bezierCurveTo(L - 0.06, top + 0.42, L - 0.07, top + 0.12, L, top + 0.035);
+    wrap.closePath();
+    paint(g, wrap, clothShade(g, "cape", hc[0], top + 0.2, 0.4), 0.009);
+    g.save();
+    g.clip(wrap);
+    g.fillStyle = K("capeInside");
+    g.beginPath();
+    g.moveTo(L - 0.05, top + 0.03);
+    g.quadraticCurveTo(hc[0] + 0.03, top - 0.035, R + 0.05, top + 0.008);
+    g.lineTo(R + 0.05, top + 0.04);
+    g.quadraticCurveTo(hc[0] + 0.03, top, L - 0.05, top + 0.065);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = KS("cape");
+    g.lineWidth = 0.012;
+    g.beginPath();
+    for (const x of [-0.12, 0.02, 0.17]) {
+      g.moveTo(hc[0] + x, top + 0.07);
+      g.quadraticCurveTo(hc[0] + x * 0.6 + 0.02, top + 0.3, hc[0] + x * 0.5, 0);
+    }
+    g.stroke();
+    g.restore();
+    for (const x of [-0.07, 0.2]) {
+      g.save();
+      g.translate(hc[0] + x, top + 0.012 - 0.01 * (x > 0 ? 1 : 0));
+      g.fillStyle = C.furLight;
+      g.beginPath();
+      g.ellipse(0, 0, 0.03, 0.022, 0, 0, TAU);
+      g.fill();
+      g.strokeStyle = C.line;
+      g.lineWidth = 0.008;
+      g.stroke();
+      g.lineWidth = 0.006;
+      g.beginPath();
+      for (const dx of [-0.009, 0.009]) {
+        g.moveTo(dx, -0.02);
+        g.lineTo(dx, -0.004);
+      }
+      g.stroke();
+      g.restore();
+    }
+  } else if (outfit === "detective") {
+    // His coat collar turned up round his face: two lapel points standing up,
+    // hiding snout and mouth (only the hat and eyes show), rising out of the coat.
+    const bottom = nb[1] + 0.24;
+    const [x, y] = hc;
+    g.beginPath();
+    g.rect(-2, lerp(bottom + 0.02, y - 0.25, Ease.outCubic(smoothstep(0.08, 1, k))), 4, 4);
+    g.clip();
+    g.translate(nb[0], bottom);
+    g.scale(lerp(0.5, 1, k), lerp(0.7, 1, k));
+    g.translate(-nb[0], -bottom);
+    // One piece rising out of the coat's shoulders: up the back to the back
+    // point, a sagging edge down between his eyes and snout, up to the front
+    // point, then down past his snout and back into the coat's chest.
+    const backPt: Pt = [x - 0.23, y - 0.09], dip: Pt = [x + 0.1, y + 0.035], frontPt: Pt = [x + 0.43, y - 0.08];
+    const edge = new Path2D();
+    edge.moveTo(nb[0] - 0.1, bottom);
+    edge.quadraticCurveTo(nb[0] - 0.13, y + 0.1, backPt[0], backPt[1]);
+    edge.quadraticCurveTo(x - 0.06, y - 0.0, dip[0], dip[1]);
+    edge.quadraticCurveTo(x + 0.26, y - 0.0, frontPt[0], frontPt[1]);
+    edge.quadraticCurveTo(x + 0.42, y + 0.2, x + 0.34, y + 0.29);
+    edge.quadraticCurveTo(nb[0] + 0.2, bottom - 0.04, nb[0] + 0.1, bottom);
+    const collar = new Path2D(edge);
+    collar.closePath();
+    g.fillStyle = clothShade(g, "coat", x, y + 0.05, 0.36);
+    g.fill(collar);
+    g.save();
+    g.clip(collar);
+    // The darker underside turned out along the top, between the points.
+    g.fillStyle = K("coatDark");
+    g.beginPath();
+    g.moveTo(backPt[0] - 0.02, backPt[1] - 0.02);
+    g.quadraticCurveTo(x - 0.06, y - 0.0, dip[0], dip[1] - 0.01);
+    g.quadraticCurveTo(x + 0.26, y - 0.0, frontPt[0] + 0.02, frontPt[1] - 0.02);
+    g.lineTo(frontPt[0] - 0.01, frontPt[1] + 0.05);
+    g.quadraticCurveTo(x + 0.26, y + 0.05, dip[0], dip[1] + 0.035);
+    g.quadraticCurveTo(x - 0.06, y + 0.05, backPt[0] + 0.01, backPt[1] + 0.055);
+    g.closePath();
+    g.fill();
+    // Where the collar folds over, and the coat's front edge below the dip.
+    g.strokeStyle = KS("coat");
+    g.lineWidth = 0.008;
+    g.beginPath();
+    g.moveTo(backPt[0] + 0.03, backPt[1] + 0.11);
+    g.quadraticCurveTo(x + 0.1, y + 0.12, frontPt[0] - 0.01, frontPt[1] + 0.12);
+    g.stroke();
+    g.strokeStyle = C.line;
+    g.lineWidth = 0.007;
+    g.beginPath();
+    g.moveTo(dip[0], dip[1] + 0.035);
+    g.quadraticCurveTo(x + 0.15, y + 0.2, x + 0.13, bottom + 0.02);
+    g.stroke();
+    g.restore();
+    g.strokeStyle = C.line;
+    g.lineWidth = 0.009;
+    g.stroke(edge);
+    dot(g, x + 0.22, y + 0.17, 0.012, K("coatDark"));
+    dot(g, x + 0.23, y + 0.25, 0.012, K("coatDark"));
+  }
+  g.restore();
+}
+
+// ── Outfits: asleep ───────────────────────────────────────────────────────────
+
+/** The main cloth of each outfit, for the blanket he sleeps under. */
+const BLANKET: Record<OutfitName, string> = {
+  cozy: "scarf", desi: "jacket", detective: "coat", hero: "cape", rainy: "coat",
+  coder: "hoodie", pyjamas: "pj", chef: "apron", dapper: "vest",
+};
+
+/** The outfit spread over him like a blanket. */
+function drawBlanket(g: CanvasRenderingContext2D, bl: Path2D, f: Frame) {
+  g.save();
+  g.lineCap = "round";
+  g.fillStyle = clothShade(g, BLANKET[outfit], -0.14, -0.2, 0.3);
+  g.fill(bl);
+  g.save();
+  g.clip(bl);
+  switch (outfit) {
+    case "desi":
+      // A maroon shawl with a gold border.
+      g.strokeStyle = K("gold");
+      g.lineWidth = 0.03;
+      g.stroke(bl);
+      for (const [x, y] of [[-0.24, -0.15], [-0.15, -0.2], [-0.06, -0.16], [-0.18, -0.09]] as const) dot(g, x, y, 0.012, K("gold"), 0.004);
+      break;
+    case "detective":
+      g.fillStyle = K("coatDark");
+      g.fillRect(-0.2, -0.3, 0.035, 0.3);
+      for (const y of [-0.2, -0.13, -0.06]) dot(g, -0.08, y, 0.01, K("coatDark"));
+      break;
+    case "hero":
+      g.strokeStyle = K("capeInside");
+      g.lineWidth = 0.03;
+      g.stroke(bl);
+      dot(g, 0.0, -0.2, 0.022, K("emblem"));
+      break;
+    case "rainy":
+      for (const y of [-0.21, -0.14, -0.07]) {
+        g.save();
+        g.translate(-0.06, y);
+        const tog = new Path2D();
+        tog.ellipse(0, 0, 0.019, 0.008, -0.2, 0, TAU);
+        paint(g, tog, K("coatDark"), 0.005);
+        g.restore();
+      }
+      break;
+    case "coder":
+      g.fillStyle = K("hoodieLight");
+      g.fillRect(-0.4, -0.05, 0.5, 0.06);
+      dot(g, -0.12, -0.17, 0.022, K("logo"));
+      break;
+    case "pyjamas":
+      g.strokeStyle = K("stripe");
+      g.lineWidth = 0.022;
+      g.beginPath();
+      for (const x of [-0.3, -0.22, -0.14, -0.06, 0.02]) {
+        g.moveTo(x - 0.03, -0.29);
+        g.quadraticCurveTo(x + 0.03, -0.12, x, 0.02);
+      }
+      g.stroke();
+      break;
+    case "chef":
+      // A red gingham tablecloth.
+      g.fillStyle = K("neckerchief");
+      g.globalAlpha *= 0.45;
+      for (let x = -0.4; x < 0.1; x += 0.05) g.fillRect(x, -0.3, 0.025, 0.32);
+      for (let y = -0.3; y < 0.05; y += 0.05) g.fillRect(-0.4, y, 0.5, 0.025);
+      break;
+    case "dapper":
+      argyle(g, -0.36, -0.28, 0.06, 0.0, 0.03, 0.042, f);
+      break;
+  }
+  g.restore();
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.009;
+  g.stroke(bl);
+  g.restore();
+}
+
+/** A little striped pillow under his head. */
+function drawPillow(g: CanvasRenderingContext2D) {
+  const pillow = new Path2D();
+  pillow.ellipse(0.22, -0.03, 0.2, 0.042, -0.03, 0, TAU);
+  g.save();
+  paint(g, pillow, K("stripe"), 0.008);
+  g.clip(pillow);
+  g.strokeStyle = K("pj");
+  g.lineWidth = 0.012;
+  g.beginPath();
+  for (let x = 0.04; x < 0.44; x += 0.05) {
+    g.moveTo(x, -0.1);
+    g.lineTo(x + 0.01, 0.02);
+  }
+  g.stroke();
   g.restore();
 }
 

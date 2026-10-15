@@ -26,6 +26,8 @@ import { phoneView } from "./phone";
 import { playFor } from "./sounds";
 import type { RuiStage } from "../three/stage";
 import { isLook, isTheme } from "../three/palette";
+import { setDogeshOutfit } from "../skins/dogesh";
+import { playDogeshChange } from "./dogesh-change";
 
 // Colours from the chosen theme, before anything is drawn.
 initTheme();
@@ -35,6 +37,9 @@ const islandEl = document.getElementById("island")!;
 const status = document.getElementById("status")!;
 
 const initialPrefs = await invoke<Prefs>("get_prefs");
+// Dogesh Bhai's outfit, for his 2D self (his 3D self gets it from the stage).
+setDogeshOutfit(initialPrefs.dogeshOutfit);
+
 /** The 2D character (with Rui, the one the controller keeps, unseen). */
 let character: CharacterId = isCharacter(initialPrefs.character) ? initialPrefs.character : "kulhi";
 let top = initialPrefs.place === "top";
@@ -128,6 +133,7 @@ async function use3d(who: Who3d | null) {
     // His saved look and colour, straight on (the latest, in case they changed while he loaded).
     if (isLook(prefs.ruiLook)) stage.setLook(prefs.ruiLook);
     if (who === "rui" && isTheme(prefs.ruiTheme)) stage.setTheme(prefs.ruiTheme);
+    if (who === "dogesh") stage.setOutfit(prefs.dogeshOutfit);
     stage.setReducedMotion(reducedMotion.matches);
     stage.setState(c.getState(), c.getVariant());
     stage.setHidden(top && island.shapeNow() === "tucked");
@@ -303,6 +309,22 @@ void listen<{ title: string; text: string; kind: BubbleMessage["kind"]; action?:
   bubble.show({ id: `notice:${payload.title}`, category: "notice", ...payload });
 });
 
+/** Dogesh Bhai changes outfit: in 3D his stage plays the scene; in 2D an overlay does. */
+function changeOutfit(name: string | undefined, onShow: boolean) {
+  if (stage && stageWho === "dogesh") {
+    stage.changeOutfit(name);
+    setDogeshOutfit(name); // his 2D self, for when it stands in
+    return;
+  }
+  if (!onShow || top || reducedMotion.matches || fullscreen) {
+    setDogeshOutfit(name);
+    if (onShow) c.tap();
+    return;
+  }
+  const kind = Math.random() < 0.5 ? "puff" : "screen";
+  void playDogeshChange(canvas, kind, () => setDogeshOutfit(name)).then(() => c.tap());
+}
+
 // Character, size and place (and Rui's look and colour) from the tray or Settings.
 void listen<Prefs>("prefs", ({ payload }) => {
   const before = prefs;
@@ -313,6 +335,9 @@ void listen<Prefs>("prefs", ({ payload }) => {
     // A new colour: he changes into it with a little scene.
     if (stageWho === "rui" && isTheme(payload.ruiTheme) && payload.ruiTheme !== before.ruiTheme) stage.changeTheme(payload.ruiTheme);
   }
+  // A new outfit for Dogesh Bhai: he changes into it (a puff of smoke, or
+  // behind a folding screen), or at once when he isn't on show.
+  if (payload.dogeshOutfit !== before.dogeshOutfit) changeOutfit(payload.dogeshOutfit, payload.character === "dogesh" && payload.character === before.character);
   const show3d = want3d();
   if (show3d !== stageWho || (isCharacter(payload.character) && payload.character !== character)) {
     if (isCharacter(payload.character)) {

@@ -11,7 +11,8 @@ import { Look, ThemeName, currentTheme, lookShared, setTheme } from "./looks";
 import { prewarm } from "./props";
 import { SpeedWatch } from "./speed";
 import { CHANGE_STYLES, Cue, Rui } from "./rui";
-import { Dogesh } from "./dogesh";
+import { Dogesh, OUTFIT_CHANGES, type OutfitChange } from "./dogesh";
+import { isOutfit } from "../skins/dogesh-outfits";
 
 /** Which 3D character the stage shows. */
 export type Who = "rui" | "dogesh";
@@ -40,7 +41,9 @@ const ROAM = 1.1;
 /** Further from the middle than this, he's outside his square: the canvas grows to the whole window. */
 const HOME_X = 0.36;
 /** Behaviours that move him about (or bring props in) and so may need the room. */
-const ROAMING: ReadonlySet<string> = new Set(["stroll", "walk", "wardrobe", "trunk", "hop"]);
+const ROAMING: ReadonlySet<string> = new Set(["stroll", "walk", "wardrobe", "trunk", "hop", "screen"]);
+/** The change scenes (Rui's colours, Dogesh's outfits): while one runs, `changing` is set. */
+const SCENES: readonly string[] = [...CHANGE_STYLES, ...OUTFIT_CHANGES];
 /** Dogesh's head sits a little lower than Rui's: the island's head-and-shoulders shot follows it down. */
 const HEAD_DROP: Record<Who, number> = { rui: 0, dogesh: 0.1 };
 /** How long after he appears to build the change-colour props, so the first change doesn't stutter. */
@@ -51,7 +54,7 @@ const LASTING: ReadonlySet<string> = new Set(["work", "ponder", "shrug", "droop"
 /** Quick moves get every frame; slow, still ones get fewer. */
 const QUICK: ReadonlySet<string> = new Set([
   "hooray", "spin", "hop", "dizzy", "poke", "held", "land", "nod", "boot", "wave", "twirl", "paint", "wardrobe",
-  "trunk", "exercise", "call", "stand", "sit", "spook",
+  "trunk", "exercise", "call", "stand", "sit", "spook", "puff", "screen",
 ]);
 const STILL: ReadonlySet<string> = new Set(["nap", "doze", "rest", "seated"]);
 /** After this long in the same lasting behaviour (working, pondering...), he's drawn as rarely as when dozing. */
@@ -98,8 +101,10 @@ export class RuiStage {
   /** Where Dogesh's head is (eased), for the island's shot of him. */
   private headY = 1.45;
   private headAt = new THREE.Vector3();
-  /** A colour change is under way: "starting" until the scene shows, then "scene". */
+  /** A colour (or outfit) change is under way: "starting" until the scene shows, then "scene". */
   private changing: "starting" | "scene" | null = null;
+  /** A state came in while Dogesh was changing outfit: played once he's done. */
+  private held = false;
   private warmed = false;
   /** Props are in the scene being compiled: hold the last frame till they're out. */
   private warming = false;
@@ -128,8 +133,8 @@ export class RuiStage {
   private resizer: ResizeObserver;
 
   /**
-   * `who`: Rui (the default) or Dogesh Bhai. Dogesh has no colour themes:
-   * `setTheme` and `changeTheme` do nothing for him.
+   * `who`: Rui (the default) or Dogesh Bhai. Rui's colours are themes
+   * (`setTheme`, `changeTheme`); Dogesh's looks are outfits (`setOutfit`, `changeOutfit`).
    */
   constructor(private canvas: HTMLCanvasElement, framing: Framing, readonly who: Who = "rui") {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "low-power" });
@@ -188,6 +193,37 @@ export class RuiStage {
     return this.actor;
   }
 
+  /** Dresses Dogesh Bhai in an outfit (dogesh-outfits.ts) at once (on start-up). */
+  setOutfit(name: unknown): void {
+    if (this.actor instanceof Dogesh) this.actor.setOutfit(name);
+  }
+
+  /**
+   * A new outfit chosen in Settings: he changes into it with one of two
+   * scenes (a puff of smoke, or behind a dressing screen; never the same twice
+   * running, unless `style` says). At the top edge there's only room for the
+   * puff; with reduced motion, or while he can't be seen, he just changes.
+   */
+  changeOutfit(name: unknown, style?: OutfitChange): void {
+    const dog = this.actor;
+    if (!(dog instanceof Dogesh) || !isOutfit(name)) return;
+    if (name === dog.wearing && !this.changing) return;
+    if (this.reduced || this.hidden) {
+      dog.setOutfit(name);
+      return;
+    }
+    dog.changeOutfit(name, this.framing === "island" ? "puff" : style);
+    this.changing = "starting";
+  }
+
+  /**
+   * How far the agent's work has got (0..1, or null when unknown): Dogesh's
+   * cozy scarf knits up gold with it while he works.
+   */
+  setProgress(p: number | null): void {
+    if (this.actor instanceof Dogesh) this.actor.progress = p === null ? null : Math.min(1, Math.max(0, p));
+  }
+
   /** Puts a colour on at once (on start-up, with no scene). Rui only. */
   setTheme(name: ThemeName): void {
     if (this.actor instanceof Rui) setTheme(name);
@@ -225,6 +261,14 @@ export class RuiStage {
   /** The controller's state changed. */
   setState(state: StateName, variant: Variant): void {
     this.state = state;
+    // Dogesh finishes changing his clothes first (unless he's picked up): the state is played after.
+    if (this.changing && this.actor instanceof Dogesh && state !== "HELD") {
+      this.held = true;
+      this.actor.mood = state === "ATTENTIVE" ? "happy" : "neutral";
+      this.actor.autoLife = this.lively();
+      return;
+    }
+    this.held = false;
     // A new state takes over from a colour change still running (the colour is put on regardless).
     this.changing = null;
     this.actor.mood = state === "ATTENTIVE" ? "happy" : "neutral";
@@ -390,13 +434,19 @@ export class RuiStage {
   private afterChange(): void {
     if (!this.changing) return;
     const now = this.actor.current;
-    const inScene = (CHANGE_STYLES as string[]).includes(now);
+    const inScene = SCENES.includes(now);
     if (this.changing === "starting") {
       if (inScene) this.changing = "scene";
       return;
     }
     if (inScene) return;
     this.changing = null;
+    if (this.held) {
+      // What came in while he was changing.
+      this.held = false;
+      this.setState(this.state, null);
+      return;
+    }
     const cue = cueFor(this.state, null);
     if (cue && LASTING.has(cue)) this.actor.play(cue);
   }
@@ -424,7 +474,7 @@ export class RuiStage {
   private async warmUp(): Promise<void> {
     if (this.warmed) return;
     // It borrows the scene's wardrobe, mirror and trunk: not while he's using them, or while nobody can see.
-    if (!this.running || this.changing || this.hidden || (CHANGE_STYLES as string[]).includes(this.actor.current)) {
+    if (!this.running || this.changing || this.hidden || SCENES.includes(this.actor.current)) {
       this.warmTimer = window.setTimeout(() => void this.warmUp(), PREWARM_AFTER_MS);
       return;
     }

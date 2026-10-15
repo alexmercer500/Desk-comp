@@ -3,6 +3,9 @@
 
 import { CharacterController } from "../engine/controller";
 import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
+import { setDogeshOutfit } from "../skins/dogesh";
+import { OUTFITS, OUTFIT_NAMES } from "../skins/dogesh-outfits";
+import { playDogeshChange, type ChangeKind } from "../desktop/dogesh-change";
 
 const FAST = { idleToSleepyMs: 6000, sleepyToSleepMs: 4000 };
 const NORMAL = { idleToSleepyMs: 45_000, sleepyToSleepMs: 15_000 };
@@ -17,7 +20,24 @@ const pick = () => {
   if (!isCharacter(picker.value)) return;
   c.setCharacter(picker.value);
   $("#char-name").textContent = CHARACTER_NAMES[picker.value];
+  $("#outfit-row").hidden = picker.value !== "dogesh";
 };
+
+// Dogesh Bhai's outfits: put one on at once, or change into it with a scene.
+const outfit = $<HTMLSelectElement>("#outfit");
+for (const name of OUTFIT_NAMES) outfit.append(new Option(OUTFITS[name].label, name));
+outfit.addEventListener("change", () => setDogeshOutfit(outfit.value));
+let wearing = "cozy";
+outfit.addEventListener("change", () => (wearing = outfit.value));
+const change = (kind: ChangeKind) => {
+  // To the next outfit in the list, with the scene.
+  const next = OUTFIT_NAMES[(OUTFIT_NAMES.indexOf(wearing as (typeof OUTFIT_NAMES)[number]) + 1) % OUTFIT_NAMES.length];
+  wearing = next;
+  outfit.value = next;
+  void playDogeshChange(hero, kind, () => setDogeshOutfit(next)).then(() => c.tap());
+};
+$("#outfit-puff").addEventListener("click", () => change("puff"));
+$("#outfit-screen").addEventListener("click", () => change("screen"));
 picker.addEventListener("change", pick);
 // ?character=dogesh opens straight on that character.
 const asked = new URLSearchParams(location.search).get("character");

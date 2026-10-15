@@ -84,6 +84,8 @@ pub struct Prefs {
     pub ui_theme: String,
     /// Dogesh Bhai in 3D or 2D (DOGESH_STYLES).
     pub dogesh_style: String,
+    /// Dogesh Bhai's outfit (DOGESH_OUTFITS; what each looks like is in src/skins/dogesh-outfits.ts).
+    pub dogesh_outfit: String,
 }
 
 impl Default for Prefs {
@@ -118,6 +120,7 @@ impl Default for Prefs {
             agent_setup_dismissed: false,
             ui_theme: "character".into(),
             dogesh_style: "3d".into(),
+            dogesh_outfit: "cozy".into(),
         }
     }
 }
@@ -126,6 +129,8 @@ pub const SIZES: &[&str] = &["small", "medium", "large"];
 pub const CHARACTERS: &[&str] = &["kulhi", "hexo", "glim", "billu", "rui", "dogesh"];
 /// How Dogesh Bhai is drawn: "3d" (like Rui, in Rui's look) or "2d" (like the others).
 pub const DOGESH_STYLES: &[&str] = &["3d", "2d"];
+/// Dogesh Bhai's outfits.
+pub const DOGESH_OUTFITS: &[&str] = &["cozy", "desi", "detective", "hero", "rainy", "coder", "pyjamas", "chef", "dapper"];
 pub const PLACES: &[&str] = &["corner", "top"];
 pub const RUI_LOOKS: &[&str] = &["toy", "anime"];
 pub const RUI_THEMES: &[&str] = &["cream", "mint", "sky", "lavender", "peach", "panda"];
@@ -150,6 +155,9 @@ impl Prefs {
         }
         if !DOGESH_STYLES.contains(&self.dogesh_style.as_str()) {
             return Err(format!("unknown style {:?}", self.dogesh_style));
+        }
+        if !DOGESH_OUTFITS.contains(&self.dogesh_outfit.as_str()) {
+            return Err(format!("unknown outfit {:?}", self.dogesh_outfit));
         }
         if !UI_THEMES.contains(&self.ui_theme.as_str()) {
             return Err(format!("unknown theme {:?}", self.ui_theme));
@@ -742,6 +750,8 @@ mod tests {
         assert_eq!(p.with("character", &json!("dogesh")).unwrap().character, "dogesh");
         assert_eq!(p.with("dogeshStyle", &json!("2d")).unwrap().dogesh_style, "2d");
         assert!(p.with("dogeshStyle", &json!("4d")).is_err());
+        assert_eq!(p.with("dogeshOutfit", &json!("detective")).unwrap().dogesh_outfit, "detective");
+        assert!(p.with("dogeshOutfit", &json!("tuxedo")).is_err());
         assert_eq!(p.with("character", &json!("rui")).unwrap().character, "rui");
         assert_eq!(p.with("quietUntil", &json!(-1)).unwrap().quiet_until, -1);
         assert_eq!(p.with("ruiLook", &json!("anime")).unwrap().rui_look, "anime");

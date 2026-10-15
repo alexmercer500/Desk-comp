@@ -6,7 +6,8 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { DOG_EXPRESSIONS } from "./dog-face";
-import { DOG_ACTIONS, Dogesh } from "./dogesh";
+import { DOG_ACTIONS, Dogesh, type OutfitChange } from "./dogesh";
+import { OUTFITS, OUTFIT_NAMES } from "../skins/dogesh-outfits";
 import { EXPRESSIONS } from "./face";
 import { Look, THEMES, THEME_NAMES, ThemeName, currentTheme, lookShared, themeColors } from "./looks";
 import { prewarm } from "./props";
@@ -110,6 +111,7 @@ function useCharacter(w: Who): void {
   canvas.setAttribute("aria-label", n.aria);
   document.title = `${n.name} 3D Prototype`;
   $("#colour-group").hidden = w !== "rui";
+  $("#outfit-group").hidden = w !== "dogesh";
   document.querySelectorAll<HTMLButtonElement>("button[data-who]").forEach((b) => b.classList.toggle("on", b.dataset.who === w));
   void warm();
 }
@@ -166,7 +168,7 @@ const LABELS: Record<string, string> = {
 };
 const DOG_LABELS: Record<string, string> = {
   spin: "Chase tail", exercise: "Shake off", eat: "Biscuit", sit: "Sit",
-  stroll: "Tiptoe", walk: "Tiptoe across", whistle: "Whistle", scratch: "Scratch", mutter: "Mutter",
+  stroll: "Tiptoe", walk: "Tiptoe across", whistle: "Whistle", scratch: "Scratch", mutter: "Mutter", peer: "Peer (detective)",
 };
 /** The app's states, as the desktop stage cues them (stage.ts). */
 const CUES: [string, string][] = [
@@ -287,6 +289,19 @@ applyBtn.addEventListener("click", () => {
   char.applyTheme(picked, how === "random" ? undefined : (how as ChangeStyle));
   applyBtn.disabled = true;
 });
+
+// ── Outfits (Dogesh): picking one changes into it with a scene ──────────────
+
+const outfitPick = $<HTMLSelectElement>("#outfit");
+for (const name of OUTFIT_NAMES) outfitPick.add(new Option(OUTFITS[name].label, name));
+const changeOutfit = () => {
+  if (!(char instanceof Dogesh)) return;
+  const how = $<HTMLSelectElement>("#outfit-style").value;
+  char.changeOutfit(outfitPick.value, how === "random" ? undefined : (how as OutfitChange));
+};
+// Picking an outfit changes into it at once; Change plays it again (handy after switching the scene).
+outfitPick.addEventListener("change", changeOutfit);
+$<HTMLButtonElement>("#apply-outfit").addEventListener("click", changeOutfit);
 
 // ── Pointer: watch it, poke him ───────────────────────────────────────────────
 

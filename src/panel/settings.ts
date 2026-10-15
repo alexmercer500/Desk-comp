@@ -12,6 +12,8 @@ import { LOOKS, LOOK_NAMES, THEMES, THEME_NAMES, themeColors } from "../three/pa
 import { UI_THEMES } from "../theme";
 import { linkState, linkText, since, type AgentStatus, type RelayTest } from "./connections";
 import { ruiPicture, setRuiStyle } from "./rui-pictures";
+import { OUTFITS, OUTFIT_NAMES } from "../skins/dogesh-outfits";
+import { setDogeshOutfit, withDogeshOutfit } from "../skins/dogesh";
 
 interface Prefs {
   uiTheme: string;
@@ -37,6 +39,7 @@ interface Prefs {
   ruiLook: string;
   ruiTheme: string;
   dogeshStyle: string;
+  dogeshOutfit: string;
   ruiFlatOnBattery: boolean;
   phoneLink: boolean;
   phoneRelay: boolean;
@@ -239,22 +242,66 @@ function characterPicker(): HTMLElement {
     const c = el("canvas");
     c.setAttribute("aria-hidden", "true");
     b.append(c, el("span", "char-name", CHARACTER_NAMES[id]), el("span", "char-what", what));
-    // Drawn once it's laid out (a canvas needs its size first).
-    requestAnimationFrame(() => {
-      const e = new Engine(SKINS[id]);
-      e.addView(c);
-      e.setState("IDLE", null, 0);
-      e.advance(400);
-    });
+    // Drawn once it has a size, and again if that changes: a canvas on a page
+    // that isn't showing yet (the Desk Companion window) has none.
+    const e = new Engine(SKINS[id]);
+    e.addView(c);
+    e.setState("IDLE", null, 0);
+    let settled = false;
+    const draw = () => {
+      if (!c.clientWidth) return;
+      e.advance(settled ? 0 : 400);
+      settled = true;
+    };
+    new ResizeObserver(draw).observe(c);
+    // Dogesh Bhai again in a new outfit.
+    if (id === "dogesh") redrawDogesh = draw;
   }
   controls.set("character", grid);
   return grid;
 }
 
-/** Dogesh Bhai's own choices: 3D or 2D, and (in 3D) the same look as Rui's. Shown while he's the character. */
+/** Redraws Dogesh Bhai's card (after a change of outfit). */
+let redrawDogesh: (() => void) | null = null;
+
+/** Dogesh Bhai's own choices: his outfit, 3D or 2D, and (in 3D) the same look as Rui's. Shown while he's the character. */
 function dogeshOptions(): HTMLElement {
   const box = el("div", "rui-options");
   controls.set("dogeshOptions", box);
+
+  // His outfits as little picture cards, each a drawing of him wearing it.
+  const outfits = el("div", "outfit-grid");
+  outfits.setAttribute("role", "radiogroup");
+  outfits.setAttribute("aria-label", "Dogesh Bhai's outfit");
+  for (const name of OUTFIT_NAMES) {
+    const b = el("button", "outfit-card");
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.dataset.value = name;
+    b.title = OUTFITS[name].blurb;
+    const c = el("canvas");
+    c.setAttribute("aria-hidden", "true");
+    b.append(c, el("span", "outfit-name", OUTFITS[name].label));
+    b.addEventListener("click", () => void set("dogeshOutfit", name));
+    outfits.append(b);
+    const e = new Engine(SKINS.dogesh);
+    e.addView(c);
+    e.setState("IDLE", null, 0);
+    let settled = false;
+    new ResizeObserver(() => {
+      if (!c.clientWidth || settled) return;
+      settled = true;
+      withDogeshOutfit(name, () => e.advance(400));
+    }).observe(c);
+  }
+  controls.set("dogeshOutfit", outfits);
+  const outfitRow = row("Outfit", null, el("span"));
+  const outfitBlurb = el("span", "set-hint");
+  controls.set("dogeshOutfitBlurb", outfitBlurb);
+  outfitRow.querySelector(".set-text")!.append(outfitBlurb);
+  const outfitBox = el("div", "outfit-box");
+  outfitBox.append(outfitRow, outfits);
+
   const lookRow = row(
     "3D look",
     "Toy: soft vinyl. Anime: flat colours and outlines.",
@@ -268,6 +315,7 @@ function dogeshOptions(): HTMLElement {
       segmented("dogeshStyle", "Dogesh Bhai is drawn in", [["3d", "3D"], ["2d", "2D"]]),
     ),
     lookRow,
+    outfitBox,
   );
   return box;
 }
@@ -321,7 +369,7 @@ function build() {
     row("Where I live", null, segmented("place", "Where I live", [["corner", "Desktop"], ["top", "Top edge"]])),
     row(
       "Theme",
-      "Character: colours from your character (Rui: from what he wears). System follows Windows.",
+      "Character: colours from your character (Rui and Dogesh Bhai: from what they wear). System follows Windows.",
       segmented("uiTheme", "Theme", Object.entries(UI_THEMES)),
     ),
     sizeRow,
@@ -613,6 +661,10 @@ function fill(s: Settings, ask: AskStatus) {
   controls.get("ruiOptions")!.hidden = p.character !== "rui";
   controls.get("dogeshOptions")!.hidden = p.character !== "dogesh";
   controls.get("dogeshLookRow")!.hidden = p.dogeshStyle === "2d";
+  const outfit = OUTFITS[p.dogeshOutfit as keyof typeof OUTFITS] ?? OUTFITS.cozy;
+  controls.get("dogeshOutfitBlurb")!.textContent = `${outfit.label}: ${outfit.blurb} He changes into it with a little scene.`;
+  setDogeshOutfit(p.dogeshOutfit);
+  redrawDogesh?.();
   const themeName = THEMES[p.ruiTheme as keyof typeof THEMES]?.label ?? "";
   controls.get("ruiThemeName")!.textContent = `${themeName}. He changes into it with a little scene.`;
 

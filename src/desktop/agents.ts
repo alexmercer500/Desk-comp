@@ -621,6 +621,17 @@ export function describeStep(step: Step): string {
     case "Task": case "Agent": return d ? `Delegating: ${d}` : "Delegating to a subagent";
     case "TodoWrite": return "Updating the plan";
     case "AskUserQuestion": return "Asking you a question";
-    default: return d ? `${step.tool}: ${d}` : step.tool;
+    default: {
+      const tool = toolName(step.tool);
+      return d ? `${tool}: ${d}` : tool;
+    }
   }
+}
+
+/** An MCP tool ("mcp__playwright__browser_navigate") as words: "Playwright · browser navigate". */
+function toolName(tool: string): string {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool);
+  if (!mcp) return tool;
+  const server = mcp[1].replace(/[_-]+/g, " ");
+  return `${server[0].toUpperCase()}${server.slice(1)} · ${mcp[2].replace(/_+/g, " ")}`;
 }

@@ -38,10 +38,10 @@ export interface IslandRow {
 
 /** Tucked tab, the open head (character only), and the wider shapes, logical px. */
 const TAB = { w: 84, h: 5 };
-const HEAD_H = 44;
-const PEEK_W = 66;
-const MAX_STATUS_W = 360;
-const LIST_W = 340;
+const HEAD_H = 52;
+const PEEK_W = 74;
+const MAX_STATUS_W = 440;
+const LIST_W = 440;
 const NOTICE_W = 380;
 /** A finished task gets a bigger card, like coucou's (the window is ISLAND_W wide in desktop.rs). */
 const CELEBRATE_W = 560;
@@ -83,7 +83,7 @@ export function agentStatus(sessions: SessionView[]): IslandStatus | null {
     return { tone: "attention", text: `${name(waiting[0])} needs your OK`, more: others > 0 ? `+${others}` : undefined };
   }
   if (working.length > 1) return { tone: "working", text: `${working.length} agents working` };
-  if (working.length === 1) return { tone: "working", text: name(working[0]), more: nowLine(working[0]) };
+  if (working.length === 1) return { tone: "working", text: name(working[0]), more: nowLine(working[0], 44) };
   return null;
 }
 
@@ -97,15 +97,15 @@ export function agentRows(sessions: SessionView[]): IslandRow[] {
       id: s.id,
       tone: s.status === "waiting" ? "attention" : "working",
       project: name(s),
-      line: s.permission ? `wants to ${s.permission.action}` : nowLine(s),
+      line: s.permission ? `wants to ${s.permission.action}` : nowLine(s, 110),
     }));
 }
 
 const name = (s: SessionView) => s.project || "Agent";
 
-function nowLine(s: SessionView): string {
+function nowLine(s: SessionView, max: number): string {
   const last = s.current?.steps[s.current.steps.length - 1];
-  return last ? firstLine(describeStep(last), 34) : "Thinking…";
+  return last ? firstLine(describeStep(last), max) : "Thinking…";
 }
 
 export interface IslandParts {

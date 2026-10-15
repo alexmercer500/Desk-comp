@@ -88,11 +88,15 @@ h2 {
   padding: 20px 24px;
 }
 
+/* The stage stays in view while the controls scroll beside it. */
 .stage-wrap {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  position: sticky;
+  top: 20px;
+  align-self: start;
 }
 
 .stage {
@@ -242,6 +246,10 @@ select {
     padding: 16px;
   }
 
+  .stage-wrap {
+    position: static;
+  }
+
   .top {
     padding: 14px 16px;
   }
@@ -302,3 +310,8 @@ button:disabled {
   opacity: 0.45;
   cursor: default;
 }
+
+/* The outfit picker: one choice per line, so the Change button fits the panel. */
+#outfit-group .apply-row { flex-direction: column; align-items: stretch; }
+#outfit-group .apply-row .inline { flex: none; }
+#outfit-group select { min-width: 0; flex: 1; max-width: 170px; }

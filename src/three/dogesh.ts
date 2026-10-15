@@ -12,9 +12,13 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { DogExpression, DogFace, DogFaceState, DOG_HEAD, dogExpression } from "./dog-face";
-import { Look, Surface, paint, tag } from "./looks";
+import { Look, knitShared, paint, setDogOutfit, tag } from "./looks";
 import { biscuit, dispose, glyph, tablet, theExclaim, theQuestion } from "./props";
+import { Clothes, type DogRig, dress } from "./dog-clothes";
+import { magnifier, shirt, sock, thePuff, theScreen } from "./dog-props";
+import { type OutfitName, isOutfit } from "../skins/dogesh-outfits";
 import { clamp, kf, lerp, smooth, softShadow } from "./rig";
+import { Chain, Noodle, TORSO_DEPTH, TORSO_PROFILE, bow, headShape, hunch, quad, roundEnds } from "./dog-rig";
 
 // ── Pose ──────────────────────────────────────────────────────────────────────
 
@@ -69,10 +73,14 @@ function blendInto(p: Pose, to: Partial<Pose>, u: number): void {
 
 export type DogAction =
   | "walk" | "stroll" | "spin" | "wave" | "sit" | "exercise" | "eat" | "nap" | "poke"
-  | "spook" | "hide" | "whistle" | "scratch" | "mutter";
+  | "spook" | "hide" | "whistle" | "scratch" | "mutter" | "peer";
+
+/** The two ways he changes outfit: a puff of smoke, or behind a folding screen. */
+export type OutfitChange = "puff" | "screen";
+export const OUTFIT_CHANGES: OutfitChange[] = ["puff", "screen"];
 /** What the prototype page offers to play (the app cues the rest; see stage.ts). */
 export const DOG_ACTIONS: DogAction[] = [
-  "stroll", "walk", "spook", "whistle", "scratch", "mutter", "hide", "spin", "wave", "sit", "exercise", "eat", "nap",
+  "stroll", "walk", "spook", "whistle", "scratch", "mutter", "hide", "spin", "wave", "sit", "exercise", "eat", "nap", "peer",
 ];
 
 /** Behaviours the desktop app cues as the character's state changes (the same names as Rui's). */
@@ -93,22 +101,14 @@ interface Running {
 
 /** A small hunched peanut, in hips space. */
 function torsoGeometry(): THREE.BufferGeometry {
-  const profile = [
-    [0.0, -0.13], [0.15, -0.11], [0.22, -0.04], [0.25, 0.06], [0.24, 0.17], [0.2, 0.28],
-    [0.195, 0.37], [0.205, 0.45], [0.17, 0.53], [0.09, 0.59], [0.0, 0.61],
-  ].map(([r, y]) => new THREE.Vector2(r, y));
-  const pts = new THREE.SplineCurve(profile).getPoints(56);
+  const pts = new THREE.SplineCurve(TORSO_PROFILE).getPoints(56);
   pts[0].x = 0;
   pts[pts.length - 1].x = 0;
   const g = new THREE.LatheGeometry(pts, 56);
   g.rotateY(Math.PI);
-  g.scale(1, 1, 0.86);
+  g.scale(1, 1, TORSO_DEPTH);
   const pos = g.getAttribute("position");
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    // Hunched: the chest leans forward over the belly.
-    pos.setZ(i, pos.getZ(i) + 0.1 * smooth(clamp((y - 0.12) / 0.48, 0, 1)));
-  }
+  for (let i = 0; i < pos.count; i++) pos.setZ(i, pos.getZ(i) + hunch(pos.getY(i)));
   g.computeVertexNormals();
   return g;
 }
@@ -118,15 +118,10 @@ function headGeometry(): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(1, 64, 48);
   g.scale(DOG_HEAD.x, DOG_HEAD.y, DOG_HEAD.z);
   const pos = g.getAttribute("position");
+  const p = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
-    let x = pos.getX(i);
-    let y = pos.getY(i);
-    const z = pos.getZ(i);
-    const up = clamp(y / DOG_HEAD.y, 0, 1);
-    const back = clamp(-z / DOG_HEAD.z, 0, 1);
-    x *= 1 + (x > 0 ? 0.08 : 0.02) * up * up;
-    y += 0.05 * back * up;
-    pos.setXYZ(i, x, y, z - 0.03 * up * up);
+    headShape(p.fromBufferAttribute(pos, i), DOG_HEAD);
+    pos.setXYZ(i, p.x, p.y, p.z);
   }
   g.computeVertexNormals();
   return g;
@@ -157,394 +152,6 @@ function spikes(dirs: THREE.Vector3[], centre: THREE.Vector3, r: THREE.Vector3, 
   return out;
 }
 
-/** World length of one stripe repeat along the scarf. */
-const STRIPE_LEN = 0.21;
-
-/** A chunky knitted tube along `curve`, ribbed, its u stretched so stripes come out the same width everywhere. */
-function knitTube(curve: THREE.Curve<THREE.Vector3>, segs: number, radius: number, closed: boolean): THREE.BufferGeometry {
-  const radial = 20;
-  const g = new THREE.TubeGeometry(curve, segs, radius, radial, closed);
-  const pos = g.getAttribute("position");
-  const uv = g.getAttribute("uv");
-  const p = new THREE.Vector3();
-  const len = curve.getLength();
-  for (let i = 0; i <= segs; i++) {
-    const centre = curve.getPointAt(i / segs);
-    for (let j = 0; j <= radial; j++) {
-      const n = i * (radial + 1) + j;
-      const rib = 1 + 0.07 * Math.abs(Math.sin((j / radial) * Math.PI * 7));
-      p.fromBufferAttribute(pos, n).sub(centre).multiplyScalar(rib).add(centre);
-      pos.setXYZ(n, p.x, p.y, p.z);
-      uv.setX(n, (uv.getX(n) * len) / STRIPE_LEN);
-    }
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-/** An ellipse in the xz plane, as a curve. */
-function ellipseCurve(rx: number, rz: number): THREE.CatmullRomCurve3 {
-  const pts: THREE.Vector3[] = [];
-  for (let i = 0; i < 48; i++) {
-    const a = (i / 48) * Math.PI * 2;
-    pts.push(new THREE.Vector3(Math.sin(a) * rx, 0, Math.cos(a) * rz));
-  }
-  return new THREE.CatmullRomCurve3(pts, true);
-}
-
-/** A knitted cap (a hood or a blanket): the top `theta` of an ellipsoid, stripes running round it. */
-function knitCap(r: THREE.Vector3, theta: number): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, 40, 16, 0, Math.PI * 2, 0, theta);
-  const pos = g.getAttribute("position");
-  const uv = g.getAttribute("uv");
-  const avg = (r.x + r.y + r.z) / 3;
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    uv.setXY(i, (Math.acos(clamp(y, -1, 1)) * avg) / STRIPE_LEN, uv.getX(i));
-  }
-  g.scale(r.x, r.y, r.z);
-  g.computeVertexNormals();
-  return g;
-}
-
-// ── Noodles: tubes reshaped every frame ──────────────────────────────────────
-
-const roundEnds = (u: number) => Math.sqrt(Math.max(0, 1 - Math.max(0, (Math.abs(u - 0.5) - 0.44) / 0.06) ** 2));
-
-/** A tube rebuilt along a curve every frame: a rubber-hose limb, an ear, a tail. */
-class Noodle {
-  readonly mesh: THREE.Mesh;
-  private pts: THREE.Vector3[];
-  private tan: THREE.Vector3[];
-  private n = new THREE.Vector3();
-  private b = new THREE.Vector3();
-  private v = new THREE.Vector3();
-
-  constructor(surface: Surface, private rings: number, private sides: number, o: { outline?: boolean; tint?: string } = {}) {
-    const count = (rings + 1) * (sides + 1);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(count * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    const idx: number[] = [];
-    for (let i = 0; i < rings; i++) {
-      for (let j = 0; j < sides; j++) {
-        const a = i * (sides + 1) + j;
-        const b = a + sides + 1;
-        idx.push(a, a + 1, b, a + 1, b + 1, b);
-      }
-    }
-    g.setIndex(idx);
-    this.mesh = tag(new THREE.Mesh(g), surface, { outline: o.outline ?? true, cast: true, tint: o.tint });
-    this.mesh.frustumCulled = false;
-    for (const c of this.mesh.children) c.frustumCulled = false;
-    this.pts = Array.from({ length: rings + 1 }, () => new THREE.Vector3());
-    this.tan = Array.from({ length: rings + 1 }, () => new THREE.Vector3());
-  }
-
-  /** The last shaped point and direction (where a mitt or tuft goes). */
-  get end(): { p: THREE.Vector3; t: THREE.Vector3 } {
-    return { p: this.pts[this.rings], t: this.tan[this.rings] };
-  }
-
-  /**
-   * Shapes it along `at(u)`, u 0..1, radius `r(u)`. `across` (optional) fixes
-   * which way a flattened tube (`flat` < 1) is wide.
-   */
-  shape(
-    at: (u: number, out: THREE.Vector3) => void, r: (u: number) => number, across?: THREE.Vector3, flat = 1, thinAcross = false,
-  ): void {
-    const { pts, tan, n, b, v, rings, sides } = this;
-    for (let i = 0; i <= rings; i++) at(i / rings, pts[i]);
-    for (let i = 0; i <= rings; i++) {
-      tan[i].subVectors(pts[Math.min(i + 1, rings)], pts[Math.max(i - 1, 0)]);
-      if (tan[i].lengthSq() < 1e-12) tan[i].set(0, 1, 0);
-      tan[i].normalize();
-    }
-    const geo = this.mesh.geometry;
-    const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-    const nor = geo.getAttribute("normal") as THREE.BufferAttribute;
-    for (let i = 0; i <= rings; i++) {
-      const t = tan[i];
-      if (across) n.copy(across);
-      else if (i === 0) {
-        n.set(t.y, -t.x, 0);
-        if (n.lengthSq() < 1e-6) n.set(0, t.z, -t.y);
-      }
-      n.addScaledVector(t, -n.dot(t)).normalize();
-      b.crossVectors(t, n);
-      const rad = r(i / rings);
-      for (let j = 0; j <= sides; j++) {
-        const a = (j / sides) * Math.PI * 2;
-        const ca = Math.cos(a);
-        const sa = Math.sin(a);
-        const fn = thinAcross ? flat : 1;
-        const fb = thinAcross ? 1 : flat;
-        v.copy(n).multiplyScalar(ca * rad * fn).addScaledVector(b, sa * rad * fb);
-        const k = i * (sides + 1) + j;
-        pos.setXYZ(k, pts[i].x + v.x, pts[i].y + v.y, pts[i].z + v.z);
-        v.copy(n).multiplyScalar(ca * fb).addScaledVector(b, sa * fn).normalize();
-        nor.setXYZ(k, v.x, v.y, v.z);
-      }
-    }
-    pos.needsUpdate = true;
-    nor.needsUpdate = true;
-  }
-}
-
-/** A limb from `a` to `b` of rest length `len`: a smooth bow that bulges towards `hint` when it has slack. */
-function bow(a: THREE.Vector3, b: THREE.Vector3, len: number, hint: THREE.Vector3, ctrl: THREE.Vector3): void {
-  const d = a.distanceTo(b);
-  const h = 2 * Math.sqrt(Math.max(0, (len * len - d * d) * 3 / 16));
-  const line = ctrl.subVectors(b, a).normalize();
-  const off = hint.clone().addScaledVector(line, -hint.dot(line)).normalize();
-  ctrl.addVectors(a, b).multiplyScalar(0.5).addScaledVector(off, h);
-}
-
-const quad = (a: THREE.Vector3, c: THREE.Vector3, b: THREE.Vector3, u: number, out: THREE.Vector3) =>
-  out.set(0, 0, 0).addScaledVector(a, (1 - u) * (1 - u)).addScaledVector(c, 2 * u * (1 - u)).addScaledVector(b, u * u);
-
-/**
- * A floppy chain (an ear, the tail), in world space: each link's direction
- * chases where it should point on a well-damped spring — the root along the
- * direction it's given, links further out drooping towards the floor and
- * dragged back by how fast the root is moving — so it follows the body with a
- * soft, slow follow-through and settles without buzzing. It steps at a fixed
- * 240 Hz, so it moves the same at 15, 30 or 60 frames a second.
- */
-class Chain {
-  /** Points from root to tip (world), after `update`. */
-  readonly p: THREE.Vector3[];
-  private d: THREE.Vector3[];
-  private v: THREE.Vector3[];
-  private tgt: THREE.Vector3[];
-  private ready = false;
-  private acc = 0;
-  private lastBase = new THREE.Vector3();
-  private vel = new THREE.Vector3();
-  private tmp = new THREE.Vector3();
-
-  constructor(private n: number, private seg: number) {
-    this.p = Array.from({ length: n }, () => new THREE.Vector3());
-    this.d = Array.from({ length: n - 1 }, () => new THREE.Vector3(0, -1, 0));
-    this.v = Array.from({ length: n - 1 }, () => new THREE.Vector3());
-    this.tgt = Array.from({ length: n - 1 }, () => new THREE.Vector3());
-  }
-
-  /**
-   * `dir`: where the root points (unit, world). `droop` 0..1: how far the
-   * outer links hang towards the floor. `drag`: how much the root's speed
-   * blows them back. `omega`: spring speed (rad/s) at the root; the tip is
-   * slower. `zeta`: damping (1 = no overshoot).
-   */
-  update(dt: number, base: THREE.Vector3, dir: THREE.Vector3, droop: number, drag: number, omega: number, zeta = 0.85): void {
-    const m = this.n - 1;
-    if (!this.ready || this.lastBase.distanceTo(base) > 1) {
-      for (let i = 0; i < m; i++) {
-        this.d[i].copy(dir);
-        this.v[i].set(0, 0, 0);
-      }
-      this.lastBase.copy(base);
-      this.vel.set(0, 0, 0);
-      this.ready = true;
-    }
-    // How fast the root is moving, smoothed (the same at any frame rate).
-    if (dt > 0) {
-      this.tmp.subVectors(base, this.lastBase).divideScalar(dt);
-      this.vel.lerp(this.tmp, 1 - Math.exp(-dt / 0.08));
-    }
-    this.lastBase.copy(base);
-    for (let i = 0; i < m; i++) {
-      const f = m > 1 ? i / (m - 1) : 0;
-      const t = this.tgt[i].copy(dir).lerp(DOWN, clamp(droop, 0, 1) * Math.pow(f, 1.2));
-      t.addScaledVector(this.vel, -drag * (0.3 + 0.7 * f)).normalize();
-    }
-    this.acc = Math.min(this.acc + dt, 0.1);
-    const h = 1 / 240;
-    while (this.acc >= h) {
-      this.acc -= h;
-      for (let i = 0; i < m; i++) {
-        const w = omega * (1 - 0.45 * (m > 1 ? i / (m - 1) : 0));
-        const d = this.d[i];
-        const v = this.v[i];
-        this.tmp.subVectors(this.tgt[i], d).multiplyScalar(w * w).addScaledVector(v, -2 * zeta * w);
-        v.addScaledVector(this.tmp, h);
-        d.addScaledVector(v, h).normalize();
-        v.addScaledVector(d, -v.dot(d));
-      }
-    }
-    this.p[0].copy(base);
-    for (let i = 0; i < m; i++) {
-      this.p[i + 1].copy(this.p[i]).addScaledVector(this.d[i], this.seg);
-      if (this.p[i + 1].y < FLOOR) this.p[i + 1].y = FLOOR;
-    }
-  }
-}
-
-const DOWN = new THREE.Vector3(0, -1, 0);
-
-// ── The scarf's trailing end ──────────────────────────────────────────────────
-
-/** Ears, tail and scarf rest on the floor rather than sinking through it. */
-const FLOOR = 0.02;
-const ROPE_N = 10;
-const ROPE_LEN = 0.72;
-const ROPE_RINGS = 30;
-const ROPE_SIDES = 14;
-
-class ScarfTail {
-  readonly mesh: THREE.Mesh;
-  readonly fringe = new THREE.Group();
-  private p = Array.from({ length: ROPE_N }, () => new THREE.Vector3());
-  private prev = Array.from({ length: ROPE_N }, () => new THREE.Vector3());
-  private ready = false;
-  private seg = ROPE_LEN / (ROPE_N - 1);
-  private curve = new THREE.CatmullRomCurve3(this.p.map((v) => v.clone()));
-  private inv = new THREE.Matrix4();
-  private toRoot = new THREE.Matrix4();
-  private basis = new THREE.Matrix4();
-  private tmp = new THREE.Vector3();
-  private c = new THREE.Vector3();
-  private t = new THREE.Vector3();
-  private n = new THREE.Vector3();
-  private b = new THREE.Vector3();
-  private v = new THREE.Vector3();
-  private side = new THREE.Vector3();
-
-  constructor() {
-    const count = (ROPE_RINGS + 1) * (ROPE_SIDES + 1);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(count * 3), 3).setUsage(THREE.DynamicDrawUsage));
-    const uv = new Float32Array(count * 2);
-    const idx: number[] = [];
-    for (let i = 0; i <= ROPE_RINGS; i++) {
-      for (let j = 0; j <= ROPE_SIDES; j++) {
-        const k = i * (ROPE_SIDES + 1) + j;
-        uv[k * 2] = ((i / ROPE_RINGS) * ROPE_LEN) / STRIPE_LEN + 0.35;
-        uv[k * 2 + 1] = j / ROPE_SIDES;
-        if (i < ROPE_RINGS && j < ROPE_SIDES) idx.push(k, k + 1, k + ROPE_SIDES + 1, k + 1, k + ROPE_SIDES + 2, k + ROPE_SIDES + 1);
-      }
-    }
-    g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-    g.setIndex(idx);
-    this.mesh = tag(new THREE.Mesh(g), "knit", { outline: true, cast: true });
-    this.mesh.frustumCulled = false;
-    for (const c of this.mesh.children) c.frustumCulled = false;
-    const tassel = new THREE.CapsuleGeometry(0.013, 0.07, 4, 8);
-    tassel.translate(0, -0.05, 0);
-    for (const x of [-0.05, -0.017, 0.017, 0.05]) {
-      const m = tag(new THREE.Mesh(tassel), "furPale", { tint: "#7cc3b9", outline: true });
-      m.position.x = x;
-      m.rotation.z = x * 1.5;
-      this.fringe.add(m);
-    }
-  }
-
-  update(
-    dt: number, anchor: THREE.Vector3, hips: THREE.Object3D, root: THREE.Object3D,
-    pin: { i: number; at: THREE.Vector3; k: number } | null = null,
-  ): void {
-    const { p, prev } = this;
-    if (!this.ready || p[0].distanceTo(anchor) > 1.5) {
-      for (let i = 0; i < ROPE_N; i++) {
-        p[i].copy(anchor).add(this.tmp.set(0, -i * this.seg, 0.03 * i));
-        prev[i].copy(p[i]);
-      }
-      this.ready = true;
-    }
-    this.inv.copy(hips.matrixWorld).invert();
-    let left = Math.min(dt, 0.1);
-    while (left > 1e-6) {
-      const h = Math.min(left, 1 / 120);
-      left -= h;
-      for (let i = 1; i < ROPE_N; i++) {
-        this.v.subVectors(p[i], prev[i]).multiplyScalar(0.975);
-        prev[i].copy(p[i]);
-        p[i].add(this.v);
-        p[i].y -= 5.5 * h * h;
-      }
-      p[0].copy(anchor);
-      for (let it = 0; it < 4; it++) {
-        for (let i = 1; i < ROPE_N; i++) this.keep(p[i - 1], p[i], this.seg, i === 1 ? 1 : 0.5);
-        for (let i = 2; i < ROPE_N; i++) this.keep(p[i - 2], p[i], this.seg * 1.9, 0.1, true);
-        for (let i = 1; i < ROPE_N; i++) {
-          this.collide(p[i]);
-          if (p[i].y < FLOOR) p[i].y = FLOOR;
-        }
-        if (pin && pin.k > 0) {
-          p[pin.i].lerp(pin.at, pin.k);
-          if (pin.k > 0.99) prev[pin.i].copy(p[pin.i]);
-        }
-      }
-    }
-    this.shape(hips, root);
-  }
-
-  private keep(a: THREE.Vector3, b: THREE.Vector3, len: number, share: number, min = false): void {
-    const d = this.tmp.subVectors(b, a);
-    const l = d.length();
-    if (l < 1e-6 || (min && l > len)) return;
-    const diff = (l - len) / l;
-    if (a === this.p[0]) b.addScaledVector(d, -diff);
-    else {
-      a.addScaledVector(d, diff * (1 - share));
-      b.addScaledVector(d, -diff * share);
-    }
-  }
-
-  /** Out of his body (an ellipsoid round the torso, in hips space). */
-  private collide(q: THREE.Vector3): void {
-    const l = this.tmp.copy(q).applyMatrix4(this.inv);
-    const cy = 0.2, cz = 0.04;
-    const rx = 0.3, ry = 0.48, rz = 0.3;
-    const dx = l.x / rx;
-    const dy = (l.y - cy) / ry;
-    const dz = (l.z - cz) / rz;
-    const d = dx * dx + dy * dy + dz * dz;
-    if (d >= 1) return;
-    const k = 1 / Math.sqrt(Math.max(d, 1e-4));
-    q.set(l.x * k, cy + (l.y - cy) * k, cz + (l.z - cz) * k).applyMatrix4(this.inv.clone().invert());
-  }
-
-  private shape(hips: THREE.Object3D, root: THREE.Object3D): void {
-    const pts = this.curve.points;
-    root.updateWorldMatrix(true, false);
-    const toRoot = this.toRoot.copy(root.matrixWorld).invert();
-    for (let i = 0; i < ROPE_N; i++) pts[i].copy(this.p[i]).applyMatrix4(toRoot);
-    this.side.set(1, 0, 0).transformDirection(hips.matrixWorld).transformDirection(toRoot);
-    const geo = this.mesh.geometry;
-    const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-    const nor = geo.getAttribute("normal") as THREE.BufferAttribute;
-    const { t, n, b, v, c } = this;
-    for (let i = 0; i <= ROPE_RINGS; i++) {
-      const u = i / ROPE_RINGS;
-      this.curve.getPoint(u, c);
-      this.curve.getTangent(u, t);
-      n.copy(this.side).addScaledVector(t, -this.side.dot(t)).normalize();
-      b.crossVectors(t, n).normalize();
-      const end = u > 0.96 ? Math.sqrt(Math.max(0, 1 - ((u - 0.96) / 0.04) ** 2)) : 1;
-      const w = (0.07 - 0.008 * u) * end;
-      const th = 0.026 * end + 0.001;
-      for (let j = 0; j <= ROPE_SIDES; j++) {
-        const a = (j / ROPE_SIDES) * Math.PI * 2;
-        const ca = Math.cos(a);
-        const sa = Math.sin(a);
-        const rib = 1 + 0.06 * Math.abs(Math.sin(a * 3.5));
-        v.copy(n).multiplyScalar(ca * w * rib).addScaledVector(b, sa * th * rib);
-        const k = i * (ROPE_SIDES + 1) + j;
-        pos.setXYZ(k, c.x + v.x, c.y + v.y, c.z + v.z);
-        v.copy(n).multiplyScalar(ca / w).addScaledVector(b, sa / th).normalize();
-        nor.setXYZ(k, v.x, v.y, v.z);
-      }
-    }
-    pos.needsUpdate = true;
-    nor.needsUpdate = true;
-    this.fringe.position.copy(pts[ROPE_N - 1]);
-    this.basis.makeBasis(n, t.negate(), b.negate());
-    this.fringe.quaternion.setFromRotationMatrix(this.basis);
-  }
-}
-
 // ── Particles ─────────────────────────────────────────────────────────────────
 
 interface Particle {
@@ -568,8 +175,18 @@ export class Dogesh {
   naps = true;
   /** Reduced motion: calmer versions of his big frights (no leaps, no trembling, no falling over). */
   calm = false;
-  /** How much more of the stage a scene needs (he never needs more: always 0). */
-  readonly wide = 0;
+  /** How much more of the stage a scene needs (0 normal … 1 room for a dressing screen). */
+  wide = 0;
+  /**
+   * How far the agent's work has got (0..1), or null if nobody knows: the cozy
+   * scarf's stripes knit up gold with it while he works (without it, they knit
+   * up slowly as the minutes go by).
+   */
+  progress: number | null = null;
+  /** Stripes knitted up on the scarf's end this frame (see `progress`). */
+  private knit = 0;
+  /** Eased 0..1 while he sits working (the clothes drape over his lap). */
+  private lap = 0;
 
   /** Tips him over as a whole (fainting, lying down), about a point up his middle. */
   private tilt = new THREE.Group();
@@ -589,12 +206,13 @@ export class Dogesh {
   private tailStrand = new Chain(6, 0.065);
   private tailMesh = new Noodle("fur", 16, 8);
   private tuft: THREE.Mesh;
-  private hood = new THREE.Group();
-  private blanket: THREE.Mesh;
   private spikes: THREE.Mesh[] = [];
-  private rope = new ScarfTail();
-  private ropeAnchor = new THREE.Object3D();
-  private ropePin: { i: number; at: THREE.Vector3; k: number } | null = null;
+  private tummy: THREE.Mesh;
+  /** What he's wearing (an outfit is his clothes and the fur he wears them in). */
+  private outfit: OutfitName = "cozy";
+  private clothes: Clothes;
+  private rig: DogRig;
+  private lastChange: OutfitChange | null = null;
   private shadow = softShadow();
   private sweat: THREE.Mesh;
   private zs: THREE.Sprite[] = [];
@@ -643,10 +261,10 @@ export class Dogesh {
     const solid = { outline: true, cast: true, receive: true };
 
     this.hips.add(tag(new THREE.Mesh(torsoGeometry()), "fur", solid));
-    const tummy = tag(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24)), "furPale", { receive: true });
-    tummy.scale.set(0.17, 0.2, 0.1);
-    tummy.position.set(0, 0.08, 0.165);
-    this.hips.add(tummy);
+    this.tummy = tag(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 24)), "furPale", { receive: true });
+    this.tummy.scale.set(0.17, 0.2, 0.1);
+    this.tummy.position.set(0, 0.08, 0.165);
+    this.hips.add(this.tummy);
 
     // A thin neck, and the big head on it.
     this.neck.position.set(0, 0.55, 0.12);
@@ -725,38 +343,14 @@ export class Dogesh {
     )), "dogEar", { outline: true, cast: true });
     this.body.add(this.tuft);
 
-    // The scarf: a chunky ring round his neck, a knot, a long trailing end; a hood
-    // he pulls over his head to hide; and a blanket when he sleeps.
-    const ring = tag(new THREE.Mesh(knitTube(ellipseCurve(0.2, 0.19), 80, 0.085, true)), "knit", solid);
-    ring.position.set(0, 0.56, 0.1);
-    ring.rotation.x = 0.25;
-    this.hips.add(ring);
-    const knot = tag(new THREE.Mesh(knitTube(ellipseCurve(0.055, 0.04), 24, 0.055, true)), "knit", solid);
-    knot.position.set(0.1, 0.5, 0.26);
-    knot.rotation.set(1.3, 0.3, 0.2);
-    this.hips.add(knot);
-    this.ropeAnchor.position.set(0.11, 0.47, 0.28);
-    this.hips.add(this.ropeAnchor);
-    this.root.add(this.rope.mesh, this.rope.fringe);
-
-    // Rounder at the front than his head, so it clears the bulge of his eyes.
-    const hr = new THREE.Vector3(DOG_HEAD.x * 1.15, DOG_HEAD.y * 1.14, DOG_HEAD.z * 1.34);
-    const cap = tag(new THREE.Mesh(knitCap(hr, 1.5)), "knit", solid);
-    const rimPts: THREE.Vector3[] = [];
-    for (let i = 0; i < 48; i++) {
-      const a = (i / 48) * Math.PI * 2;
-      rimPts.push(new THREE.Vector3(Math.sin(a) * Math.sin(1.5) * hr.x, Math.cos(1.5) * hr.y, Math.cos(a) * Math.sin(1.5) * hr.z));
-    }
-    const rim = tag(new THREE.Mesh(knitTube(new THREE.CatmullRomCurve3(rimPts, true), 64, 0.05, true)), "knit", solid);
-    this.hood.add(cap, rim);
-    this.hood.visible = false;
-    this.head.add(this.hood);
-
-    this.blanket = tag(new THREE.Mesh(knitCap(new THREE.Vector3(0.36, 0.5, 0.36), 1.45)), "knit", solid);
-    this.blanket.rotation.x = Math.PI / 2;
-    this.blanket.position.set(0, 0.12, -0.04);
-    this.blanket.visible = false;
-    this.hips.add(this.blanket);
+    // His clothes: the cozy scarf until he's told otherwise.
+    const curve = () => [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    this.rig = {
+      root: this.root, body: this.body, hips: this.hips, neck: this.neck, head: this.head,
+      arms: [curve(), curve()], legs: [curve(), curve()], feet: this.feet, face: this.face,
+    };
+    setDogOutfit("cozy");
+    this.clothes = dress("cozy", this.rig);
 
     this.sweat = tag(new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14)), "sweat");
     this.sweat.scale.set(0.03, 0.045, 0.03);
@@ -774,7 +368,7 @@ export class Dogesh {
       this.notes.push(note);
     }
     for (const s of this.spikes) s.visible = false;
-    this.hidden.push(this.hood, this.blanket, this.sweat, ...this.spikes, ...this.zs, ...this.notes);
+    this.hidden.push(this.sweat, ...this.spikes, ...this.zs, ...this.notes);
 
     this.setLook("toy");
   }
@@ -782,6 +376,55 @@ export class Dogesh {
   setLook(look: Look): void {
     this.look = look;
     paint(this.root, look);
+  }
+
+  /** The outfit he has on. */
+  get wearing(): OutfitName {
+    return this.outfit;
+  }
+
+  /** Puts an outfit on at once, fur and all (on start-up, or with reduced motion). */
+  setOutfit(name: unknown): void {
+    if (!isOutfit(name)) return;
+    if (this.action && (OUTFIT_CHANGES as string[]).includes(this.action.name)) {
+      // A change scene running: it puts this one on instead.
+      this.begin([]);
+    }
+    if (name !== this.outfit) this.wearNow(name);
+  }
+
+  /**
+   * Changes into `name` with one of the two scenes (a puff of smoke, or
+   * behind a dressing screen): `style`, or the one he didn't do last time.
+   */
+  changeOutfit(name: unknown, style?: OutfitChange): OutfitChange | null {
+    if (!isOutfit(name)) return null;
+    const others = OUTFIT_CHANGES.filter((c) => c !== this.lastChange);
+    const pick = style ?? others[Math.floor(Math.random() * others.length)];
+    this.lastChange = pick;
+    const scene = () => (pick === "puff" ? this.puffScene(name) : this.screenScene(name));
+    this.begin([...(this.seated ? [() => this.standUp()] : []), scene]);
+    return pick;
+  }
+
+  /** Swaps his clothes (and fur) for `name`'s; the old ones go, except `spare` (pieces still flying about). */
+  private wearNow(name: OutfitName, spare?: Set<THREE.Object3D>): Clothes {
+    const old = this.clothes;
+    old.dispose(spare);
+    setDogOutfit(name);
+    this.outfit = name;
+    this.clothes = dress(name, this.rig);
+    paint(this.root, this.look);
+    return old;
+  }
+
+  /** Paws on whatever he's hiding under (the hood, his hat, the cape...), blended in by `k`. */
+  private holdHiding(k: number): void {
+    const c = this.clothes;
+    for (let i = 0; i < 2; i++) {
+      if (c.holdInHips) this.paw(i, c.hold[i], k);
+      else this.pawToHead(i, c.hold[i], k);
+    }
   }
 
   /** Objects a click can land on. */
@@ -809,15 +452,22 @@ export class Dogesh {
    * stutter. Leaves him painted in the last look; the caller puts its look back.
    */
   async prewarm(renderer: THREE.WebGLRenderer, camera: THREE.Camera, scene: THREE.Scene): Promise<void> {
-    const loose = [tablet("#2f8f8a"), biscuit(), theExclaim(), theQuestion()];
+    const loose = [tablet("#2f8f8a"), biscuit(), theExclaim(), theQuestion(), magnifier(), shirt("#ffffff")];
+    // Every cloth finish (each outfit's colours are just numbers on the same shaders).
+    const ball = new THREE.SphereGeometry(1, 8, 6);
+    const finishes = (["cloth", "vinyl", "brass", "lens", "iron", "stripes", "check", "argyle", "puff", "wood", "knitEnd"] as const).map((s) =>
+      tag(new THREE.Mesh(ball), s, { outline: true, tint: "#888888", tint2: "#444444" }));
+    const shared = [thePuff().group, theScreen().group];
+    for (const b of thePuff().balls) b.mesh.visible = true;
     const spark = new THREE.Mesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true }));
     const group = new THREE.Group();
-    group.add(...loose, spark);
+    group.add(...loose, ...finishes, ...shared, spark);
     group.position.set(this.root.position.x, 1, 0);
     group.scale.setScalar(0.01);
     scene.add(group);
-    const was = this.hidden.map((o) => o.visible);
-    for (const o of this.hidden) o.visible = true;
+    const hidden = [...this.hidden, ...this.clothes.extras];
+    const was = hidden.map((o) => o.visible);
+    for (const o of hidden) o.visible = true;
     const face = { ...this.face.state };
     for (const f of [{ teeth: 1, jaw: 1, tongue: 1, spiral: 1, eyeOpen: 0.5 }, { teeth: 0, jaw: 0, spiral: 0, eyeOpen: 0 }]) {
       this.face.update(0, { ...face, ...f });
@@ -828,8 +478,13 @@ export class Dogesh {
       }
     }
     this.face.update(0, face);
-    this.hidden.forEach((o, i) => (o.visible = was[i]));
+    hidden.forEach((o, i) => (o.visible = was[i]));
     group.removeFromParent();
+    group.remove(...shared);
+    for (const b of thePuff().balls) b.mesh.visible = false;
+    ball.dispose();
+    dispose(loose[4]);
+    dispose(loose[5]);
     dispose(loose[0]);
     dispose(loose[1]);
     loose[2].removeFromParent();
@@ -848,6 +503,7 @@ export class Dogesh {
       (p.mesh.material as THREE.Material).dispose();
     }
     this.particles = [];
+    this.clothes.dispose();
     this.root.removeFromParent();
   }
 
@@ -957,6 +613,8 @@ export class Dogesh {
         return [...standFirst(), () => this.scratch()];
       case "mutter":
         return [...standFirst(), () => this.mutter()];
+      case "peer":
+        return [...standFirst(), () => this.peer()];
     }
   }
 
@@ -991,6 +649,7 @@ export class Dogesh {
     this.faceMods = {};
 
     this.idleLayer(dt);
+    this.knit = 0;
 
     if (!this.action && this.queue.length) this.action = this.queue.shift()!();
     if (this.action) {
@@ -1021,6 +680,7 @@ export class Dogesh {
       P.earR = Math.max(P.earR, 0.8 * (1 - k));
     }
 
+    knitShared.uDone.value = this.knit;
     this.follow(dt);
     this.applyPose();
     this.action?.after?.(this.action.t);
@@ -1028,7 +688,7 @@ export class Dogesh {
     const face = { ...dogExpression(this.expr), ...this.faceMods };
     if (this.faceMods.lookX === undefined) face.lookX = this.glanceLook().x;
     if (this.faceMods.lookY === undefined) face.lookY = this.glanceLook().y;
-    this.face.update(dt, face, this.pose.pop, clamp(this.pose.scarf, 0, 1));
+    this.face.update(dt, face, this.pose.pop, clamp(this.pose.scarf, 0, 1) * this.clothes.tuck);
 
     this.motion(dt);
     this.updateParticles(dt);
@@ -1056,6 +716,7 @@ export class Dogesh {
     const choices: [DogAction, number][] = [
       ["stroll", 3], ["spook", 1.6], ["whistle", 1.2], ["scratch", 1], ["mutter", 0.8], ["hide", 0.8], ["wave", 0.4],
       ["spin", 0.5], ["sit", 0.7], ["exercise", 0.4], ["eat", hour >= 12 && hour <= 14 ? 1.6 : 0.4], ["nap", this.naps ? 0.5 : 0],
+      ["peer", this.outfit === "detective" ? 1.6 : 0],
     ];
     let r = Math.random() * choices.reduce((a, [, w]) => a + w, 0);
     for (const [name, w] of choices) {
@@ -1143,20 +804,16 @@ export class Dogesh {
     this.hips.scale.set(poof / Math.sqrt(s), s, poof / Math.sqrt(s));
     this.neck.rotation.set(p.headRx, p.headRy, p.headRz + Math.sin(t * 43 + 1) * 0.025 * shiver);
 
-    const u = clamp(p.scarf, 0, 1.1);
-    this.hood.visible = u > 0.03;
-    if (this.hood.visible) {
-      this.hood.rotation.x = lerp(-2.0, 0.1, u);
-      this.hood.scale.setScalar(lerp(0.85, 1, Math.min(1, u)));
-    }
-    const bl = clamp(p.blanket, 0, 1);
-    this.blanket.visible = bl > 0.03;
-    this.blanket.scale.setScalar(lerp(0.4, 1, bl));
+    // Sinking into his collar (the detective, hiding).
+    const sink = smooth(clamp(p.scarf, 0, 1)) * this.clothes.sink;
+    this.neck.position.y = 0.55 - 0.16 * sink;
+    this.head.position.y = 0.32 - 0.12 * sink;
     const sp = clamp(p.poof, 0, 1.3);
-    for (const m of this.spikes) {
-      m.visible = sp > 0.04;
+    this.spikes.forEach((m, i) => {
+      m.visible = sp > 0.04 && !(i === 1 && this.clothes.coversBody);
       m.scale.setScalar(lerp(0.82, 1.08, sp));
-    }
+    });
+    this.tummy.visible = !this.clothes.coversBody;
 
     // Limbs: hands and feet go where they're asked; arms and legs bow to reach.
     this.hips.updateMatrix();
@@ -1179,6 +836,9 @@ export class Dogesh {
       const f0 = foot.clone();
       const k0 = knee.clone();
       this.legs[i].shape((w, out) => quad(h0, k0, f0, w, out), (w) => lerp(0.05, 0.034, w) * roundEnds(w));
+      this.rig.legs[i][0].copy(h0);
+      this.rig.legs[i][1].copy(k0);
+      this.rig.legs[i][2].copy(f0);
       const fm = this.feet[i];
       fm.position.copy(f0).add(this.v4.set(0, -0.015, 0.06));
       const lifted = clamp((f0.y - FOOT[i].y) / 0.2, 0, 1);
@@ -1196,6 +856,9 @@ export class Dogesh {
         (w, out) => quad(s0, c0, a0, w, out),
         (w) => lerp(0.037, 0.03, w) * roundEnds(w),
       );
+      this.rig.arms[i][0].copy(s0);
+      this.rig.arms[i][1].copy(c0);
+      this.rig.arms[i][2].copy(a0);
       const end = this.arms[i].end;
       const m = this.mitts[i];
       m.position.copy(a0);
@@ -1273,7 +936,9 @@ export class Dogesh {
     this.tuft.quaternion.setFromUnitVectors(Y_AXIS, this.tailMesh.end.t);
 
     this.hips.updateWorldMatrix(true, true);
-    this.rope.update(dt, this.ropeAnchor.getWorldPosition(this.v3), this.hips, this.root, this.ropePin);
+    const working = this.action?.name === "work" ? 1 : 0;
+    this.lap += (working - this.lap) * (1 - Math.exp(-dt * 3));
+    this.clothes.update({ dt, t, hide: p.scarf, blanket: p.blanket, poof: clamp(p.poof, 0, 1), pop: clamp(p.pop, 0, 1), lap: this.lap });
   }
 
   // ── Particles ───────────────────────────────────────────────────────────────
@@ -1662,13 +1327,12 @@ export class Dogesh {
         const hide = kf(t, [[0.9, 0], [1.2, 1]]);
         if (t > peekAt + 2.2) peekAt = t + 3.2 + Math.random() * 2;
         const peek = t > 1.8 ? kf(t - peekAt, [[0, 0], [0.3, 1], [1.4, 1], [1.7, 0]]) : 0;
-        this.pawToHead(0, this.v4.set(-0.33, 0.12, 0.22), hide * (1 - 0.6 * peek));
-        this.pawToHead(1, this.v4.set(0.33, 0.12, 0.22), hide * (1 - 0.6 * peek));
+        this.holdHiding(hide * (1 - 0.6 * peek));
         // Crouched, knees knocking, trembling.
         const cower = kf(t, [[1.0, 0], [1.3, 1]]) * (1 - 0.7 * peek);
         P.hipsY -= 0.1 * cower;
         P.hipsRx += 0.18 * cower;
-        P.headRx = 0.12 * cower - 0.12 * peek;
+        P.headRx = (0.12 + this.clothes.bow) * cower - 0.12 * peek;
         if (!calm) this.kneesKnock(t, cower);
         P.shiver = calm ? 0 : 0.6 * cower;
         P.scarf -= 0.2 * peek;
@@ -1718,15 +1382,23 @@ export class Dogesh {
     let nextSweat = 2.5;
     let nextLook = 2;
     let looking = 0;
+    // The detective checks his work through his magnifying glass (instead of chewing his nails); the coder bobs to his music.
+    const glass = this.outfit === "detective" ? this.glass() : null;
+    const music = this.outfit === "coder";
     const away = (): Running => ({
       name: "work-end",
       t: 0,
       step: (t) => {
         blendInto(this.target, SEATED, 1);
         tab.scale.setScalar(kf(t, [[0, 1], [0.08, 1.1], [0.3, 0.01]]));
+        glass?.show(0);
         return t < 0.3;
       },
-      end: () => dispose(tab),
+      end: () => {
+        dispose(tab);
+        glass?.end();
+        for (const n of this.notes) n.visible = false;
+      },
     });
     return {
       name: "work",
@@ -1736,6 +1408,8 @@ export class Dogesh {
         blendInto(P, SEATED, 1);
         this.rate = 18;
         tab.scale.setScalar(kf(t, [[0, 0.01], [0.25, 1.1], [0.4, 1]]));
+        // His scarf knits up as the work goes on (four stripes, from the knot out).
+        this.knit = 4 * clamp(this.progress ?? t / 48, 0, 1);
         P.hipsRx = 0.18;
         P.headRx = 0.32;
         P.headRy = 0;
@@ -1751,9 +1425,37 @@ export class Dogesh {
         const type = 1 - chew;
         this.paw(0, this.v4.set(-0.1 + Math.sin(t * 7) * 0.03, 0.27 + tapL * 0.05, 0.42), 1);
         this.paw(1, this.v4.set(0.1 + Math.sin(t * 9) * 0.03, 0.27 + tapR * 0.05, 0.42), type);
-        // Nail-chewing: a paw up at his mouth, teeth chattering on it.
-        this.pawToHead(1, this.face.mouth().add(this.v3.set(0.02, -0.02, 0.06)), chew);
-        P.headRx = lerp(P.headRx, 0.12, chew);
+        if (glass) {
+          // A close look at the screen through the glass, nose almost on it.
+          glass.show(smooth(clamp(chew * 1.3, 0, 1)));
+          this.pawToHead(0, glass.handle, chew);
+          this.paw(1, this.v4.set(0.1 + Math.sin(t * 9) * 0.03, 0.27 + tapR * 0.05, 0.42), 1);
+          P.headRx = lerp(P.headRx, 0.4, chew);
+          P.headRy = Math.sin(t * 1.7) * 0.15 * chew;
+        } else {
+          // Nail-chewing: a paw up at his mouth, teeth chattering on it.
+          this.pawToHead(1, this.face.mouth().add(this.v3.set(0.02, -0.02, 0.06)), chew);
+          P.headRx = lerp(P.headRx, 0.12, chew);
+        }
+        if (music) {
+          // Bopping along to whatever's in his headphones.
+          const beat = Math.max(0, Math.sin(t * 7.5));
+          P.headRx += 0.09 * beat * beat;
+          P.headRz += 0.06 * Math.sin(t * 3.75);
+          P.hipsRz += 0.025 * Math.sin(t * 3.75);
+          P.wag = 0.45;
+          this.head.updateWorldMatrix(true, false);
+          const at = this.head.localToWorld(this.v3.set(0.45, 0.15, 0));
+          this.notes.forEach((n, i) => {
+            const k = ((t + i * 1.3) % 3.9) / 3.9;
+            n.visible = k < 0.5;
+            if (!n.visible) return;
+            const q = k / 0.5;
+            n.position.copy(this.root.worldToLocal(at.clone().add(new THREE.Vector3(0.1 + q * 0.2, q * 0.45, 0.05))));
+            n.scale.setScalar(0.1 + q * 0.06);
+            n.material.opacity = Math.min(1, q * 6) * (1 - smooth(clamp((q - 0.6) / 0.4, 0, 1)));
+          });
+        }
         // Eyes darting about.
         if (t > nextLook) {
           looking = Math.random() < 0.5 ? -1 : 1;
@@ -1768,11 +1470,11 @@ export class Dogesh {
         P.tail = -0.4;
         P.wag = 0;
         P.knock = 0.6 + Math.sin(t * 20) * 0.2;
-        this.expr = chew > 0.5 ? "scared" : "worried";
-        this.faceMods.lookY = chew > 0.5 ? 0 : -0.8;
+        this.expr = chew > 0.5 ? (glass ? "ooh" : "scared") : music ? "determined" : "worried";
+        this.faceMods.lookY = chew > 0.5 && !glass ? 0 : -0.8;
         this.faceMods.lookX = looking * 0.8 * (t % 1.2 < 0.6 ? 1 : 0.3);
         this.faceMods.eyeOpen = 1;
-        if (chew > 0.5) {
+        if (chew > 0.5 && !glass) {
           this.faceMods.teeth = 0;
           this.faceMods.jaw = 0.12 + Math.max(0, Math.sin(t * 34)) * 0.12;
         }
@@ -1781,6 +1483,8 @@ export class Dogesh {
       outro: away,
       end: () => {
         dispose(tab);
+        glass?.end();
+        for (const n of this.notes) n.visible = false;
         this.sweat.visible = false;
       },
     };
@@ -2382,8 +2086,8 @@ export class Dogesh {
         this.rate = 16;
         P.scarf = kf(t, [[0, 0], [0.5, 1.05], [0.8, 0.84], [2.5, 0.84], [3.0, 0]]);
         const hold = kf(t, [[0, 0], [0.3, 1], [2.6, 1], [3.0, 0]]);
-        this.pawToHead(0, this.v4.set(-0.33, 0.12, 0.22), hold);
-        this.pawToHead(1, this.v4.set(0.33, 0.12, 0.22), hold);
+        this.holdHiding(hold);
+        P.headRx += Math.max(0, this.clothes.bow) * hold;
         P.hipsY -= 0.08 * hold;
         P.headRy = 0;
         this.kneesKnock(t, hold * 0.6);
@@ -2535,6 +2239,342 @@ export class Dogesh {
         else this.expr = t < 1.9 ? "joy" : "happy";
         return t < 3.2;
       },
+    };
+  }
+
+  // ── Changing outfit ─────────────────────────────────────────────────────────
+
+  /**
+   * Poof! He spins up on his toes, a cartoon cloud of smoke swallows him, and
+   * out he pops in the new outfit: startled at himself, a look down at what
+   * he's wearing, then pleased.
+   */
+  private puffScene(name: OutfitName): Running {
+    const puff = thePuff();
+    paint(puff.group, this.look);
+    puff.group.position.set(this.root.position.x, 0, 0);
+    puff.group.rotation.y = Math.random() * Math.PI * 2;
+    puff.group.scale.setScalar(1.15);
+    this.world.add(puff.group);
+    const T = { cover: 0.3, swap: 0.62, clear: 0.85, gone: 1.35, startle: 1.3, look: 1.95, end: 2.45 };
+    let swapped = false;
+    let sparkles = 0;
+    const tmp = new THREE.Vector3();
+    const reset = () => {
+      for (const b of puff.balls) {
+        b.mesh.scale.setScalar(0.001);
+        b.mesh.position.copy(b.at);
+        b.mesh.visible = false;
+      }
+    };
+    return {
+      name: "puff",
+      t: 0,
+      step: (t) => {
+        const P = this.target;
+        this.wide = 0.3;
+        this.rate = 22;
+        this.bounce = 0.55;
+        P.headRy = 0;
+        // Up on his toes, spinning, arms out.
+        const spin = kf(t, [[0, 0], [0.18, 1], [0.7, 1], [0.85, 0]]);
+        P.yaw = REST.yaw + kf(t, [[0.05, 0], [0.8, Math.PI * 4]], (u) => u * (2 - u));
+        P.hipsY += kf(t, [[0, 0], [0.1, -0.05], [0.28, 0.1], [0.7, 0.08], [0.85, 0]]);
+        P.fLy += 0.06 * spin;
+        P.fRy += 0.06 * spin;
+        P.knock = lerp(P.knock, 0.1, spin);
+        this.paw(0, tmp.set(-0.42, 0.55, 0.1), spin);
+        this.paw(1, tmp.set(0.42, 0.55, 0.1), spin);
+        P.earOut = 0.9 * spin;
+        P.wag = 1.2 * spin;
+
+        // The cloud: balls bloom with a little overshoot, boil, then drift up and shrink away.
+        puff.balls.forEach((b, i) => {
+          const grow = kf(t - b.delay, [[T.cover - 0.22, 0], [T.cover, 1.18], [T.cover + 0.12, 1]]);
+          const away = smooth(clamp((t - T.clear - b.delay * 2) / (T.gone - T.clear), 0, 1));
+          const boil = 1 + 0.07 * Math.sin(t * 19 + i * 1.7);
+          const size = b.size * grow * boil * (1 - away);
+          b.mesh.scale.setScalar(Math.max(0.001, size));
+          // (An outline keeps its width however small the ball: hide it when it's gone.)
+          b.mesh.visible = size > 0.01;
+          b.mesh.position.copy(b.at).addScaledVector(b.drift, away * 0.9);
+        });
+        tmp.set(this.root.position.x, 1.0, 0.2);
+        if (sparkles === 0 && t > T.cover) {
+          sparkles = 1;
+          this.burst(tmp, 10, "#ffffff", 0.03, 2.4, 1.5);
+        }
+        if (sparkles === 1 && t > T.clear) {
+          sparkles = 2;
+          this.burst(tmp.setY(1.3), 14, "#ffd36b", 0.024, 2.6, 1.5);
+        }
+        if (!swapped && t > T.swap) {
+          swapped = true;
+          this.wearNow(name);
+        }
+        // While the cloud is right round him he's not there at all (so no nose, ear or tail pokes out of it).
+        this.root.visible = !(t > T.cover + 0.1 && t < T.clear + 0.05);
+
+        if (t < T.clear) {
+          this.expr = t < 0.15 ? "determined" : "joy";
+          return true;
+        }
+        // Out he pops... who's that?! A start at himself.
+        const v = t - T.clear;
+        const startle = kf(v, [[0, 0], [0.1, 1], [0.4, 1], [0.55, 0]]);
+        P.hipsY += kf(v, [[0, 0], [0.08, 0.12], [0.25, 0.03], [0.35, 0]]);
+        P.pop = Math.max(P.pop, 0.9 * startle);
+        P.earR = Math.max(P.earR, startle);
+        this.paw(0, tmp.set(-0.32, 0.7, 0.2), startle);
+        this.paw(1, tmp.set(0.32, 0.7, 0.2), startle);
+        // A look down at himself, turning this way and that.
+        const look = kf(t, [[T.startle, 0], [T.startle + 0.15, 1], [T.look, 1], [T.look + 0.15, 0]]);
+        P.headRx += 0.5 * look;
+        P.hipsRx += 0.12 * look;
+        P.yaw = lerp(P.yaw, REST.yaw + Math.sin((t - T.startle) * 9) * 0.25, look);
+        this.paw(0, tmp.set(-0.3, 0.2, 0.18), look);
+        this.paw(1, tmp.set(0.3, 0.2, 0.18), look);
+        // Then pleased with it: a happy wiggle.
+        const pleased = kf(t, [[T.look, 0], [T.look + 0.15, 1]]);
+        P.wag = Math.max(P.wag, 1.1 * pleased);
+        P.hipsRz += Math.sin(t * 12) * 0.06 * pleased;
+        P.headRz += 0.15 * pleased;
+        if (v < 0.45) this.expr = "surprised";
+        else if (t < T.look) {
+          this.expr = "ooh";
+          this.faceMods.lookY = -1;
+          this.faceMods.lookX = Math.sin((t - T.startle) * 9) * 0.4;
+        } else this.expr = "happy";
+        return t < T.end;
+      },
+      end: () => {
+        puff.group.removeFromParent();
+        reset();
+        this.root.visible = true;
+        if (!swapped) this.wearNow(name);
+        this.wide = 0;
+        this.unwind();
+      },
+    };
+  }
+
+  /**
+   * A folding screen pops up in front of him. He ducks behind it, and his
+   * clothes come flying over the top (his old outfit's hat and bits, a shirt,
+   * a sock) and tumble away. He peeks over it, shy, the screen folds away, and
+   * there he is in the new outfit: a shy step forward, then a pleased little pose.
+   */
+  private screenScene(name: OutfitName): Running {
+    const scr = theScreen();
+    paint(scr.group, this.look);
+    const x0 = this.root.position.x;
+    // Well in front of him: he's long in the snout.
+    scr.group.position.set(x0, 0, 1.2);
+    scr.group.rotation.set(0, 0, 0);
+    scr.group.scale.setScalar(0.01);
+    this.world.add(scr.group);
+    const T = { open: 0.45, duck: 0.55, throw: 1.0, gap: 0.42, swap: 1.75, rise: 2.85, peek: 3.05, fold: 3.65, step: 3.9, pose: 4.2, end: 4.85 };
+    const color = this.clothes.main;
+    // What flies over: his old outfit's pieces (up to two), then a shirt and a sock in its colour.
+    const old = this.clothes;
+    const pieces: THREE.Object3D[] = [...old.loose.slice(0, 2)];
+    const spares: THREE.Object3D[] = [shirt(color), sock(color)];
+    for (const o of spares) paint(o, this.look);
+    pieces.push(...spares);
+    const flying: { obj: THREE.Object3D; v: THREE.Vector3; spin: THREE.Vector3; life: number; size: number }[] = [];
+    const flown = new Set<THREE.Object3D>();
+    let thrown = 0;
+    let swapped = false;
+    const tmp = new THREE.Vector3();
+    const fling = (obj: THREE.Object3D, k: number) => {
+      // From behind the top of the screen, up and away to one side or the other.
+      const side = k % 2 ? 1 : -1;
+      if (obj.parent) this.world.attach(obj);
+      else this.world.add(obj);
+      const size = obj.scale.x;
+      obj.position.set(x0 + side * 0.12, 1.55, 0.7);
+      flying.push({
+        obj, size,
+        v: new THREE.Vector3(side * (0.8 + Math.random() * 0.5), 2.7 + Math.random() * 0.4, 0.35),
+        spin: new THREE.Vector3(Math.random() * 8 - 4, Math.random() * 6 - 3, side * (5 + Math.random() * 4)),
+        life: 0,
+      });
+      flown.add(obj);
+    };
+    const swap = () => {
+      swapped = true;
+      // The old clothes come off; pieces still in the air go when the scene does.
+      this.wearNow(name, flown);
+    };
+    const cleanUp = () => {
+      for (const f of flying) f.obj.removeFromParent();
+      for (const o of spares) dispose(o);
+      for (const o of pieces) if (!spares.includes(o)) dispose(o);
+    };
+    return {
+      name: "screen",
+      t: 0,
+      step: (t, dt) => {
+        const P = this.target;
+        this.wide = 0.75;
+        this.rate = 16;
+        this.bounce = 0.55;
+        P.headRy = 0;
+        P.yaw = 0;
+        // The screen: pops up and unfolds; wobbles as things fly over; folds away.
+        const pop = kf(t, [[0, 0.01], [0.28, 1.08], [0.42, 1], [T.fold, 1], [T.fold + 0.1, 1.06], [T.fold + 0.35, 0.01]]);
+        scr.group.scale.setScalar(pop);
+        const open = kf(t, [[0.08, 0], [T.open, 1], [T.fold - 0.05, 1], [T.fold + 0.25, 0]]);
+        scr.hinges[0].rotation.y = lerp(-2.9, -0.7, open);
+        scr.hinges[1].rotation.y = lerp(2.9, 0.7, open);
+        const throwing = t > T.throw && t < T.throw + T.gap * pieces.length;
+        scr.group.rotation.z = throwing ? Math.sin(t * 30) * 0.012 : 0;
+
+        // Things fly.
+        while (thrown < pieces.length && t > T.throw + thrown * T.gap) fling(pieces[thrown], thrown++);
+        for (const f of flying) {
+          f.life += dt;
+          f.v.y -= 6.5 * dt;
+          f.obj.position.addScaledVector(f.v, dt);
+          f.obj.rotation.x += f.spin.x * dt;
+          f.obj.rotation.y += f.spin.y * dt;
+          f.obj.rotation.z += f.spin.z * dt;
+          const land = f.obj.position.y < 0.12;
+          if (land) f.obj.position.y = 0.12;
+          const k = 1 - smooth(clamp((f.life - 1.0) / 0.25, 0, 1));
+          f.obj.scale.setScalar(Math.max(0.001, f.size * k));
+          f.obj.visible = k > 0.02;
+        }
+        if (!swapped && t > T.swap) swap();
+
+        if (t < T.duck) {
+          this.expr = "ooh";
+          this.faceMods.lookY = -0.2;
+          return true;
+        }
+        if (t < T.rise) {
+          // Ducked down behind it, busy: paws going, flinging things up and over.
+          const duck = kf(t, [[T.duck, 0], [T.duck + 0.25, 1], [T.rise - 0.15, 1], [T.rise, 0]]);
+          P.hipsY -= 0.4 * duck;
+          P.hipsRx += 0.02 * duck;
+          P.headRx += 0.15 * duck;
+          P.knock = lerp(P.knock, -0.6, duck);
+          const beat = (t - T.throw) / T.gap;
+          const up = t > T.throw - 0.15 ? Math.max(0, Math.sin(Math.max(0, beat) * Math.PI * 2 + 0.6)) : 0;
+          this.paw(1, tmp.set(0.2, 0.55 + 0.35 * up, 0.25), duck);
+          this.paw(0, tmp.set(-0.2, 0.4 + 0.2 * (1 - up), 0.25), duck);
+          this.expr = "determined";
+          return true;
+        }
+        // Up on his toes to peek over the top, shy.
+        const peek = kf(t, [[T.rise, 0], [T.peek, 1], [T.fold, 1], [T.fold + 0.2, 0]]);
+        P.hipsY += 0.14 * peek;
+        P.fLy += 0.0;
+        this.paw(0, tmp.set(-0.12, 0.85, 0.42), peek);
+        this.paw(1, tmp.set(0.12, 0.85, 0.42), peek);
+        // Revealed: a shy step forward, knees knocking, then a pleased pose, paws on hips.
+        const shy = kf(t, [[T.fold, 0], [T.fold + 0.2, 1], [T.pose, 1], [T.pose + 0.2, 0]]);
+        const step = kf(t, [[T.step, 0], [T.step + 0.15, 1], [T.step + 0.35, 0]]);
+        P.fLy += 0.18 * step;
+        P.fLz += 0.15 * step;
+        this.kneesKnock(t, shy * 0.7);
+        this.paw(0, tmp.set(-0.05, 0.36, 0.3), shy);
+        this.paw(1, tmp.set(0.05, 0.36, 0.3), shy);
+        P.headRz += 0.15 * shy;
+        const pose = kf(t, [[T.pose, 0], [T.pose + 0.2, 1], [T.end - 0.2, 1], [T.end, 0]]);
+        this.paw(0, tmp.set(-0.3, 0.08, 0.02), pose);
+        this.paw(1, tmp.set(0.3, 0.08, 0.02), pose);
+        P.hipsRx -= 0.12 * pose;
+        P.headRx -= 0.12 * pose;
+        P.hipsY += kf(t, [[T.pose + 0.3, 0], [T.pose + 0.42, 0.08], [T.pose + 0.55, 0]]);
+        P.wag = 1.2 * pose;
+        P.tail = 0.6 * pose;
+        if (t < T.fold) {
+          this.expr = "sheepish";
+          this.faceMods.lookY = -0.3;
+        } else if (t < T.pose) this.expr = "sheepish";
+        else this.expr = "happy";
+        return t < T.end;
+      },
+      end: () => {
+        if (!swapped) swap();
+        scr.group.removeFromParent();
+        cleanUp();
+        this.wide = 0;
+      },
+    };
+  }
+
+  // ── The detective's magnifying glass ────────────────────────────────────────
+
+  /**
+   * The magnifying glass, held up in front of his left eye (the nearer one as he
+   * usually stands): the lens right over the eye, which looks huge through it.
+   * `show(k)` brings it up (0..1); `handle` is where his left paw holds it (head space).
+   */
+  private glass(): { handle: THREE.Vector3; show(k: number): void; end(): void } {
+    const g = magnifier();
+    paint(g, this.look);
+    const e = this.face.eye(0);
+    const z = e.normal.clone();
+    const x = new THREE.Vector3(0, 1, 0).cross(z).normalize();
+    const y = z.clone().cross(x).normalize();
+    const holder = new THREE.Group();
+    holder.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+    holder.position.copy(e.base).addScaledVector(z, 0.18);
+    // The lens's middle (0.23 up its handle) at the holder.
+    g.position.y = -0.23;
+    holder.add(g);
+    holder.visible = false;
+    this.head.add(holder);
+    const SIZE = 1.6;
+    const handle = new THREE.Vector3(0, -0.2 * SIZE, 0.02).applyQuaternion(holder.quaternion).add(holder.position);
+    return {
+      handle,
+      show: (k) => {
+        holder.visible = k > 0.02;
+        holder.scale.setScalar(SIZE * Math.max(0.01, k));
+        this.face.zoom[0] = 1 + 0.22 * smooth(clamp(k, 0, 1));
+      },
+      end: () => {
+        dispose(holder);
+        this.face.zoom[0] = 1;
+      },
+    };
+  }
+
+  /** Doing his own thing (the detective): peers about through his magnifying glass... a clue?! Eek. */
+  private peer(): Running {
+    const g = this.glass();
+    return {
+      name: "peer",
+      t: 0,
+      step: (t) => {
+        const P = this.target;
+        this.rate = 14;
+        const on = kf(t, [[0, 0], [0.4, 1], [3.2, 1], [3.6, 0]]);
+        g.show(kf(t, [[0, 0], [0.25, 1.1], [0.35, 1], [3.4, 1], [3.6, 0]]));
+        // The glass up at his eye, bent over, scanning about; the other paw behind his back.
+        this.pawToHead(0, g.handle, on);
+        this.paw(1, this.v4.set(0.15, 0.1, -0.15), on);
+        const scan = Math.sin(t * 1.6);
+        P.hipsRx += 0.25 * on;
+        P.headRx += 0.25 * on;
+        P.headRy = scan * 0.35 * on;
+        P.yaw = REST.yaw + scan * 0.25 * on;
+        P.knock = 0.5;
+        P.earR = 0.35 * on;
+        // Then: a clue! A start.
+        const clue = kf(t, [[2.5, 0], [2.6, 1], [3.1, 1], [3.3, 0]]);
+        P.pop = Math.max(P.pop, 0.8 * clue);
+        P.earOut = Math.max(P.earOut, clue);
+        P.hipsY += 0.06 * clue;
+        this.expr = t < 2.5 ? "ooh" : clue > 0.3 ? "surprised" : "sheepish";
+        this.faceMods.lookY = -0.6 * on;
+        this.faceMods.lookX = scan * 0.5;
+        return t < 3.8;
+      },
+      end: () => g.end(),
     };
   }
 

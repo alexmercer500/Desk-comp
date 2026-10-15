@@ -9,6 +9,12 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.10.0 (15 October 2026, Android 0.4.3 carried over)
+
+- **Dogesh Bhai's outfits.** Dogesh Bhai now has nine outfits, each in its own fur colour: **Cozy scarf** (his first look), **Desi Bhai** (kurta, Nehru jacket and cap), **Detective** (trench coat, deerstalker and magnifying glass), **Superhero** (cape, mask and a lightning badge), **Rainy day** (raincoat, rain hat and boots), **Coder Bhai** (hoodie, headphones and glasses), **Pyjamas** (with a floppy nightcap), **Chef** (apron and a tall hat) and **Dapper** (sweater vest, bow tie and flat cap). Pick one in Settings → Character → Dogesh Bhai → **Outfit**. Each outfit has its own way of hiding when an agent needs you: he pulls the cap down, hides in his hood or cape, or behind a frying pan. He changes into a new outfit in a puff of smoke or behind a folding screen with clothes flying over the top. Both 3D and 2D have the outfits, and with the Character theme every window takes the outfit's colours.
+- **The island at the top edge is roomier.** It's a little taller with a bigger character, and the words aren't clipped any more (underscores and letters like g and y lost their bottoms). The status line and the hover list are wider. Each session in the hover list now takes two lines, the project and then what it's doing, so you can read the whole command or page. MCP tools read as words everywhere: "Playwright · browser navigate" instead of "mcp__playwright__browser_navigate".
+- **Character cards wrap.** In Settings and the Desk Companion window, the character cards fit as many to a line as there's room for and wrap the rest, so names like Dogesh Bhai aren't cut off in a narrow window. In the Desk Companion window, the cards' drawings were sometimes blank; they show now.
+
 ## 0.9.0 (15 October 2026, Android 0.4.3)
 
 **Know that your agents are really connected.** Until now, Desk Companion only found out an agent was hooked up when that agent ran, and if something blocked it, you just saw silence.

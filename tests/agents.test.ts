@@ -230,7 +230,9 @@ describe("describeStep", () => {
     ["Bash", "npm test", "Running npm test"],
     ["Grep", "toFixed", "Searching for toFixed"],
     ["Read", "C:\\a\\b.md", "Reading b.md"],
-    ["mcp__x__y", null, "mcp__x__y"],
+    ["mcp__playwright__browser_navigate", null, "Playwright · browser navigate"],
+    ["mcp__chrome-devtools__take_screenshot", null, "Chrome devtools · take screenshot"],
+    ["mcp_odd", null, "mcp_odd"],
   ])("%s %s → %s", (tool, detail, text) => {
     expect(describeStep({ tool, detail, at: 0 })).toBe(text);
   });

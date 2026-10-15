@@ -230,6 +230,8 @@ export class DogFace {
   private arcs = new ShapeCache(arc);
   private mouths = new ShapeCache(mouthLine);
   private eyes: Eye[] = [];
+  /** Each eye drawn bigger by this much (seen through a magnifying glass). */
+  readonly zoom = [1, 1];
   private brows: THREE.Mesh[] = [];
   private jawPivot = new THREE.Group();
   private gapPivot = new THREE.Group();
@@ -374,6 +376,16 @@ export class DogFace {
     }
   }
 
+  /**
+   * Eye `i` (0 his left, at -x; 1 his right): the group it's drawn in (it
+   * moves out and grows as the eye pops), and where it sits at rest with the
+   * way it faces, in head units. Things worn on the eyes follow `root`.
+   */
+  eye(i: number): { root: THREE.Group; base: THREE.Vector3; normal: THREE.Vector3 } {
+    const e = this.eyes[i];
+    return { root: e.root, base: e.base, normal: e.normal };
+  }
+
   /** Just in front of his mouth, in head units (for chewing his nails, a biscuit). */
   mouth(): THREE.Vector3 {
     return new THREE.Vector3(0, -0.36, 0.58);
@@ -421,7 +433,8 @@ export class DogFace {
       // Under the hood: the bulge flattens (so it never pokes through), and only when he's fully hidden do the eyes sink in.
       const flat = Math.min(1, this.tuck / 0.8);
       const sink = THREE.MathUtils.smoothstep(this.tuck, 0.9, 1.02);
-      e.root.scale.set(scale, scale, scale * (1 - 0.6 * flat));
+      const z = this.zoom[e.side < 0 ? 0 : 1];
+      e.root.scale.set(scale * z, scale * z, scale * z * (1 - 0.6 * flat));
       e.root.position.copy(e.base).addScaledVector(e.normal, 0.075 * pop - 0.045 * sink);
       const shut = open < 0.1;
       e.lid.rotation.set(THREE.MathUtils.lerp(Math.PI / 2, -Math.PI / 2 - 0.2, Math.min(1, open)), 0, e.side * s.lidTilt * 0.38);

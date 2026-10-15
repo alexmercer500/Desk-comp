@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { poseFor, ruiPicture, setRuiStyle, ruiStyle, type RuiPose } from "../src/panel/rui-pictures";
 import { LOOK_NAMES, THEME_NAMES, isLook, isTheme } from "../src/three/palette";
+import { OUTFITS, OUTFIT_NAMES, isOutfit } from "../src/skins/dogesh-outfits";
 
 const rust = (file: string) => readFileSync(new URL(`../src-tauri/src/${file}`, import.meta.url), "utf8");
 /** The strings in a Rust `&[&str]` constant. */
@@ -74,5 +75,29 @@ describe("Rui's pictures", () => {
     expect(poseFor("ERROR")).toBe("droop");
     expect(poseFor("SLEEPING")).toBe("sleep");
     expect(poseFor("IDLE")).toBe("idle");
+  });
+});
+
+describe("Dogesh Bhai's outfits", () => {
+  it("are the same in the panel and the saved settings, and start cozy", () => {
+    const system = rust("system.rs");
+    expect(rustList(system, "DOGESH_OUTFITS")).toEqual(OUTFIT_NAMES);
+    expect(system).toContain('dogesh_outfit: "cozy".into()');
+  });
+
+  it("each has a character theme for the windows", () => {
+    const theme = readFileSync(new URL("../src/theme.ts", import.meta.url), "utf8");
+    for (const name of OUTFIT_NAMES) expect(theme).toContain(`"dogesh:${name}"`);
+  });
+
+  it("only accept known outfits, and no fur is pink", () => {
+    expect(isOutfit("detective")).toBe(true);
+    expect(isOutfit("tuxedo")).toBe(false);
+    for (const o of Object.values(OUTFITS)) {
+      const n = parseInt(o.fur.fur.color.slice(1), 16);
+      const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+      // Pink: red well above green, and blue above green too.
+      expect(r - g > 40 && b > g).toBe(false);
+    }
   });
 });

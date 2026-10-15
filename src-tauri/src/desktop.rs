@@ -91,10 +91,10 @@ static TOP: AtomicBool = AtomicBool::new(false);
 /// notification card). Whatever the island doesn't cover is transparent and
 /// click-through.
 const ISLAND_W: f64 = 600.0;
-const ISLAND_H: f64 = 300.0;
+const ISLAND_H: f64 = 360.0;
 /// Bottom of the open island, logical px from the window top: bubbles and the
 /// panel open just below it.
-const ISLAND_BOTTOM: f64 = 44.0;
+const ISLAND_BOTTOM: f64 = 52.0;
 /// Where the island sits by default, as a fraction of the display's width.
 const TOP_DEFAULT_AT: f64 = 0.75;
 

@@ -1,13 +1,16 @@
-// Development only (three.html?stage=corner&who=dogesh&look=anime): the
+// Development only (three.html?stage=corner&who=dogesh&look=anime&outfit=detective): the
 // desktop app's stage (stage.ts), mounted and framed exactly as the companion
 // window mounts it, for checking poses and the clickable box. Size the browser
 // window like the app's corner window (1.6 × 1.25 of his square, see ROOM) so
 // the see-through room round his square is used too.
 //
-// window.__stage.sheet(shots) steps exact frames and returns a contact sheet.
+// window.__stage.sheet(shots) steps exact frames and returns a contact sheet
+// (a shot can also put an outfit on, change into one with a scene, switch the
+// look, or play one of his own behaviours).
 
 import type { StateName, Variant } from "../engine/types";
 import { Look } from "./looks";
+import { Dogesh, type DogAction, type OutfitChange } from "./dogesh";
 import { Framing, ROOM, RuiStage, Who } from "./stage";
 
 const q = new URLSearchParams(location.search);
@@ -24,6 +27,7 @@ document.body.append(view);
 const stage = new RuiStage(view, framing, who);
 if (framing === "corner") stage.setRoom(ROOM);
 stage.setLook((q.get("look") as Look) === "anime" ? "anime" : "toy");
+stage.setOutfit(q.get("outfit"));
 stage.setState("IDLE", null);
 stage.advance(0.5);
 
@@ -33,13 +37,24 @@ interface Shot {
   variant?: Variant;
   overlay?: string;
   reduced?: boolean;
+  /** Put this outfit on at once, or change into it (with `style`, or a scene picked at random). */
+  outfit?: string;
+  change?: string;
+  style?: OutfitChange;
+  look?: Look;
+  /** One of his own behaviours (hide, stroll, peer...). */
+  play?: DogAction;
+  /** The agent's work progress, 0..1 (null: unknown). */
+  progress?: number | null;
   t?: number;
 }
 
 /** Steps through `shots` in order and lays each frame out (the whole window, with his clickable box) on a sheet. */
-function sheet(shots: Shot[], columns = 4, scale = 1): string {
-  const W = Math.round(window.innerWidth * scale);
-  const H = Math.round(window.innerHeight * scale);
+function sheet(shots: Shot[], columns = 4, scale = 1, crop = { x: 0, y: 0, w: 1, h: 1 }): string {
+  const W = Math.round(window.innerWidth * scale * crop.w);
+  const H = Math.round(window.innerHeight * scale * crop.h);
+  const ox = -window.innerWidth * scale * crop.x;
+  const oy = -window.innerHeight * scale * crop.y;
   const pad = 18;
   const cols = Math.min(columns, shots.length);
   const out = document.createElement("canvas");
@@ -58,6 +73,11 @@ function sheet(shots: Shot[], columns = 4, scale = 1): string {
     if (s.reduced !== undefined) stage.setReducedMotion(s.reduced);
     if (s.state) stage.setState(s.state, s.variant ?? null);
     if (s.overlay) stage.overlay(s.overlay);
+    if (s.look) stage.setLook(s.look);
+    if (s.progress !== undefined) stage.setProgress(s.progress);
+    if (s.outfit) stage.setOutfit(s.outfit);
+    if (s.change) stage.changeOutfit(s.change, s.style);
+    if (s.play && stage.actor instanceof Dogesh) stage.actor.play(s.play);
     stage.advance(s.t ?? 0);
     const x = (i % cols) * W;
     const y = Math.floor(i / cols) * (H + pad);
@@ -66,6 +86,11 @@ function sheet(shots: Shot[], columns = 4, scale = 1): string {
     g.fillStyle = "#fff";
     g.fillRect(x, y, W, pad);
     const r = view.getBoundingClientRect();
+    g.save();
+    g.beginPath();
+    g.rect(x, y + pad, W, H);
+    g.clip();
+    g.translate(ox, oy);
     g.drawImage(view, x + r.left * scale, y + pad + r.top * scale, r.width * scale, r.height * scale);
     // His square, and the clickable box the app would report.
     const S = framing === "corner" ? window.innerWidth / (1 + 2 * ROOM.x) : r.width;
@@ -77,6 +102,7 @@ function sheet(shots: Shot[], columns = 4, scale = 1): string {
     g.strokeRect(
       x + (sq.l + hit.x0 * S) * scale, y + pad + (sq.t + hit.y0 * S) * scale, (hit.x1 - hit.x0) * S * scale, (hit.y1 - hit.y0) * S * scale,
     );
+    g.restore();
     g.strokeStyle = "#999";
     g.strokeRect(x + 0.5, y + 0.5, W - 1, H + pad - 1);
     g.fillStyle = "#000";
