@@ -6,7 +6,7 @@ themselves from there.
 
 | File | What |
 | --- | --- |
-| `DeskCompanion_0.8.4_x64-setup.exe` | Windows app 0.8.4 (relay built in, checks for updates). Not code-signed yet: Windows may warn, choose More info, Run anyway. |
-| `DeskCompanion-Android-0.4.1.apk` | Android app 0.4.1, signed with the release key (checks for updates). Phones with the older debug-signed 0.3.x must uninstall it once and pair again. |
+| `DeskCompanion_0.8.6_x64-setup.exe` | Windows app 0.8.6 (relay built in, checks for updates). Not code-signed yet: Windows may warn, choose More info, Run anyway. |
+| `DeskCompanion-Android-0.4.2.apk` | Android app 0.4.2, signed with the release key (checks for updates). Phones with the older debug-signed 0.3.x must uninstall it once and pair again. |
 
 What changed in each: `CHANGELOG.md`. How releases are made: `docs/RELEASING.md`.
