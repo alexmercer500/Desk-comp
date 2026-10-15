@@ -26,7 +26,7 @@ export interface FaceState {
 
 export type Expression =
   | "neutral" | "happy" | "joy" | "love" | "sad" | "surprised"
-  | "sleepy" | "asleep" | "determined" | "tired" | "ooh" | "chew" | "confused" | "dizzy";
+  | "sleepy" | "asleep" | "determined" | "tired" | "ooh" | "chew" | "confused" | "dizzy" | "panic";
 
 const NEUTRAL: FaceState = {
   eyeOpen: 1, eyeArc: -0.2, eyeScale: 1, lookX: 0, lookY: 0,
@@ -48,6 +48,8 @@ export const EXPRESSIONS: Record<Expression, Partial<FaceState>> = {
   chew: { eyeOpen: 0, eyeArc: 1, mouthCurve: 0.6, mouthWidth: 0.7, blush: 1.2 },
   confused: { eyeScale: 1.1, lookY: 0.4, lookX: 0.3, mouthCurve: -0.35, mouthWidth: 0.7, blush: 0.6 },
   dizzy: { eyeOpen: 0, eyeArc: -0.4, mouthCurve: -0.2, mouthOpen: 0.2, mouthWidth: 0.6, blush: 0.9 },
+  // Comic alarm: big round eyes and a wide "waaah" (the scene wobbles the mouth).
+  panic: { eyeScale: 1.5, mouthCurve: -0.6, mouthOpen: 1.0, mouthWidth: 1.55, blush: 1.1 },
 };
 
 export function expression(name: Expression): FaceState {
@@ -154,7 +156,7 @@ class ArcCache {
   }
 }
 
-function blushTexture(): THREE.Texture {
+export function blushTexture(): THREE.Texture {
   const c = document.createElement("canvas");
   c.width = c.height = 64;
   const g = c.getContext("2d")!;

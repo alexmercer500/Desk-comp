@@ -9,9 +9,12 @@ import { Engine } from "../engine/engine";
 import type { CharacterId } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
 import { LOOKS, LOOK_NAMES, THEMES, THEME_NAMES, themeColors } from "../three/palette";
+import { UI_THEMES } from "../theme";
+import { linkState, linkText, since, type AgentStatus, type RelayTest } from "./connections";
 import { ruiPicture, setRuiStyle } from "./rui-pictures";
 
 interface Prefs {
+  uiTheme: string;
   breaks: boolean;
   breakMinutes: number;
   battery: boolean;
@@ -33,6 +36,7 @@ interface Prefs {
   autoUpdate: boolean;
   ruiLook: string;
   ruiTheme: string;
+  dogeshStyle: string;
   ruiFlatOnBattery: boolean;
   phoneLink: boolean;
   phoneRelay: boolean;
@@ -57,17 +61,11 @@ interface Pairing {
   hosts: string[];
 }
 
-interface AgentStatus {
-  id: string;
-  name: string;
-  installed: boolean;
-  connected: boolean;
-}
-
 interface Settings {
   prefs: Prefs;
   claudeConnected: boolean;
   agents: AgentStatus[];
+  relayTest: RelayTest | null;
   autostart: boolean;
   version: string;
   /** The relay built into this copy, used when no address is saved. */
@@ -87,9 +85,9 @@ const AGENT_HINTS: Record<string, string> = {
   codex: "Codex asks you once to trust the new hook: run /hooks in Codex. Allow / Deny works from here.",
   copilot: "Copilot CLI and VS Code's agent mode share one hook file: shows what each is doing and when it's done. Permissions stay where they're asked.",
   cursor: "Adds my hooks to Cursor's hooks.json. Shows what its agent is doing, when it's done, stopped or failed. Permissions stay in Cursor.",
-  antigravity: "Adds a hook group to Antigravity's hooks.json (IDE, 2.0 and CLI). Shows each step once it's done, and when a task ends. It never answers Antigravity's permission prompts.",
+  antigravity: "Adds a hook group to Antigravity's hooks.json: the Antigravity app and CLI. Shows each step once it's done, and when a task ends. It never answers its permission prompts. The older standalone IDE doesn't run hooks yet.",
   gemini: "Shows what Gemini CLI is doing and when it's done. Permissions stay in the terminal.",
-  commandcode: "Adds a small mod to Command Code. Shows each step, when it's done or stopped, and when it's waiting for your OK in its terminal. Its questions can be answered here.",
+  commandcode: "Adds a small mod and hooks to Command Code: the CLI, the desktop app and the VS Code chat panel. Shows each step and when it's done; in the CLI and app also when it's stopped or waiting for your OK, and its questions can be answered here.",
 };
 
 interface AskStatus {
@@ -106,6 +104,7 @@ const CHARACTERS: { id: CharacterId | "rui"; what: string }[] = [
   { id: "glim", what: "firefly" },
   { id: "billu", what: "space cat" },
   { id: "rui", what: "3D yeti" },
+  { id: "dogesh", what: "scaredy pup" },
 ];
 const BREAK_CHOICES = [30, 45, 50, 60, 90];
 const PAUSES: { label: string; until: () => number }[] = [
@@ -140,6 +139,8 @@ function section(title: string, ...rows: HTMLElement[]): HTMLElement {
   const h = el("h3", undefined, title);
   h.id = id;
   s.setAttribute("aria-labelledby", id);
+  // The app window shows one section per page, by this name ("coding-agents", "ask-ai"…).
+  s.dataset.section = title.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "");
   s.append(h, ...rows);
   return s;
 }
@@ -171,7 +172,8 @@ function switchRow(key: BoolKey, title: string, hint: string | null = null): HTM
 }
 
 /** Buttons in a row, one pressed. */
-function segmented(key: keyof Prefs, label: string, choices: [string, string][]): HTMLElement {
+/** `as` keeps a second control for the same setting apart (Dogesh's look is Rui's look). */
+function segmented(key: keyof Prefs, label: string, choices: [string, string][], as: string = key): HTMLElement {
   const group = el("div", "segmented");
   group.setAttribute("role", "radiogroup");
   group.setAttribute("aria-label", label);
@@ -183,7 +185,7 @@ function segmented(key: keyof Prefs, label: string, choices: [string, string][])
     b.addEventListener("click", () => void set(key, value));
     group.append(b);
   }
-  controls.set(key, group);
+  controls.set(as, group);
   return group;
 }
 
@@ -249,6 +251,27 @@ function characterPicker(): HTMLElement {
   return grid;
 }
 
+/** Dogesh Bhai's own choices: 3D or 2D, and (in 3D) the same look as Rui's. Shown while he's the character. */
+function dogeshOptions(): HTMLElement {
+  const box = el("div", "rui-options");
+  controls.set("dogeshOptions", box);
+  const lookRow = row(
+    "3D look",
+    "Toy: soft vinyl. Anime: flat colours and outlines.",
+    segmented("ruiLook", "Dogesh Bhai's look", LOOK_NAMES.map((l) => [l, LOOKS[l]]), "ruiLook:dogesh"),
+  );
+  controls.set("dogeshLookRow", lookRow);
+  box.append(
+    row(
+      "Drawn in",
+      "3D: a little 3D pup, like Rui. 2D: drawn like the others, and lighter on your PC.",
+      segmented("dogeshStyle", "Dogesh Bhai is drawn in", [["3d", "3D"], ["2d", "2D"]]),
+    ),
+    lookRow,
+  );
+  return box;
+}
+
 /** Rui's own choices: shown while he's the character. */
 function ruiOptions(): HTMLElement {
   const box = el("div", "rui-options");
@@ -294,7 +317,13 @@ function build() {
     "Appearance",
     characterPicker(),
     ruiOptions(),
+    dogeshOptions(),
     row("Where I live", null, segmented("place", "Where I live", [["corner", "Desktop"], ["top", "Top edge"]])),
+    row(
+      "Theme",
+      "Character: colours from your character (Rui: from what he wears). System follows Windows.",
+      segmented("uiTheme", "Theme", Object.entries(UI_THEMES)),
+    ),
     sizeRow,
     switchRow("hideFullscreen", "Step aside for full-screen apps", "Games, videos and slideshows"),
   );
@@ -345,8 +374,16 @@ function build() {
     r.dataset.agent = a.id;
     return r;
   });
+  // The relay test: can agents actually reach the app (an antivirus may hold the relay)?
+  const testLine = el("div", "set-key");
+  controls.set("relayTest", testLine);
+  const testStatus = el("span", "set-hint set-update-status");
+  controls.set("relayTestStatus", testStatus);
+  const testRow = row("Connection test", null, testLine);
+  testRow.querySelector(".set-text")?.append(testStatus);
   const agents = section(
     "Coding agents",
+    testRow,
     ...agentRows,
     switchRow("notifyDone", "When a task finishes"),
     switchRow("notifyPermission", "When an agent needs permission"),
@@ -425,6 +462,17 @@ function build() {
 let update: UpdateInfo | null = null;
 let updateState: "idle" | "checking" | "installing" | "error" = "idle";
 let updateError = "";
+/** While installing: how much is downloaded (0–1, null while the size isn't known), then "installing". */
+let updateProgress: number | null | "installing" = null;
+
+void listen<{ done: number; total: number | null }>("update:progress", ({ payload }) => {
+  updateProgress = payload.total ? Math.min(1, payload.done / payload.total) : null;
+  drawUpdateButton();
+});
+void listen("update:installing", () => {
+  updateProgress = "installing";
+  drawUpdateButton();
+});
 
 async function checkUpdates(userAsked: boolean) {
   updateState = "checking";
@@ -442,6 +490,7 @@ async function checkUpdates(userAsked: boolean) {
 
 async function installUpdate() {
   updateState = "installing";
+  updateProgress = null;
   drawUpdates();
   try {
     await invoke("install_update"); // the app restarts when it's done
@@ -472,6 +521,10 @@ function drawUpdates() {
   }
   if (updateState === "installing") {
     hint("Downloading and installing… I'll restart when it's done.");
+    // The button fills from the left as the download goes.
+    button("", () => {}, true);
+    line.lastElementChild?.classList.add("set-progress");
+    drawUpdateButton();
     return;
   }
   if (updateState === "error") hint(updateError);
@@ -479,7 +532,58 @@ function drawUpdates() {
   else if (update?.available) hint(`Version ${update.available} is ready`);
   else if (update) hint("You're up to date");
   if (update?.available && updateState !== "checking") button(`Install ${update.available} and restart`, () => void installUpdate());
-  else button("Check now", () => void checkUpdates(true), updateState === "checking");
+  else button(updateState === "checking" ? "Checking…" : "Check now", () => void checkUpdates(true), updateState === "checking");
+  if (updateState === "checking") line.lastElementChild?.classList.add("set-progress", "set-progress-busy");
+}
+
+/** The install button's fill and words, from the latest download progress. */
+function drawUpdateButton() {
+  const b = controls.get("update")?.querySelector<HTMLElement>(".set-progress");
+  if (!b || updateState !== "installing") return;
+  const p = updateProgress;
+  b.classList.toggle("set-progress-busy", p === null);
+  b.style.setProperty("--progress", typeof p === "number" ? String(p) : "1");
+  b.textContent = p === "installing" ? "Installing…" : typeof p === "number" ? `Downloading ${Math.floor(p * 100)}%` : "Downloading…";
+  if (typeof p === "number") b.setAttribute("aria-valuenow", String(Math.floor(p * 100)));
+  b.setAttribute("role", "progressbar");
+}
+
+// ── Connection test ──────────────────────────────────────────────────────────
+
+let relayTest: RelayTest | null = null;
+let testing = false;
+
+async function runRelayTest() {
+  testing = true;
+  drawRelayTest();
+  try {
+    relayTest = await invoke<RelayTest>("test_connection");
+  } finally {
+    testing = false;
+  }
+  await refreshSettings();
+}
+
+function drawRelayTest() {
+  const line = controls.get("relayTest");
+  const status = controls.get("relayTestStatus");
+  if (!line || !status) return;
+  const t = relayTest;
+  status.textContent = testing
+    ? "Running the relay the way your agents do…"
+    : !t
+      ? "Checks that your agents can reach me (an antivirus can block the relay)."
+      : t.ok
+        ? `Passed ${since(Date.now() - t.at)}: agents reach me in ${t.ms} ms.`
+        : t.problem ?? "Failed.";
+  status.classList.toggle("set-error", !testing && t !== null && !t.ok);
+  line.replaceChildren();
+  const b = el("button", "set-button", testing ? "Testing…" : "Test");
+  b.type = "button";
+  b.disabled = testing;
+  if (testing) b.classList.add("set-progress", "set-progress-busy");
+  b.addEventListener("click", () => void runRelayTest());
+  line.append(b);
 }
 
 // ── Redrawing from the stored values ─────────────────────────────────────────
@@ -496,7 +600,7 @@ function fill(s: Settings, ask: AskStatus) {
   for (const [key, node] of controls) {
     if (node instanceof HTMLInputElement && key in p) node.checked = Boolean(p[key as keyof Prefs]);
     if (node.getAttribute("role") === "radiogroup") {
-      const value = String(p[key as keyof Prefs]);
+      const value = String(p[key.split(":")[0] as keyof Prefs]);
       for (const b of node.querySelectorAll<HTMLButtonElement>("[data-value]")) {
         b.setAttribute("aria-checked", String(b.dataset.value === value));
       }
@@ -507,6 +611,8 @@ function fill(s: Settings, ask: AskStatus) {
   setRuiStyle(p);
   (controls.get("ruiPicture") as HTMLImageElement).src = ruiPicture("idle");
   controls.get("ruiOptions")!.hidden = p.character !== "rui";
+  controls.get("dogeshOptions")!.hidden = p.character !== "dogesh";
+  controls.get("dogeshLookRow")!.hidden = p.dogeshStyle === "2d";
   const themeName = THEMES[p.ruiTheme as keyof typeof THEMES]?.label ?? "";
   controls.get("ruiThemeName")!.textContent = `${themeName}. He changes into it with a little scene.`;
 
@@ -558,9 +664,13 @@ function fill(s: Settings, ask: AskStatus) {
     // Not on this PC: nothing to connect (but always allowed to disconnect).
     t.disabled = !a.installed && !a.connected;
     const text = root.querySelector<HTMLElement>(`[data-agent="${a.id}"] .set-text`);
-    text?.querySelector(".set-missing")?.remove();
-    if (!a.installed) text?.append(el("span", "set-hint set-missing", "Not found on this PC"));
+    text?.querySelector(".set-link")?.remove();
+    const link = el("span", "set-hint set-link", linkText(a, s.relayTest));
+    link.dataset.state = linkState(a, s.relayTest);
+    text?.append(link);
   }
+  relayTest = s.relayTest;
+  drawRelayTest();
   (controls.get("autostart") as HTMLInputElement).checked = s.autostart;
   (controls.get("shareDevice") as HTMLInputElement).disabled = !p.askEnabled;
   controls.get("device")!.textContent = ask.device;

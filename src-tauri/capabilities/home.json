@@ -1,0 +1,27 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "home",
+  "description": "The Desk Companion window: every page of settings, connecting agents, updates.",
+  "windows": [
+    "home"
+  ],
+  "permissions": [
+    "core:default",
+    "allow-get-prefs",
+    "allow-get-settings",
+    "allow-set-setting",
+    "allow-set-agent-connected",
+    "allow-set-autostart",
+    "allow-assistant-status",
+    "allow-assistant-set-key",
+    "allow-assistant-forget-key",
+    "allow-check-update",
+    "allow-install-update",
+    "allow-agent-connections",
+    "allow-test-connection",
+    "allow-connect-found-agents",
+    "allow-phone-status",
+    "allow-phone-pairing",
+    "allow-phone-pair-again"
+  ]
+}

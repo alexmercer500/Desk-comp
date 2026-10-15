@@ -9,7 +9,7 @@
 // permission. A mod sees all of that, so the companion can show:
 //   * what each session is doing, step by step
 //   * when it's done, failed, or was stopped
-//   * when it's waiting for your OK in the terminal (Command Code answers its
+//   * when it's waiting for your OK (Command Code answers its
 //     own permission prompts; nothing outside can, so the companion says to
 //     answer there rather than offering Allow / Deny)
 //   * its multiple-choice questions, answerable from the companion
@@ -147,7 +147,7 @@ export default function deskCompanion(cmd: ModApi): void {
       const lines = Object.entries(answers).map(([q, a]) => `- ${q}\n  Answer: ${a}`);
       return {
         block: true,
-        additionalContext: `The user answered in the Desk Companion app (instead of the terminal):\n${lines.join("\n")}`,
+        additionalContext: `The user answered in the Desk Companion app (instead of in Command Code):\n${lines.join("\n")}`,
       };
     },
 
@@ -181,7 +181,7 @@ export default function deskCompanion(cmd: ModApi): void {
         waiting.delete(id);
         send("Notification", {
           notification_type: "permission_prompt",
-          message: "Command Code needs your permission. Answer in its terminal.",
+          message: "Command Code needs your permission. Answer it in Command Code.",
           tool_name: tool,
           tool_input: e.input ?? {},
         });

@@ -6,6 +6,10 @@
     <title>Companion</title>
     <style>
       html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+      :root {
+        --ink: #2a1d16; --muted: #6b5b51; --faint: #8f8077; --line: rgba(122, 53, 25, 0.2); --code: rgba(122, 53, 25, 0.07);
+        --working: #5a7fa8; --attention: #b8532c; --success: #3f8a5a; --error: #b4412a;
+      }
       canvas { display: block; cursor: grab; touch-action: none; }
       canvas.held { cursor: grabbing; }
       /* Rui (3D) draws in his own canvas, #rui, in the 2D character's place. */
@@ -19,18 +23,10 @@
       body[data-place="corner"] canvas { width: 100vmin; height: 100vmin; }
 
       /* At the top edge: one island hanging from the edge of the screen that
-         grows and shrinks (island.ts sets its size). Always dark, like a
-         notch, whatever the theme. */
+         grows and shrinks (island.ts sets its size). Its colours come from
+         the theme (src/theme.ts sets them on <html>); these are the light
+         ones, until it does. */
       body[data-place="top"] {
-        --ink: #f4ece6;
-        --muted: #bcada2;
-        --faint: #8f8077;
-        --line: rgba(255, 244, 235, 0.09);
-        --code: rgba(255, 244, 235, 0.07);
-        --working: #9cbde0;
-        --attention: #ec8a5f;
-        --success: #7cc796;
-        --error: #ef8a72;
         --ease: cubic-bezier(0.22, 1, 0.36, 1);
         font: 13px/1.4 system-ui, "Segoe UI", sans-serif;
         color: var(--ink);
@@ -43,7 +39,7 @@
         box-sizing: border-box;
         width: 84px;
         height: 5px;
-        background: #0f0c0b;
+        background: var(--island, #fffdf9);
         border: 1px solid var(--line);
         border-top: 0;
         border-radius: 0 0 20px 20px;
@@ -88,7 +84,7 @@
       .island[data-tone="attention"] .label .dot { background: var(--attention); }
       .island[data-tone="success"] .label .dot { background: var(--success); }
       .island[data-tone="error"] .label .dot { background: var(--error); }
-      .island[data-tone="attention"][data-state="status"] .label .text { color: #ffc7ad; }
+      .island[data-tone="attention"][data-state="status"] .label .text { color: var(--attention); }
       .island[data-tone="working"] .label .dot { animation: breathe 1.6s ease-in-out infinite; }
       @keyframes breathe { 50% { opacity: 0.35; } }
 
@@ -153,8 +149,8 @@
       .act.deny { color: var(--error); }
       .act.always { color: var(--success); }
       .questions { max-height: 170px; overflow-y: auto; }
-      .act.allow { background: var(--success); border-color: var(--success); color: #13261a; }
-      .act.allow:hover { background: #8fd4a7; }
+      .act.allow { background: var(--allow, #2f7a4b); border-color: var(--allow, #2f7a4b); color: var(--allow-text, #fff); }
+      .act.allow:hover { background: var(--allow-hover, #276a40); }
       .card-body:focus-visible, .act:focus-visible, .row-item:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; border-radius: 8px; }
 
       /* ── A finished task: bigger, like coucou's. The character larger and
@@ -177,7 +173,7 @@
         margin: 0 12px 12px;
         padding: 14px 18px 14px;
         border-radius: 16px;
-        background: radial-gradient(120% 140% at 50% 0%, rgba(124, 199, 150, 0.14), rgba(255, 244, 235, 0.03) 60%), #16120f;
+        background: radial-gradient(120% 140% at 50% 0%, color-mix(in srgb, var(--success) 16%, transparent), transparent 60%), var(--island-card, #f6efe8);
         border: 1px solid var(--line);
         overflow: hidden;
         text-align: center;
@@ -192,7 +188,7 @@
         bottom: -14px;
         width: 2px;
         border-radius: 2px;
-        background: linear-gradient(to top, rgba(124, 199, 150, 0), rgba(190, 235, 205, 0.85));
+        background: linear-gradient(to top, transparent, color-mix(in srgb, var(--success) 80%, transparent));
         opacity: 0;
         animation: rise var(--d, 3.2s) linear var(--w, 0s) infinite;
       }
@@ -224,7 +220,7 @@
       .row-item[data-tone="attention"] .r-dot { background: var(--attention); }
       .r-name { flex: none; max-width: 140px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .r-line { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .row-item[data-tone="attention"] .r-line { color: #ffc7ad; }
+      .row-item[data-tone="attention"] .r-line { color: var(--attention); }
 
       /* Measures the label's natural width so the pill can grow to fit it. */
       .measure {

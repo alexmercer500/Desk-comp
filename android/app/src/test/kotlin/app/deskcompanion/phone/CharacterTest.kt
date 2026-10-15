@@ -13,6 +13,7 @@ class CharacterTest {
         assertEquals("char_kulhi_work", Characters.picture("kulhi", "toy", "cream", Status.Working))
         assertEquals("char_glim_call", Characters.picture("glim", "toy", "cream", Status.Waiting))
         assertEquals("char_billu_droop", Characters.picture("billu", "toy", "cream", Status.Error))
+        assertEquals("char_dogesh_call", Characters.picture("dogesh", "toy", "cream", Status.Waiting))
         // Rui has his own poses, a look and a colour; done and idle share his idle pose.
         assertEquals("rui_idle_anime_mint", Characters.picture("rui", "anime", "mint", Status.Done))
         assertEquals("rui_call_toy_cream", Characters.picture("rui", "nonsense", "nonsense", Status.Waiting))

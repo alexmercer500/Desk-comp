@@ -34,6 +34,10 @@ const COMMANDS: &[&str] = &[
     "assistant_ask",
     "check_update",
     "install_update",
+    "agent_connections",
+    "test_connection",
+    "connect_found_agents",
+    "home_show",
 ];
 
 /// The relay built into this copy (docs/RELAY.md): `DESK_COMPANION_RELAY` from

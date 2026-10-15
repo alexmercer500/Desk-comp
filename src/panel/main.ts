@@ -4,6 +4,7 @@
 // The companion window owns the data (AgentTracker) and pushes snapshots as
 // "sessions"; this page only renders them. All text goes in via textContent.
 
+import { initTheme } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -16,8 +17,12 @@ import { Engine } from "../engine/engine";
 import type { CharacterId, StateName } from "../engine/types";
 import { SKINS, isCharacter } from "../skins";
 import { focusAsk, refreshAsk, setCharacter } from "./ask";
+import { SetupCard, loadConnections, renderBadges, type ConnectionsView } from "./connections";
 import { poseFor, ruiPicture, setRuiStyle } from "./rui-pictures";
 import { refreshSettings } from "./settings";
+
+// Colours from the chosen theme, before anything is drawn.
+initTheme();
 
 const panelEl = document.querySelector<HTMLElement>(".panel")!;
 const list = document.getElementById("list")!;
@@ -46,7 +51,10 @@ function showTab(next: Tab) {
   }
   if (next === "ask") void refreshAsk().then(focusAsk);
   else if (next === "settings") void refreshSettings();
-  else render();
+  else {
+    render();
+    void refreshConnections();
+  }
 }
 
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
@@ -137,12 +145,16 @@ function render() {
     return;
   }
   list.classList.remove("tiles");
+  const setup = setupCard();
+  if (setup) list.append(setup);
+  const badges = connectionBadges();
+  if (badges) list.append(badges);
   const summary = todayLine();
   if (summary) list.append(summary);
   if (sessions.length === 0) {
     const empty = el("div", "empty");
     empty.append(el("strong", undefined, "No agent sessions yet"));
-    empty.append("Start Claude Code in any project and I'll keep an eye on it: what it's doing, what it asks, what it finished.");
+    empty.append("Start a session in any connected agent and I'll keep an eye on it: what it's doing, what it asks, what it finished.");
     list.append(empty);
     return;
   }
@@ -520,12 +532,16 @@ function renderIsland(now: number) {
     });
     list.append(back, renderSession(detail, now));
   } else if (sessions.length === 0) {
+    const setup = setupCard();
+    if (setup) list.append(setup);
+    const badges = connectionBadges();
+    if (badges) list.append(badges);
     const empty = el("div", "empty");
     const a = avatar("self");
     a.show("IDLE");
     keep.add("self");
     empty.append(a.node, el("strong", undefined, "No agent sessions yet"));
-    empty.append("Start Claude Code in any project and I'll keep an eye on it here.");
+    empty.append("Start a session in any connected agent and I'll keep an eye on it here.");
     list.append(empty);
   } else {
     const summary = todayLine();
@@ -627,6 +643,34 @@ function todayLine(): HTMLElement | null {
   return line;
 }
 
+// ── Connections ──────────────────────────────────────────────────────────────
+//
+// Which agents are connected and whether they've been heard from, as small
+// badges above the sessions; a card offering to connect the agents found on
+// this PC while none is (connections.ts draws both, for the app window too).
+
+let connections: ConnectionsView | null = null;
+const setup = new SetupCard(() => render(), () => showTab("settings"), async () => {
+  connections = await loadConnections();
+  return connections;
+});
+
+async function refreshConnections() {
+  connections = await loadConnections();
+  if (open && tab === "activity") render();
+}
+
+const setupCard = () => (connections ? setup.render(connections) : null);
+const connectionBadges = () => (connections ? renderBadges(connections, () => showTab("settings")) : null);
+
+void listen("connections", () => void refreshConnections());
+// Connecting or disconnecting in Settings (or the tray) broadcasts the prefs.
+void listen("prefs", () => void refreshConnections());
+// "Last heard" moves on while the panel is open.
+window.setInterval(() => {
+  if (open && tab === "activity") void refreshConnections();
+}, 30_000);
+
 /** Brings the session's terminal or editor window to the front. */
 function showWindowButton(s: SessionView): HTMLElement {
   const b = el("button", "show-window", "Show window");
@@ -683,6 +727,11 @@ window.setInterval(() => {
     if (soFar && s.current) soFar.textContent = currentMeta(s.current, now);
   }
 }, 1000);
+
+document.getElementById("open-home")!.addEventListener("click", () => {
+  void invoke("home_show", { page: "coding-agents" });
+  close();
+});
 
 showTab("ask");
 // Loaded (made on first open, or reloaded): the companion window answers with

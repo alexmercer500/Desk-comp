@@ -18,11 +18,14 @@
 //!     agent asks in its terminal exactly as if the companion weren't
 //!     installed. Every other event prints nothing at all.
 //!
-//! Usage: `companion-hook [--agent <name>] [--event <name>] [--wait]` (default
+//! Usage: `companion-hook [--agent <name>] [--event <name>] [--wait] [--via hooks]` (default
 //! agent: claude-code). `--event` names the event for agents that don't put it
 //! in the payload (Copilot CLI) or name it their own way (Gemini CLI); it wins
 //! over the payload's. `--wait` marks the hook entry that answers questions
 //! (Claude Code's AskUserQuestion, and Command Code's through our mod).
+//! `--via hooks` marks Command Code's plain hooks, which run next to our mod.
+//! The app also runs this relay itself (`--agent ping`) to test that agents
+//! can reach it (connections.rs).
 //!
 //! **Replies from the phone.** When Claude Code finishes a turn while the user
 //! is away (a phone with away mode is linked and the PC has been idle), the
@@ -139,6 +142,11 @@ fn main() {
     if native_cursor {
         // Cursor's own transcript isn't Claude Code's; its reply came with AgentResponse.
         summary["transcript"] = Value::Null;
+    }
+    if arg_value(&args, "--via") == Some("hooks") {
+        // Command Code's plain hooks, next to our mod: the app keeps these only
+        // where the mod doesn't run (its VS Code chat panel).
+        summary["via"] = Value::String("hooks".into());
     }
     summary["procs"] = json!(ancestors());
     let line = format!("{summary}\n");

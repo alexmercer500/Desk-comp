@@ -15,6 +15,7 @@ object Characters {
         Info("glim", "Glim", "Firefly", Color(0xFF7A62E0)),
         Info("billu", "Billu", "Cat on a saucer", Color(0xFFE08A3C)),
         Info("rui", "Rui", "3D yeti", Color(0xFF2FA27A)),
+        Info("dogesh", "Dogesh Bhai", "Scaredy pup", Color(0xFF2F8F8A)),
     )
 
     /** Rui's colours, as on the PC (his own tint decides the app's). */

@@ -1,14 +1,16 @@
 /// <reference types="vite/client" />
-// 3D prototype page: Rui on a see-through stage, with buttons for each
-// behaviour and mood, two looks (toy and anime), and a readout of what
-// drawing him costs.
+// 3D prototype page: Rui (or Dogesh Bhai) on a see-through stage, with buttons
+// for each behaviour and mood, the app's states, two looks (toy and anime), and
+// a readout of what drawing him costs.
 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { EXPRESSIONS, Expression } from "./face";
+import { DOG_EXPRESSIONS } from "./dog-face";
+import { DOG_ACTIONS, Dogesh } from "./dogesh";
+import { EXPRESSIONS } from "./face";
 import { Look, THEMES, THEME_NAMES, ThemeName, currentTheme, lookShared, themeColors } from "./looks";
 import { prewarm } from "./props";
-import { ACTIONS, ActionName, ChangeStyle, Rui } from "./rui";
+import { ACTIONS, ChangeStyle, Rui } from "./rui";
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector(sel) as T;
 
@@ -30,7 +32,7 @@ camera.lookAt(0, CAMERA.near.look, 0);
 let wideNow = 0;
 
 function frameCamera(dt: number): void {
-  wideNow += (rui.wide - wideNow) * (1 - Math.exp(-dt * 3));
+  wideNow += (char.wide - wideNow) * (1 - Math.exp(-dt * 3));
   const { near, wide } = CAMERA;
   const k = wideNow * wideNow * (3 - 2 * wideNow);
   camera.position.set(0, near.y + (wide.y - near.y) * k, near.z + (wide.z - near.z) * k);
@@ -67,23 +69,73 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-const rui = new Rui(scene);
+// ── The character: Rui or Dogesh Bhai ────────────────────────────────────────
+
+type Who = "rui" | "dogesh";
+type Char = Rui | Dogesh;
+const NAMES: Record<Who, { name: string; blurb: string; aria: string }> = {
+  rui: {
+    name: "Rui",
+    blurb: "Click Rui to poke him (or pop his nap bubble). Move the mouse and he watches you.",
+    aria: "Rui, a small yeti in a hood",
+  },
+  dogesh: {
+    name: "Dogesh Bhai",
+    blurb: "Click Dogesh to startle him (gently!). Move the mouse and he watches you, nervously.",
+    aria: "Dogesh Bhai, a timid little pup in a big knitted scarf",
+  },
+};
+
+let who: Who = new URLSearchParams(location.search).get("who") === "dogesh" ? "dogesh" : "rui";
+let char: Char = make(who);
+let look: Look = "toy";
+
+function make(w: Who): Char {
+  return w === "dogesh" ? new Dogesh(scene) : new Rui(scene);
+}
+
+/** Swaps the character on stage for a fresh one (`w`), keeping the look and settings. */
+function useCharacter(w: Who): void {
+  const auto = char.autoLife;
+  char.retire();
+  who = w;
+  char = make(w);
+  char.autoLife = auto;
+  setLook(look);
+  resize();
+  buildControls();
+  const n = NAMES[w];
+  $("#who-name").textContent = n.name;
+  $("#who-blurb").textContent = n.blurb;
+  canvas.setAttribute("aria-label", n.aria);
+  document.title = `${n.name} 3D Prototype`;
+  $("#colour-group").hidden = w !== "rui";
+  document.querySelectorAll<HTMLButtonElement>("button[data-who]").forEach((b) => b.classList.toggle("on", b.dataset.who === w));
+  void warm();
+}
 
 // ── Looks ─────────────────────────────────────────────────────────────────────
 
-let look: Look = "toy";
-
 function setLook(next: Look): void {
   look = next;
-  rui.setLook(look);
+  char.setLook(look);
   const toy = look === "toy";
   scene.environment = toy ? studio : null;
   back.visible = toy;
   floor.visible = toy;
 }
 
-// Compile everything the change-colour scenes use, then put the chosen look back.
-void prewarm(renderer, camera, scene).then(() => setLook(look));
+/** Characters whose scenes are compiled already (once a page is plenty). */
+const warmed = new Set<Who>();
+
+/** Compiles everything his scenes use, then puts the chosen look back. */
+async function warm(): Promise<void> {
+  if (warmed.has(who)) return;
+  warmed.add(who);
+  if (char instanceof Dogesh) await char.prewarm(renderer, camera, scene);
+  else await prewarm(renderer, camera, scene);
+  setLook(look);
+}
 
 // ── Sizing ────────────────────────────────────────────────────────────────────
 
@@ -101,7 +153,7 @@ function resize(): void {
   lookShared.uWidth.value = 1.7 * renderer.getPixelRatio();
   // How far he can walk and still stay on stage.
   const halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * CAMERA.near.z;
-  rui.bounds = Math.max(0, halfH * camera.aspect - 0.85);
+  char.bounds = Math.max(0, halfH * camera.aspect - 0.85);
 }
 new ResizeObserver(resize).observe(canvas);
 
@@ -110,30 +162,62 @@ new ResizeObserver(resize).observe(canvas);
 const LABELS: Record<string, string> = {
   walk: "Walk", stroll: "Stroll", spin: "Spin", wave: "Wave", sit: "Sit (tired)",
   exercise: "Exercise", eat: "Eat", nap: "Nap",
+  spook: "Spooked", hide: "Hide",
 };
-const actions = $("#actions");
-for (const name of ACTIONS) {
-  const b = document.createElement("button");
-  b.textContent = LABELS[name];
-  b.addEventListener("click", () => rui.play(name));
-  actions.append(b);
+const DOG_LABELS: Record<string, string> = {
+  spin: "Chase tail", exercise: "Shake off", eat: "Biscuit", sit: "Sit",
+  stroll: "Tiptoe", walk: "Tiptoe across", whistle: "Whistle", scratch: "Scratch", mutter: "Mutter",
+};
+/** The app's states, as the desktop stage cues them (stage.ts). */
+const CUES: [string, string][] = [
+  ["call", "Needs you"], ["work", "Working"], ["hooray", "Success"], ["droop", "Error"],
+  ["poke", "Poked"], ["dizzy", "Dizzy"], ["ponder", "Suggesting"], ["shrug", "Confused"],
+  ["nod", "Nod"], ["boot", "Waking up"], ["doze", "Dozing"], ["sleep", "Asleep"],
+  ["held", "Held"], ["land", "Landing"], ["hopRight", "Hop"], ["stand", "Stand / stop"],
+];
+
+function play(name: string): void {
+  (char.play as (n: string) => void)(name);
 }
 
-const moods = $("#moods");
-for (const name of Object.keys(EXPRESSIONS) as Expression[]) {
-  if (name === "chew" || name === "ooh") continue;
-  const b = document.createElement("button");
-  b.textContent = name[0].toUpperCase() + name.slice(1);
-  b.classList.toggle("on", name === rui.mood);
-  b.addEventListener("click", () => {
-    rui.mood = name;
-    moods.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-  });
-  moods.append(b);
+function buildControls(): void {
+  const actions = $("#actions");
+  actions.innerHTML = "";
+  const names: string[] = who === "dogesh" ? DOG_ACTIONS : ACTIONS;
+  for (const name of names) {
+    const b = document.createElement("button");
+    b.textContent = (who === "dogesh" ? DOG_LABELS[name] : undefined) ?? LABELS[name] ?? name;
+    b.addEventListener("click", () => play(name));
+    actions.append(b);
+  }
+
+  const cues = $("#cues");
+  cues.innerHTML = "";
+  for (const [name, label] of CUES) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.addEventListener("click", () => play(name));
+    cues.append(b);
+  }
+
+  const moods = $("#moods");
+  moods.innerHTML = "";
+  const list = Object.keys(who === "dogesh" ? DOG_EXPRESSIONS : EXPRESSIONS);
+  for (const name of list) {
+    if (name === "chew" || name === "ooh") continue;
+    const b = document.createElement("button");
+    b.textContent = name[0].toUpperCase() + name.slice(1);
+    b.classList.toggle("on", name === char.mood);
+    b.addEventListener("click", () => {
+      (char as { mood: string }).mood = name;
+      moods.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    });
+    moods.append(b);
+  }
 }
 
 $<HTMLInputElement>("#auto").addEventListener("change", (e) => {
-  rui.autoLife = (e.target as HTMLInputElement).checked;
+  char.autoLife = (e.target as HTMLInputElement).checked;
 });
 $<HTMLSelectElement>("#sharpness").addEventListener("change", (e) => {
   sharpness = Number((e.target as HTMLSelectElement).value);
@@ -161,8 +245,14 @@ segment("size", (v) => {
   resize();
 });
 segment("look", (v) => setLook(v as Look));
+segment("who", (v) => {
+  if (v !== who) useCharacter(v as Who);
+});
+$<HTMLInputElement>("#calm").addEventListener("change", (e) => {
+  if (char instanceof Dogesh) char.calm = (e.target as HTMLInputElement).checked;
+});
 
-// ── Colour themes: pick one, then Apply plays a change-colour scene ──────────
+// ── Colour themes (Rui): pick one, then Apply plays a change-colour scene ────
 
 const swatches = $("#swatches");
 const applyBtn = $<HTMLButtonElement>("#apply-theme");
@@ -192,8 +282,9 @@ function renderSwatches(): void {
 renderSwatches();
 
 applyBtn.addEventListener("click", () => {
+  if (!(char instanceof Rui)) return;
   const how = $<HTMLSelectElement>("#change-style").value;
-  rui.applyTheme(picked, how === "random" ? undefined : (how as ChangeStyle));
+  char.applyTheme(picked, how === "random" ? undefined : (how as ChangeStyle));
   applyBtn.disabled = true;
 });
 
@@ -205,17 +296,17 @@ const head = new THREE.Vector3();
 
 window.addEventListener("pointermove", (e) => {
   const r = canvas.getBoundingClientRect();
-  rui.headWorld(head).project(camera);
+  char.headWorld(head).project(camera);
   const hx = r.left + ((head.x + 1) / 2) * r.width;
   const hy = r.top + ((1 - head.y) / 2) * r.height;
-  rui.lookAt((e.clientX - hx) / (r.width * 0.5), -(e.clientY - hy) / (r.height * 0.5));
+  char.lookAt((e.clientX - hx) / (r.width * 0.5), -(e.clientY - hy) / (r.height * 0.5));
 });
 
 canvas.addEventListener("click", (e) => {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  if (ray.intersectObject(rui.hitTarget, true).length) rui.tap();
+  if (ray.intersectObject(char.hitTarget, true).length) char.tap();
 });
 
 // ── Loop and cost readout ─────────────────────────────────────────────────────
@@ -230,7 +321,7 @@ let frozen = false;
 
 function draw(): void {
   // The shadow follows him as he walks.
-  const x = rui.root.position.x;
+  const x = char.root.position.x;
   key.position.set(x - 1.4, 5, 3.2);
   key.target.position.set(x, 0.8, 0);
   lookShared.uLight.value.copy(key.position).sub(key.target.position).normalize()
@@ -242,18 +333,21 @@ function draw(): void {
 if (import.meta.env.DEV) {
   Object.assign(window, {
     __rui: {
-      rui,
+      get rui() {
+        return char;
+      },
       setLook,
+      useCharacter,
       /** Where he stands on the canvas, 0..1 across. */
       screenX() {
-        return (rui.root.getWorldPosition(new THREE.Vector3()).project(camera).x + 1) / 2;
+        return (char.root.getWorldPosition(new THREE.Vector3()).project(camera).x + 1) / 2;
       },
       freeze(on = true) {
         frozen = on;
       },
       advance(seconds: number) {
         for (let i = 0; i < Math.round(seconds * 60); i++) {
-          rui.update(1 / 60);
+          char.update(1 / 60);
           frameCamera(1 / 60);
         }
         draw();
@@ -266,11 +360,15 @@ if (import.meta.env.DEV) {
 interface Shot {
   label?: string;
   look?: Look;
-  play?: ActionName;
-  mood?: Expression;
+  /** A behaviour or app cue to play. */
+  play?: string;
+  mood?: string;
   tap?: boolean;
   theme?: ThemeName;
   style?: ChangeStyle;
+  /** Start from a fresh character standing still. */
+  fresh?: boolean;
+  calm?: boolean;
   /** Seconds to run before the picture. */
   t?: number;
   zoom?: number;
@@ -278,10 +376,13 @@ interface Shot {
   cy?: number;
 }
 
-/** Development only: freezes time and lays out exact frames as a contact sheet over the page. */
-function shoot(shots: Shot[], scale = 1): void {
+/**
+ * Development only: freezes time and lays out exact frames as a contact sheet
+ * over the page; returns it as a PNG data URL too.
+ */
+function shoot(shots: Shot[], scale = 1, columns = 4): string {
   frozen = true;
-  const cols = Math.min(4, shots.length);
+  const cols = Math.min(columns, shots.length);
   const W = 240 * scale;
   const H = 270 * scale;
   const out = document.createElement("canvas");
@@ -291,34 +392,44 @@ function shoot(shots: Shot[], scale = 1): void {
   g.fillStyle = "#d8d0c4";
   g.fillRect(0, 0, out.width, out.height);
   shots.forEach((s, i) => {
+    if (s.fresh) {
+      char.retire();
+      char = make(who);
+      resize();
+      setLook(look);
+    }
+    if (s.calm !== undefined && char instanceof Dogesh) char.calm = s.calm;
     if (s.look) setLook(s.look);
-    if (s.mood) rui.mood = s.mood;
-    if (s.play) rui.play(s.play);
-    if (s.tap) rui.tap();
-    if (s.theme) rui.applyTheme(s.theme, s.style);
+    if (s.mood) (char as { mood: string }).mood = s.mood;
+    if (s.play) play(s.play);
+    if (s.tap) char.tap();
+    if (s.theme && char instanceof Rui) char.applyTheme(s.theme, s.style);
     for (let k = 0; k < Math.round((s.t ?? 0) * 60); k++) {
-      rui.update(1 / 60);
+      char.update(1 / 60);
       frameCamera(1 / 60);
     }
     draw();
     const z = s.zoom ?? 1;
-    const w = (canvas.width * 0.42) / z;
+    // The crop keeps the cell's shape, whatever the canvas size.
     const h = (canvas.height * 0.95) / z;
-    const sx = (rui.root.getWorldPosition(new THREE.Vector3()).project(camera).x + 1) / 2;
+    const w = (h * W) / H;
+    const sx = (char.root.getWorldPosition(new THREE.Vector3()).project(camera).x + 1) / 2;
     const x = (i % cols) * W;
     const y = Math.floor(i / cols) * H;
     g.drawImage(canvas, canvas.width * sx - w / 2, canvas.height * (s.cy ?? 0.5) - h / 2, w, h, x, y, W, H);
     g.fillStyle = "#000";
-    g.font = "14px sans-serif";
-    g.fillText(s.label ?? "", x + 6, y + 16);
+    g.font = `${Math.round(14 * scale)}px sans-serif`;
+    g.fillText(s.label ?? "", x + 6, y + 16 * scale);
   });
   document.getElementById("montage")?.remove();
+  const url = out.toDataURL();
   const img = new Image();
-  img.src = out.toDataURL();
+  img.src = url;
   img.id = "montage";
   img.style.cssText = "position:fixed;left:0;top:0;z-index:99;border:2px solid red";
   img.addEventListener("click", () => img.remove());
   document.body.append(img);
+  return url;
 }
 
 function frame(t: number): void {
@@ -329,7 +440,7 @@ function frame(t: number): void {
   if (frozen) return;
 
   const t0 = performance.now();
-  rui.update(dt);
+  char.update(dt);
   frameCamera(dt);
   draw();
   work += performance.now() - t0;
@@ -348,11 +459,13 @@ function frame(t: number): void {
     ];
     if (mem) rows.push(["Page memory", `${(mem.usedJSHeapSize / 1048576).toFixed(0)} MB`]);
     perf.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-    now.textContent = rui.current;
+    now.textContent = char.current;
     if (currentTheme() !== shownTheme) renderSwatches();
     frames = 0;
     work = 0;
     since = t;
   }
 }
+
+useCharacter(who);
 requestAnimationFrame(frame);

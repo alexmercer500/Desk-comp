@@ -17,7 +17,13 @@ export { type Look, type ThemeName, THEMES, THEME_NAMES, themeColors } from "./p
 export type Surface =
   | Part
   | "skin" | "ink" | "mouth" | "inner" | "dough" | "choc" | "sweat"
-  | "wood" | "metal" | "bristle" | "gloss";
+  | "wood" | "metal" | "bristle" | "gloss"
+  /** Dogesh: butter-cream fur, pale muzzle and tummy, caramel ears, cocoa nose, his eyes and face bits. */
+  | "fur" | "furPale" | "dogEar" | "dogEarTip" | "nose" | "sclera" | "pupil" | "brow" | "freckle" | "tongue" | "teeth"
+  /** Knitted wool in teal with lighter stripes (his scarf): stripes run across the geometry's u. */
+  | "knit"
+  /** Magic: see-through ghostly stuff with a glowing rim, and things that glow (both looks alike). */
+  | "ghost" | "glow";
 
 interface Finish {
   rough: number;
@@ -46,7 +52,73 @@ const FINISH: Record<Surface, Finish> = {
   metal: { rough: 0.25, metal: 1, spec: 0.8 },
   bristle: { rough: 0.7, sheen: 0.5 },
   gloss: { rough: 0.15, coat: 1, spec: 0.7 },
+  fur: { rough: 0.55, coat: 0.35, sheen: 0.7 },
+  furPale: { rough: 0.5, coat: 0.3, sheen: 0.5 },
+  dogEar: { rough: 0.5, coat: 0.4, sheen: 0.6 },
+  dogEarTip: { rough: 0.5, coat: 0.4, sheen: 0.6 },
+  nose: { rough: 0.1, coat: 1, spec: 1 },
+  sclera: { rough: 0.22, coat: 0.7, spec: 0.35 },
+  pupil: { rough: 0.06, coat: 1, spec: 1 },
+  brow: { rough: 0.5, coat: 0.3 },
+  freckle: { rough: 0.5 },
+  tongue: { rough: 0.35, coat: 0.6, spec: 0.3 },
+  teeth: { rough: 0.25, coat: 0.6, spec: 0.3 },
+  knit: { rough: 0.92, sheen: 1 },
+  ghost: { rough: 1 },
+  glow: { rough: 1 },
 };
+
+/** Dogesh's scarf: teal wool, and its lighter stripes. */
+const SCARF: Swatch = { color: "#2f8f8a", shade: "#21706b" };
+const SCARF_STRIPE: Swatch = { color: "#7cc3b9", shade: "#5aa59a" };
+/** Where the stripes fall along one repeat of the knit's u (0..1): light from STRIPE[0] to STRIPE[1]. */
+const STRIPE = [0.56, 0.84];
+
+let knitTextures: { map: THREE.Texture; bump: THREE.Texture } | null = null;
+
+/** The stripes (colour), and knitted stitches (a bump map of little Vs), for the toy look. */
+function knitMaps(): { map: THREE.Texture; bump: THREE.Texture } {
+  if (knitTextures) return knitTextures;
+  const stripes = document.createElement("canvas");
+  stripes.width = 64;
+  stripes.height = 4;
+  const g = stripes.getContext("2d")!;
+  g.fillStyle = SCARF.color;
+  g.fillRect(0, 0, 64, 4);
+  g.fillStyle = SCARF_STRIPE.color;
+  g.fillRect(Math.round(STRIPE[0] * 64), 0, Math.round((STRIPE[1] - STRIPE[0]) * 64), 4);
+  const map = new THREE.CanvasTexture(stripes);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+
+  // One stitch per tile: a "V" of two plump loops, lit from the middle of each loop.
+  const st = document.createElement("canvas");
+  st.width = st.height = 32;
+  const b = st.getContext("2d")!;
+  b.fillStyle = "#000";
+  b.fillRect(0, 0, 32, 32);
+  for (const side of [-1, 1]) {
+    const grad = b.createRadialGradient(16 + side * 7, 16, 1, 16 + side * 7, 16, 11);
+    grad.addColorStop(0, "#fff");
+    grad.addColorStop(1, "#000");
+    b.save();
+    b.translate(16 + side * 7, 16);
+    b.rotate(side * 0.5);
+    b.scale(0.55, 1);
+    b.translate(-(16 + side * 7), -16);
+    b.fillStyle = grad;
+    b.beginPath();
+    b.arc(16 + side * 7, 16, 14, 0, Math.PI * 2);
+    b.fill();
+    b.restore();
+  }
+  const bump = new THREE.CanvasTexture(st);
+  bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
+  // u runs along the scarf (rows of stitches), v around it (columns).
+  bump.repeat.set(5, 14);
+  knitTextures = { map, bump };
+  return knitTextures;
+}
 
 const FIXED: Record<Exclude<Surface, Part>, Swatch> = {
   skin: SKIN,
@@ -60,6 +132,21 @@ const FIXED: Record<Exclude<Surface, Part>, Swatch> = {
   metal: { color: "#e2be72", shade: "#b48e48" },
   bristle: { color: "#f3e6cc", shade: "#d3bf99" },
   gloss: { color: "#ffffff", shade: "#d9d9d9" },
+  fur: { color: "#f3dfa8", shade: "#dcc07f" },
+  furPale: { color: "#fff6dc", shade: "#ecdcb4" },
+  dogEar: { color: "#c98a4b", shade: "#a86b33" },
+  dogEarTip: { color: "#8e5a28", shade: "#6c421b" },
+  nose: { color: "#4a2c22", shade: "#2f1a13" },
+  sclera: { color: "#ffffff", shade: "#dfe2ea" },
+  pupil: { color: "#2b1b14", shade: "#2b1b14" },
+  brow: { color: "#6e4226", shade: "#55311a" },
+  freckle: { color: "#b57a45", shade: "#9a6436" },
+  tongue: { color: "#ec8a8f", shade: "#c96870" },
+  teeth: { color: "#ffffff", shade: "#e4ded4" },
+  knit: SCARF,
+  // A ghost's pale middle, and its glowing edge.
+  ghost: { color: "#e6d8ff", shade: "#9257ff" },
+  glow: { color: "#d2a8ff", shade: "#d2a8ff" },
 };
 
 // ── Themes (their colours are in palette.ts) ──────────────────────────────────
@@ -122,6 +209,14 @@ function toy(s: Surface, sw: Swatch, next: Swatch): THREE.Material {
   if (s === "sweat") {
     m.transparent = true;
     m.opacity = 0.8;
+  }
+  if (s === "knit") {
+    const { map, bump } = knitMaps();
+    m.color.set("#ffffff");
+    m.map = map;
+    m.bumpMap = bump;
+    m.bumpScale = 1.6;
+    m.sheenColor.set("#bfeee6");
   }
   if (isPart(s)) {
     // Mix towards the incoming colour wherever the paint has reached.
@@ -196,7 +291,69 @@ void main() {
 }
 `;
 
+// The knit: the same cel shading, in two colours along the stripes.
+const knitVertex = /* glsl */ `
+varying vec3 vN;
+varying vec3 vV;
+varying vec2 vUv;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vV = -mv.xyz;
+  vUv = uv;
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+const knitFragment = /* glsl */ `
+uniform vec3 uColor;
+uniform vec3 uShade;
+uniform vec3 uColor2;
+uniform vec3 uShade2;
+uniform vec2 uStripe;
+uniform vec3 uLight;
+varying vec3 vN;
+varying vec3 vV;
+varying vec2 vUv;
+
+float edge(float x, float at) {
+  float w = fwidth(x) * 1.2;
+  return smoothstep(at - w, at + w, x);
+}
+
+void main() {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(vV);
+  vec3 L = normalize(uLight);
+  float u = fract(vUv.x);
+  float stripe = edge(u, uStripe.x) * (1.0 - edge(u, uStripe.y));
+  vec3 base = mix(uColor, uColor2, stripe);
+  vec3 shade = mix(uShade, uShade2, stripe);
+  float ndl = dot(N, L);
+  vec3 col = mix(shade, base, edge(ndl, 0.05));
+  float fres = 1.0 - max(dot(N, V), 0.0);
+  float rim = edge(fres, 0.7) * smoothstep(-0.2, 0.4, ndl);
+  col = mix(col, base * 1.1 + 0.05, rim * 0.5);
+  gl_FragColor = vec4(col, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
 function anime(s: Surface, sw: Swatch, next: Swatch): THREE.Material {
+  if (s === "knit") {
+    return new THREE.ShaderMaterial({
+      vertexShader: knitVertex,
+      fragmentShader: knitFragment,
+      uniforms: {
+        uColor: { value: new THREE.Color(SCARF.color) },
+        uShade: { value: new THREE.Color(SCARF.shade) },
+        uColor2: { value: new THREE.Color(SCARF_STRIPE.color) },
+        uShade2: { value: new THREE.Color(SCARF_STRIPE.shade) },
+        uStripe: { value: new THREE.Vector2(STRIPE[0], STRIPE[1]) },
+        uLight: lookShared.uLight,
+      },
+    });
+  }
   const opacity = s === "sweat" ? 0.85 : 1;
   const m = new THREE.ShaderMaterial({
     vertexShader: celVertex,
@@ -244,6 +401,103 @@ const outline = new THREE.ShaderMaterial({
     }`,
 });
 
+// ── Magic ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Shared by the magic materials: a clock for the runes' crawling flicker, how
+ * stirred up they are (0 calm … 1 frantic), and how solid ghosts are.
+ */
+export const magicShared = {
+  uTime: { value: 0 },
+  uPulse: { value: 0.5 },
+  uFade: { value: 1 },
+};
+
+const magicVertex = /* glsl */ `
+varying vec3 vN;
+varying vec3 vV;
+varying vec3 vW;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vN = normalize(normalMatrix * normal);
+  vV = -mv.xyz;
+  vW = (modelMatrix * vec4(position, 1.0)).xyz;
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+// See-through in the middle, glowing towards the edges: a soft gradient for
+// the toy look, two crisp bands for anime.
+const ghostFragment = /* glsl */ `
+uniform vec3 uColor;
+uniform vec3 uRim;
+uniform float uCel;
+uniform float uFade;
+varying vec3 vN;
+varying vec3 vV;
+void main() {
+  vec3 N = normalize(vN);
+  vec3 V = normalize(vV);
+  float f = 1.0 - abs(dot(N, V));
+  float w = fwidth(f) * 1.5 + 0.002;
+  float k = mix(pow(f, 1.2), smoothstep(0.5 - w, 0.5 + w, f), uCel);
+  vec3 col = mix(uColor, uRim, k);
+  // A soft sheen from above.
+  col += pow(max(N.y, 0.0), 6.0) * 0.18 * (1.0 - uCel);
+  gl_FragColor = vec4(col, mix(0.5, 0.95, k) * uFade);
+  #include <colorspace_fragment>
+}
+`;
+
+// Light that crawls across the runes in waves, with the odd flicker; at the
+// crest of each wave the violet turns a sickly teal.
+const glowFragment = /* glsl */ `
+uniform vec3 uColor;
+uniform float uTime;
+uniform float uPulse;
+varying vec3 vN;
+varying vec3 vV;
+varying vec3 vW;
+void main() {
+  float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+  float speed = 2.0 + 6.0 * uPulse;
+  float crawl = 0.5 + 0.5 * sin(uTime * speed - vW.x * 6.0 - vW.y * 9.0 + vW.z * 4.0);
+  float tick = floor(uTime * (6.0 + 12.0 * uPulse));
+  float flick = step(0.86 - 0.12 * uPulse, fract(sin(tick * 12.9898 + floor(vW.x * 5.0) * 78.233) * 43758.5453));
+  float lit = 0.45 + 0.75 * crawl * (0.55 + 0.45 * uPulse) - 0.3 * flick;
+  vec3 col = mix(uColor, vec3(0.45, 1.0, 0.82), smoothstep(0.75, 1.0, crawl) * 0.55) * lit;
+  col += f * vec3(0.25, 0.6, 0.5) * 0.4;
+  gl_FragColor = vec4(col, 1.0);
+  #include <colorspace_fragment>
+}
+`;
+
+/**
+ * The ghost and glow materials. A ghost is drawn only where it's nearest
+ * (see `ghostly` in props.ts), so overlapping fingers don't double up.
+ */
+function magic(look: Look, s: "ghost" | "glow", sw: Swatch): THREE.Material {
+  if (s === "glow") {
+    return new THREE.ShaderMaterial({
+      vertexShader: magicVertex,
+      fragmentShader: glowFragment,
+      uniforms: { uColor: { value: new THREE.Color(sw.color) }, uTime: magicShared.uTime, uPulse: magicShared.uPulse },
+    });
+  }
+  return new THREE.ShaderMaterial({
+    vertexShader: magicVertex,
+    fragmentShader: ghostFragment,
+    transparent: true,
+    depthWrite: false,
+    uniforms: {
+      uColor: { value: new THREE.Color(sw.color) },
+      uRim: { value: new THREE.Color(sw.shade) },
+      uCel: { value: look === "anime" ? 1 : 0 },
+      uFade: magicShared.uFade,
+    },
+  });
+}
+
 // ── Tagging and painting ──────────────────────────────────────────────────────
 
 interface TagOptions {
@@ -282,8 +536,11 @@ function material(look: Look, s: Surface, tint?: string): THREE.Material {
   const key = `${look}|${s}|${tint ?? ""}`;
   let m = cache.get(key);
   if (!m) {
-    const make = look === "toy" ? toy : anime;
-    m = make(s, swatch(s, theme, tint), swatch(s, incoming, tint));
+    if (s === "ghost" || s === "glow") m = magic(look, s, swatch(s, theme, tint));
+    else {
+      const make = look === "toy" ? toy : anime;
+      m = make(s, swatch(s, theme, tint), swatch(s, incoming, tint));
+    }
     m.userData.surface = s;
     m.userData.tint = tint;
     cache.set(key, m);

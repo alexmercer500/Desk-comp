@@ -9,8 +9,8 @@
   <body>
     <header class="top">
       <div>
-        <h1>Rui <span class="muted">· 3D prototype</span></h1>
-        <p class="muted small">Click Rui to poke him (or pop his nap bubble). Move the mouse and he watches you.</p>
+        <h1><span id="who-name">Rui</span> <span class="muted">· 3D prototype</span></h1>
+        <p class="muted small" id="who-blurb">Click Rui to poke him (or pop his nap bubble). Move the mouse and he watches you.</p>
       </div>
       <div class="now"><span class="dot"></span><span id="now">idle</span></div>
     </header>
@@ -21,6 +21,10 @@
           <canvas id="view" aria-label="Rui, a small yeti in a hood"></canvas>
         </div>
         <div class="switches">
+          <div class="seg" role="group" aria-label="Character">
+            <button data-who="rui" class="on">Rui</button>
+            <button data-who="dogesh">Dogesh Bhai</button>
+          </div>
           <div class="seg" role="group" aria-label="Background">
             <button data-bg="checker" class="on" title="Shows the see-through background">See-through</button>
             <button data-bg="light">Light</button>
@@ -45,6 +49,11 @@
         </div>
 
         <div class="group">
+          <h2>From the app</h2>
+          <div class="grid" id="cues"></div>
+        </div>
+
+        <div class="group" id="colour-group">
           <h2>Colour</h2>
           <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour theme"></div>
           <div class="apply-row">
@@ -54,6 +63,7 @@
                 <option value="paint">Painting</option>
                 <option value="twirl">Twirl</option>
                 <option value="wardrobe">Wardrobe</option>
+                <option value="trunk">Trunk</option>
               </select>
             </label>
             <button id="apply-theme" class="primary" disabled>Apply</button>
@@ -68,6 +78,7 @@
         <div class="group">
           <h2>Life</h2>
           <label class="check"><input id="auto" type="checkbox" /> Let him do his own thing</label>
+          <label class="check"><input id="calm" type="checkbox" /> Calmer (reduced motion, Dogesh)</label>
         </div>
 
         <div class="group">
@@ -101,6 +112,6 @@
       </aside>
     </main>
 
-    <script type="module" src="/src/three/main.ts"></script>
+    <script type="module" src="/src/three/entry.ts"></script>
   </body>
 </html>

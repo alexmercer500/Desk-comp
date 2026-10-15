@@ -115,7 +115,9 @@ fn differs(a: &Path, b: &Path) -> bool {
 // of hook files, so it gets a file of its own. Command Code gets a mod (a
 // script of ours in its mods folder, integrations/commandcode-mod.ts): its
 // plain hooks can't tell us about interrupted or failed runs, permission
-// prompts or questions.
+// prompts or questions. Its plain hooks go in as well, marked `--via hooks`:
+// Command Code's VS Code chat panel doesn't load mods but does run hooks. Where
+// both run (CLI, desktop app), the app drops the hooks' copies (connections.rs).
 //
 // IDEs: Cursor has its own hooks.json; Antigravity (IDE, 2.0 and CLI) a named
 // group in ~/.gemini/config/hooks.json; VS Code's agent reads Copilot CLI's
@@ -127,7 +129,8 @@ fn differs(a: &Path, b: &Path) -> bool {
 // shell needs the relay's path written its own way (see `relay_cmd`):
 //   Claude Code: Git Bash.  Codex: cmd.  Gemini CLI, VS Code: PowerShell.
 //   Copilot CLI: its `powershell` field (and `bash` elsewhere).
-//   Cursor, Antigravity: not documented, so a form every shell runs (Shell::Any).
+//   Cursor, Antigravity, Command Code: not documented, or cmd /c (which
+//   mangles quotes), so a form every shell runs (Shell::Any).
 
 /// The agents the app can connect, in the order Settings lists them.
 pub const AGENTS: &[(&str, &str)] = &[
@@ -147,6 +150,12 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from)
 }
 
+/// Command Code looks in `HOME` first, then `USERPROFILE` (a `HOME` set for Git
+/// or MSYS moves its folder), so its files go where it will read them.
+fn commandcode_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from).filter(|h| h.is_absolute() && h.is_dir()).or_else(home)
+}
+
 /// The agent's own folder: its being there means the agent is installed.
 fn agent_dir(agent: &str) -> Option<PathBuf> {
     let dir = match agent {
@@ -154,7 +163,7 @@ fn agent_dir(agent: &str) -> Option<PathBuf> {
         "codex" => ".codex",
         "copilot" => ".copilot",
         "gemini" => ".gemini",
-        "commandcode" => ".commandcode",
+        "commandcode" => return commandcode_home().map(|h| h.join(".commandcode")),
         "cursor" => ".cursor",
         "antigravity" => ".gemini/config",
         _ => return None,
@@ -163,11 +172,14 @@ fn agent_dir(agent: &str) -> Option<PathBuf> {
 }
 
 /// The agent is on this PC.
-fn installed(agent: &str) -> bool {
+pub fn is_installed(agent: &str) -> bool {
     let Some(home) = home() else { return false };
     match agent {
-        // The IDE's folder, Antigravity 2.0's, or the CLI's.
-        "antigravity" => [".antigravity", ".gemini/antigravity", ".gemini/antigravity-cli"].iter().any(|d| home.join(d).is_dir()),
+        // The IDE's folder, Antigravity 2.0's, the CLI's, or the app's install folder.
+        "antigravity" => {
+            [".antigravity", ".gemini/antigravity", ".gemini/antigravity-cli"].iter().any(|d| home.join(d).is_dir())
+                || std::env::var_os("LOCALAPPDATA").is_some_and(|l| PathBuf::from(l).join("Programs").join("Antigravity").is_dir())
+        }
         // VS Code counts for the Copilot file too.
         "copilot" => agent_dir(agent).is_some_and(|d| d.is_dir()) || home.join(".vscode").is_dir(),
         _ => agent_dir(agent).is_some_and(|d| d.is_dir()),
@@ -206,8 +218,35 @@ enum Shell {
     /// cmd, or a program started directly (Codex): a double-quoted path.
     Cmd,
     /// Whatever the agent uses: the bare path when nothing in it needs quoting
-    /// (cmd, PowerShell, bash and a direct start all run that), else quoted.
+    /// (cmd, PowerShell, bash and a direct start all run that). A path with a
+    /// space (a user name like "A B") gets Windows' short name for it instead,
+    /// since quotes break under `cmd /c` the way Antigravity runs hooks.
     Any,
+}
+
+/// Nothing in it that any shell would split or read specially.
+fn plain(path: &str) -> bool {
+    path.chars().all(|c| c.is_ascii_alphanumeric() || "/\\:._-~".contains(c))
+}
+
+/// Windows' 8.3 name for an existing path (`C:/Users/ABB~1/...`), with forward
+/// slashes. None when the volume has no short names or the path doesn't exist.
+#[cfg(windows)]
+fn short_path(path: &str) -> Option<String> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetShortPathNameW(long: *const u16, short: *mut u16, len: u32) -> u32;
+    }
+    let wide: Vec<u16> = path.replace('/', "\\").encode_utf16().chain(Some(0)).collect();
+    let mut buf = vec![0u16; 1024];
+    // SAFETY: both buffers are valid and the length given is the output buffer's.
+    let n = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    (n > 0 && n < buf.len()).then(|| String::from_utf16_lossy(&buf[..n]).replace('\\', "/"))
+}
+
+#[cfg(not(windows))]
+fn short_path(_path: &str) -> Option<String> {
+    None
 }
 
 /// The relay followed by `args`, as one command line for `shell`.
@@ -215,8 +254,11 @@ fn relay_cmd(relay: &str, shell: Shell, args: &str) -> String {
     let exe = match shell {
         Shell::Sh | Shell::Cmd => format!("\"{relay}\""),
         Shell::PowerShell => format!("& '{}'", relay.replace('\'', "''")),
-        Shell::Any if relay.chars().all(|c| c.is_ascii_alphanumeric() || "/\\:._-".contains(c)) => relay.to_string(),
-        Shell::Any => format!("\"{relay}\""),
+        Shell::Any if plain(relay) => relay.to_string(),
+        Shell::Any => match short_path(relay).filter(|p| plain(p)) {
+            Some(p) => p,
+            None => format!("\"{relay}\""),
+        },
     };
     if args.is_empty() {
         exe
@@ -316,8 +358,18 @@ fn agent_hooks(agent: &str, relay: &str) -> Vec<(&'static str, Value)> {
             })
             .collect()
         }
-        // A mod, not hooks (see write_agent_hooks).
-        "commandcode" => Vec::new(),
+        "commandcode" => {
+            // Alongside the mod (see write_agent_hooks): Claude Code's shape, every entry
+            // async (status only), marked so the app can drop them where the mod runs.
+            let c = relay_cmd(relay, Shell::Any, "--agent commandcode --via hooks");
+            ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]
+                .iter()
+                .map(|event| {
+                    let hook = json!({ "type": "command", "command": c, "timeout": 10, "async": true });
+                    (*event, group(event.contains("ToolUse").then_some("*"), hook))
+                })
+                .collect()
+        }
         "copilot" => {
             // camelCase events; Copilot doesn't say which event in the payload, so
             // it goes on the command line. It runs `powershell` on Windows, `bash`
@@ -452,18 +504,26 @@ pub struct AgentStatus {
     id: &'static str,
     name: &'static str,
     /// Its folder exists on this PC.
-    installed: bool,
-    connected: bool,
+    pub installed: bool,
+    pub connected: bool,
+    /// When the app last heard from it (ms since 1970), if ever.
+    last_heard: Option<u64>,
 }
 
-pub fn agents_status() -> Vec<AgentStatus> {
+pub fn agents_status(app: &AppHandle) -> Vec<AgentStatus> {
+    let c = app.state::<crate::connections::Connections>();
     AGENTS
         .iter()
         .map(|(id, name)| AgentStatus {
             id,
             name,
-            installed: installed(id),
+            installed: is_installed(id),
             connected: agent_connected(id),
+            // VS Code's agent reports as itself through Copilot's file.
+            last_heard: match *id {
+                "copilot" => c.last_heard("copilot").max(c.last_heard("vscode")),
+                _ => c.last_heard(id),
+            },
         })
         .collect()
 }
@@ -512,9 +572,9 @@ pub fn set_agent(app: &AppHandle, agent: &str, connect: bool) -> Result<String, 
         (true, true) => match agent {
             "codex" => "Connected. Codex asks you to approve the new hook once: run /hooks in Codex and trust it.".into(),
             "gemini" => "Connected. New Gemini CLI sessions will show up here (restart any that are open).".into(),
-            "commandcode" => "Connected. New Command Code sessions will show up here (in open ones, run /reload).".into(),
+            "commandcode" => "Connected: the CLI, the desktop app and the VS Code chat panel. New sessions show up here (in open ones, run /reload; restart the desktop app or VS Code).".into(),
             "cursor" => "Connected. Restart Cursor, then its agent's sessions show up here.".into(),
-            "antigravity" => "Connected. New Antigravity conversations will show up here.".into(),
+            "antigravity" => "Connected. New conversations in the Antigravity app and CLI show up here. The older standalone Antigravity IDE doesn't run hooks yet.".into(),
             "copilot" => "Connected. New Copilot CLI sessions and VS Code agent chats will show up here.".into(),
             _ => format!("Connected. New {name} sessions will show up here."),
         },
@@ -529,8 +589,8 @@ fn write_agent_hooks(agent: &str, relay: Option<&str>) -> Result<bool, String> {
     let ours = relay.map(|r| agent_hooks(agent, r));
 
     if agent == "commandcode" {
-        // Hooks from versions before the mod: out, either way.
-        let old = remove_old_commandcode_hooks()?;
+        // The plain hooks (in its settings.json), then the mod.
+        let hooks = write_commandcode_hooks(ours.as_deref())?;
         let changed = match relay {
             None if path.is_file() => {
                 std::fs::remove_file(&path).map_err(|e| e.to_string())?;
@@ -552,7 +612,7 @@ fn write_agent_hooks(agent: &str, relay: Option<&str>) -> Result<bool, String> {
                 }
             }
         };
-        return Ok(changed || old);
+        return Ok(changed || hooks);
     }
 
     if agent == "copilot" {
@@ -641,20 +701,25 @@ fn set_antigravity_group(settings: &mut Value, relay: Option<&str>) -> Result<()
     Ok(())
 }
 
-/// Takes our plain hooks (from before the mod) out of Command Code's settings.
-fn remove_old_commandcode_hooks() -> Result<bool, String> {
+/// Adds (Some) or takes out (None) our plain hooks in Command Code's settings.json.
+fn write_commandcode_hooks(ours: Option<&[(&str, Value)]>) -> Result<bool, String> {
     let Some(path) = agent_dir("commandcode").map(|d| d.join("settings.json")) else { return Ok(false) };
-    if !path.is_file() {
+    if ours.is_none() && !path.is_file() {
         return Ok(false);
     }
     let mut settings = read_settings(&path)?;
     let before = settings.clone();
-    merge_groups(&mut settings, None);
+    merge_groups(&mut settings, ours);
     if settings == before {
         return Ok(false);
     }
-    let b = path.with_file_name(format!("settings.json.bak-{}", stamp()));
-    std::fs::copy(&path, &b).map_err(|e| format!("Couldn't back up Command Code's settings: {e}"))?;
+    if path.is_file() {
+        let b = path.with_file_name(format!("settings.json.bak-{}", stamp()));
+        std::fs::copy(&path, &b).map_err(|e| format!("Couldn't back up Command Code's settings: {e}"))?;
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let text = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())? + "\n";
     std::fs::write(&path, text).map_err(|e| format!("Couldn't write Command Code's settings: {e}"))?;
     Ok(true)
@@ -709,7 +774,7 @@ mod run_key {
         let (k, v) = (wide(KEY), wide(VALUE));
         let rc = if on {
             let exe = std::env::current_exe()?;
-            let data = wide(&format!("\"{}\"", exe.display()));
+            let data = wide(&format!("\"{}\" {}", exe.display(), super::AUTOSTART_ARG));
             // SAFETY: data is a NUL-terminated UTF-16 string; len is its size in bytes.
             unsafe { RegSetKeyValueW(HKCU, k.as_ptr(), v.as_ptr(), REG_SZ, data.as_ptr().cast(), (data.len() * 2) as u32) }
         } else {
@@ -732,6 +797,18 @@ mod run_key {
 }
 
 pub use run_key::{enabled as autostart_enabled, set as set_autostart};
+
+/// On the command line when Windows starts the app at sign-in: then the Desk
+/// Companion window stays closed (it opens when you start the app yourself).
+pub const AUTOSTART_ARG: &str = "--autostart";
+
+/// Rewrites the sign-in entry in this version's form (older ones lack
+/// AUTOSTART_ARG, and an update can move the exe). Only when it's on.
+pub fn refresh_autostart() {
+    if autostart_enabled() {
+        let _ = set_autostart(true);
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -879,6 +956,39 @@ mod tests {
     }
 
     #[test]
+    fn command_code_also_gets_marked_async_hooks_for_its_vs_code_panel() {
+        let hooks = agent_hooks("commandcode", "C:/x/companion-hook.exe");
+        let events: Vec<&str> = hooks.iter().map(|(e, _)| *e).collect();
+        assert_eq!(events, ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]);
+        for (event, group) in &hooks {
+            let h = &group["hooks"][0];
+            assert_eq!(h["command"], "C:/x/companion-hook.exe --agent commandcode --via hooks");
+            assert_eq!(h["async"], true, "status only: never holds Command Code up");
+            assert_eq!(group.get("matcher").is_some(), event.contains("ToolUse"));
+        }
+        // They merge into its settings.json like Claude Code's, and come out cleanly.
+        let mut s = settings();
+        let before = s.clone();
+        merge_groups(&mut s, Some(&hooks));
+        assert!(s["hooks"]["Stop"].as_array().unwrap().iter().any(is_ours));
+        merge_groups(&mut s, None);
+        assert_eq!(s, before);
+    }
+
+    #[test]
+    fn a_real_path_with_a_space_gets_its_short_name_or_quotes() {
+        let dir = std::env::temp_dir().join(format!("dc test {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("companion-hook.exe");
+        std::fs::write(&exe, b"").unwrap();
+        let path = exe.to_string_lossy().replace('\\', "/");
+        let cmd = relay_cmd(&path, Shell::Any, "x");
+        let _ = std::fs::remove_dir_all(&dir);
+        // Short names can be off on a volume: then it's quoted, as before.
+        assert!(cmd.starts_with('"') || !cmd.trim_end_matches(" x").contains(' '), "{cmd}");
+    }
+
+    #[test]
     fn paths_that_need_quoting_get_them() {
         assert_eq!(relay_cmd("C:/A B/companion-hook.exe", Shell::Any, "x"), "\"C:/A B/companion-hook.exe\" x");
         assert_eq!(relay_cmd("C:/a&b/companion-hook.exe", Shell::Any, ""), "\"C:/a&b/companion-hook.exe\"");
@@ -893,7 +1003,6 @@ mod tests {
 
     #[test]
     fn command_code_gets_the_mod_with_the_relay_written_in() {
-        assert!(agent_hooks("commandcode", "C:/x/companion-hook.exe").is_empty());
         let text = commandcode_mod("C:/Users/A B/companion-hook.exe");
         assert!(text.contains(r#"const RELAY: string = "C:/Users/A B/companion-hook.exe";"#), "the path is a string literal");
         assert!(!text.contains("__DESK_COMPANION_RELAY__\";"), "the slot is filled");

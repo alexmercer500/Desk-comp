@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the agent_connections command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-agent-connections",
+          "markdownDescription": "Enables the agent_connections command without any pre-configured scope."
+        },
+        {
           "description": "Enables the answer_permission command without any pre-configured scope.",
           "type": "string",
           "const": "allow-answer-permission",
@@ -237,6 +243,12 @@
           "markdownDescription": "Enables the check_update command without any pre-configured scope."
         },
         {
+          "description": "Enables the connect_found_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-connect-found-agents",
+          "markdownDescription": "Enables the connect_found_agents command without any pre-configured scope."
+        },
+        {
           "description": "Enables the drag_begin command without any pre-configured scope.",
           "type": "string",
           "const": "allow-drag-begin",
@@ -265,6 +277,12 @@
           "type": "string",
           "const": "allow-get-settings",
           "markdownDescription": "Enables the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the home_show command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-home-show",
+          "markdownDescription": "Enables the home_show command without any pre-configured scope."
         },
         {
           "description": "Enables the hop_by command without any pre-configured scope.",
@@ -369,6 +387,18 @@
           "markdownDescription": "Enables the set_setting command without any pre-configured scope."
         },
         {
+          "description": "Enables the test_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-test-connection",
+          "markdownDescription": "Enables the test_connection command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the agent_connections command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-agent-connections",
+          "markdownDescription": "Denies the agent_connections command without any pre-configured scope."
+        },
+        {
           "description": "Denies the answer_permission command without any pre-configured scope.",
           "type": "string",
           "const": "deny-answer-permission",
@@ -429,6 +459,12 @@
           "markdownDescription": "Denies the check_update command without any pre-configured scope."
         },
         {
+          "description": "Denies the connect_found_agents command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-connect-found-agents",
+          "markdownDescription": "Denies the connect_found_agents command without any pre-configured scope."
+        },
+        {
           "description": "Denies the drag_begin command without any pre-configured scope.",
           "type": "string",
           "const": "deny-drag-begin",
@@ -457,6 +493,12 @@
           "type": "string",
           "const": "deny-get-settings",
           "markdownDescription": "Denies the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the home_show command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-home-show",
+          "markdownDescription": "Denies the home_show command without any pre-configured scope."
         },
         {
           "description": "Denies the hop_by command without any pre-configured scope.",
@@ -559,6 +601,12 @@
           "type": "string",
           "const": "deny-set-setting",
           "markdownDescription": "Denies the set_setting command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the test_connection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-test-connection",
+          "markdownDescription": "Denies the test_connection command without any pre-configured scope."
         },
         {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",

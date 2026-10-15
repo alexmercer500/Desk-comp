@@ -18,6 +18,10 @@
     "allow-assistant-ask",
     "allow-check-update",
     "allow-install-update",
+    "allow-agent-connections",
+    "allow-test-connection",
+    "allow-connect-found-agents",
+    "allow-home-show",
     "allow-phone-status",
     "allow-phone-pairing",
     "allow-phone-pair-again"

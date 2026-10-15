@@ -222,6 +222,9 @@ pub struct AgentEvent {
     /// Input only: a finished turn the relay can hold for a reply (with `rid`).
     #[serde(default, skip_serializing)]
     hold: bool,
+    /// Input only: "hooks" for Command Code's plain hooks, which run next to our mod.
+    #[serde(default, skip_serializing)]
+    via: Option<String>,
 }
 
 #[cfg(windows)]
@@ -274,6 +277,15 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
                 continue;
             }
         };
+        // The relay test (connections.rs): it got here, that's all it needed.
+        if ev.agent == crate::connections::PING_AGENT {
+            crate::connections::pinged(&app);
+            continue;
+        }
+        crate::connections::heard(&app, &ev.agent);
+        if crate::connections::duplicate(&app, &ev.agent, ev.session.as_deref(), ev.via.as_deref() == Some("hooks")) {
+            continue;
+        }
         // A finished turn: say at once whether it's held, before anything slow.
         let mut held = None;
         if ev.hold {

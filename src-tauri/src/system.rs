@@ -44,7 +44,7 @@ pub struct Prefs {
     pub hide_fullscreen: bool,
     /// "small" | "medium" | "large"
     pub size: String,
-    /// "kulhi" | "hexo" | "glim" | "billu" | "rui" (3D)
+    /// "kulhi" | "hexo" | "glim" | "billu" | "rui" (3D) | "dogesh" (3D or 2D, see dogesh_style)
     pub character: String,
     /// "corner" (anywhere on the desktop) | "top" (an island at the top edge)
     pub place: String,
@@ -78,6 +78,12 @@ pub struct Prefs {
     pub phone_relay: bool,
     /// The relay's address (`https://…workers.dev`); "" uses the one built in, if any.
     pub relay_url: String,
+    /// "Not now" on the Activity tab's card that offers to connect the agents found.
+    pub agent_setup_dismissed: bool,
+    /// Every window's colours: "character" (tinted by the character) | "system" | "light" | "dark".
+    pub ui_theme: String,
+    /// Dogesh Bhai in 3D or 2D (DOGESH_STYLES).
+    pub dogesh_style: String,
 }
 
 impl Default for Prefs {
@@ -109,15 +115,21 @@ impl Default for Prefs {
             // On when this copy was built with a relay (it's used only while the phone link is on).
             phone_relay: crate::phone::built_in_relay().is_some(),
             relay_url: String::new(),
+            agent_setup_dismissed: false,
+            ui_theme: "character".into(),
+            dogesh_style: "3d".into(),
         }
     }
 }
 
 pub const SIZES: &[&str] = &["small", "medium", "large"];
-pub const CHARACTERS: &[&str] = &["kulhi", "hexo", "glim", "billu", "rui"];
+pub const CHARACTERS: &[&str] = &["kulhi", "hexo", "glim", "billu", "rui", "dogesh"];
+/// How Dogesh Bhai is drawn: "3d" (like Rui, in Rui's look) or "2d" (like the others).
+pub const DOGESH_STYLES: &[&str] = &["3d", "2d"];
 pub const PLACES: &[&str] = &["corner", "top"];
 pub const RUI_LOOKS: &[&str] = &["toy", "anime"];
 pub const RUI_THEMES: &[&str] = &["cream", "mint", "sky", "lavender", "peach", "panda"];
+pub const UI_THEMES: &[&str] = &["character", "system", "light", "dark"];
 /// Break reminder interval limits, minutes.
 const BREAK_MINUTES: (u32, u32) = (15, 180);
 
@@ -135,6 +147,12 @@ impl Prefs {
         }
         if !RUI_LOOKS.contains(&self.rui_look.as_str()) {
             return Err(format!("unknown look {:?}", self.rui_look));
+        }
+        if !DOGESH_STYLES.contains(&self.dogesh_style.as_str()) {
+            return Err(format!("unknown style {:?}", self.dogesh_style));
+        }
+        if !UI_THEMES.contains(&self.ui_theme.as_str()) {
+            return Err(format!("unknown theme {:?}", self.ui_theme));
         }
         if !RUI_THEMES.contains(&self.rui_theme.as_str()) {
             return Err(format!("unknown colour {:?}", self.rui_theme));
@@ -258,6 +276,8 @@ pub struct Settings {
     prefs: Prefs,
     claude_connected: bool,
     agents: Vec<crate::setup::AgentStatus>,
+    /// The last relay test (connections.rs), if one ran.
+    relay_test: Option<crate::connections::RelayTest>,
     autostart: bool,
     version: String,
     /// The relay built into this copy, if any (used when `relayUrl` is empty).
@@ -269,7 +289,8 @@ pub async fn get_settings(app: AppHandle) -> Result<Settings, String> {
     Ok(Settings {
         prefs: current(&app),
         claude_connected: crate::setup::claude_connected(),
-        agents: crate::setup::agents_status(),
+        agents: crate::setup::agents_status(&app),
+        relay_test: app.state::<crate::connections::Connections>().last_test(),
         autostart: crate::setup::autostart_enabled(),
         version: app.package_info().version.to_string(),
         built_in_relay: crate::phone::built_in_relay(),
@@ -718,6 +739,9 @@ mod tests {
         assert!(!next.notify_done);
         assert_eq!(next.with("breakMinutes", &json!(30)).unwrap().break_minutes, 30);
         assert_eq!(p.with("character", &json!("billu")).unwrap().character, "billu");
+        assert_eq!(p.with("character", &json!("dogesh")).unwrap().character, "dogesh");
+        assert_eq!(p.with("dogeshStyle", &json!("2d")).unwrap().dogesh_style, "2d");
+        assert!(p.with("dogeshStyle", &json!("4d")).is_err());
         assert_eq!(p.with("character", &json!("rui")).unwrap().character, "rui");
         assert_eq!(p.with("quietUntil", &json!(-1)).unwrap().quiet_until, -1);
         assert_eq!(p.with("ruiLook", &json!("anime")).unwrap().rui_look, "anime");

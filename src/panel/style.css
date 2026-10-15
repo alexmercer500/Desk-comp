@@ -17,26 +17,7 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface: #241d1a;
-    --raised: #2e2521;
-    --text: #f4ece6;
-    --muted: #c2b2a7;
-    --faint: #9a8b81;
-    --border: rgba(244, 239, 230, 0.15);
-    --code: rgba(244, 239, 230, 0.07);
-    --attention: #ec8a5f;
-    --attention-bg: rgba(236, 138, 95, 0.12);
-    --working: #9cbde0;
-    --success: #7cc796;
-    --error: #ef8a72;
-    --allow: #7cc796;
-    --allow-hover: #8fd4a7;
-    --allow-text: #13261a;
-    color-scheme: dark;
-  }
-}
+/* Dark, and the other themes: src/theme.ts sets these on <html>. */
 
 * { box-sizing: border-box; }
 /* `hidden` must win over any display rule (.chat, .view … are flex). */
@@ -99,7 +80,7 @@ body:not(.open) .panel { visibility: hidden; }
   line-height: 17px;
   text-align: center;
 }
-@media (prefers-color-scheme: dark) { .count:not(:empty) { color: #1c1410; } }
+[data-scheme="dark"] .count:not(:empty) { color: #1c1410; }
 
 .view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .view[hidden] { display: none; }
@@ -354,26 +335,12 @@ pre {
 .tab-icon { display: none; flex: none; }
 
 /* ── Top mode: the island grown big ────────────────────────────────────── */
-/* Flush with the top edge of the screen, always dark like a notch, as tall
-   as its content (the window follows it: panel_fit). */
+/* Flush with the top edge of the screen, as tall as its content (the window
+   follows it: panel_fit), in the chosen theme's island colour. */
 
 body[data-place="top"] {
-  --surface: #0b0908;
-  --raised: #1a1513;
-  --text: #f4ece6;
-  --muted: #bcada2;
-  --faint: #8f8077;
-  --border: rgba(255, 244, 235, 0.08);
-  --code: rgba(255, 244, 235, 0.07);
-  --attention: #ec8a5f;
-  --attention-bg: rgba(236, 138, 95, 0.12);
-  --working: #9cbde0;
-  --success: #7cc796;
-  --error: #ef8a72;
-  --allow: #7cc796;
-  --allow-hover: #8fd4a7;
-  --allow-text: #13261a;
-  color-scheme: dark;
+  --surface: var(--island, #fffdf9);
+  --raised: var(--island-card, #f6efe8);
   height: auto;
 }
 body[data-place="top"] .panel {
@@ -390,7 +357,6 @@ body[data-place="top"] .tab-label {
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 }
 body[data-place="top"] #tab-activity { order: -1; }
-body[data-place="top"] .count:not(:empty) { color: #1c1410; }
 body[data-place="top"] .view { flex: none; }
 body[data-place="top"] .list { flex: none; max-height: 540px; padding: 8px 14px 16px; }
 body[data-place="top"] .foot { display: none; }
@@ -416,7 +382,7 @@ body[data-place="top"] .composer textarea { border-radius: 14px; }
   text-align: left;
   transition: border-color 0.2s;
 }
-.tile:hover { border-color: rgba(255, 244, 235, 0.18); }
+.tile:hover { border-color: color-mix(in srgb, var(--text) 22%, transparent); }
 .tile:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
 .tile.focus { border-color: var(--attention); }
 /* A tile that needs an answer takes the whole row, buttons and all. */
@@ -572,6 +538,34 @@ label.set-text { cursor: pointer; }
 /* A long update error wraps under its title instead of running over it. */
 .set-update-status { overflow-wrap: anywhere; }
 .set-update-status:empty { display: none; }
+/* The update button while it works: fills with the accent colour as the download goes
+   (--progress 0–1); a light sweeps across while there's no figure yet. */
+.set-button.set-progress:disabled {
+  position: relative;
+  overflow: hidden;
+  opacity: 1;
+  min-width: 132px;
+  border-color: color-mix(in srgb, var(--attention) 45%, var(--border));
+  background:
+    linear-gradient(var(--attention-bg), var(--attention-bg)) no-repeat,
+    linear-gradient(color-mix(in srgb, var(--attention) 32%, transparent), color-mix(in srgb, var(--attention) 32%, transparent)) no-repeat;
+  background-size: 100% 100%, calc(var(--progress, 0) * 100%) 100%;
+  transition: background-size 0.3s ease-out;
+  font-variant-numeric: tabular-nums;
+}
+.set-button.set-progress-busy:disabled::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--attention) 30%, transparent), transparent);
+  animation: set-sweep 1.2s ease-in-out infinite;
+}
+@keyframes set-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) {
+  .set-button.set-progress-busy:disabled::after { animation: none; opacity: 0.6; transform: none; width: 100%; }
+  .set-button.set-progress:disabled { transition: none; }
+}
 
 /* The relay's address: a full-width field under its title. */
 .set-relay-address { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px; }
@@ -665,3 +659,88 @@ label.set-text { cursor: pointer; }
   .rui-avatar { animation: none !important; }
   .swatch:hover .chip { transform: none; }
 }
+
+/* ── Connections: badges, setup card (Activity), status lines (Settings) ── */
+
+.links { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 2px; }
+.list.tiles .links, .list.tiles .setup-card { grid-column: 1 / -1; }
+.link-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.link-badge:hover { background: var(--code); color: var(--text); }
+.link-badge:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
+.link-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+/* live: heard from lately · heard: some time ago · quiet: never yet (hollow) · blocked: can't reach */
+.link-badge[data-state="live"] .link-dot { background: var(--allow); box-shadow: 0 0 0 2px color-mix(in srgb, var(--allow) 22%, transparent); }
+.link-badge[data-state="heard"] .link-dot { background: color-mix(in srgb, var(--allow) 55%, var(--muted)); }
+.link-badge[data-state="quiet"] .link-dot { background: transparent; border: 1.5px solid var(--muted); width: 5px; height: 5px; }
+.link-badge[data-state="blocked"] { color: var(--error); border-color: color-mix(in srgb, var(--error) 40%, var(--border)); }
+.link-badge[data-state="blocked"] .link-dot { background: var(--error); }
+.links-warn {
+  flex-basis: 100%;
+  margin: 0 0 2px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--error) 9%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.links-warn b { color: var(--error); font-weight: 650; }
+
+.setup-card {
+  border: 1px solid color-mix(in srgb, var(--attention) 30%, var(--border));
+  border-radius: 12px;
+  background: var(--attention-bg);
+  padding: 11px 12px 12px;
+}
+.setup-card strong { display: block; font-weight: 650; margin-bottom: 3px; }
+.setup-card p { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.setup-card p.setup-problem { color: var(--text); }
+.setup-actions { display: flex; gap: 6px; margin-top: 10px; }
+.setup-actions .act:disabled { opacity: 0.6; cursor: default; }
+
+.set-link::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--muted);
+}
+.set-link[data-state="live"]::before, .set-link[data-state="heard"]::before { background: var(--allow); }
+.set-link[data-state="quiet"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.set-link[data-state="blocked"] { color: var(--error); }
+.set-link[data-state="blocked"]::before { background: var(--error); }
+.set-link[data-state="missing"]::before { display: none; }
+
+/* Settings tab: the way to the Desk Companion window, under the rows. */
+.open-home {
+  flex: none;
+  margin: 0;
+  padding: 10px 16px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--attention);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.open-home:hover { background: var(--code); }
+.open-home:focus-visible { outline: 2px solid var(--attention); outline-offset: -2px; }

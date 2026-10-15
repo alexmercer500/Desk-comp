@@ -1,7 +1,8 @@
-// Rui in the desktop app. The character controller (src/engine/controller.ts)
-// still decides what state the character is in, exactly as for the 2D
-// characters; this stage draws Rui into his own canvas and turns each state
-// (and a few app events) into one of his behaviours.
+// The 3D characters in the desktop app: Rui (the yeti) or Dogesh Bhai (the
+// pup). The character controller (src/engine/controller.ts) still decides what
+// state the character is in, exactly as for the 2D characters; this stage
+// draws him into his own canvas and turns each state (and a few app events)
+// into one of his behaviours. Both answer to the same cues.
 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -10,6 +11,10 @@ import { Look, ThemeName, currentTheme, lookShared, setTheme } from "./looks";
 import { prewarm } from "./props";
 import { SpeedWatch } from "./speed";
 import { CHANGE_STYLES, Cue, Rui } from "./rui";
+import { Dogesh } from "./dogesh";
+
+/** Which 3D character the stage shows. */
+export type Who = "rui" | "dogesh";
 
 /** Full figure in the desktop corner, or head and shoulders in the top-edge island. */
 export type Framing = "corner" | "island";
@@ -19,7 +24,7 @@ const CAMERA: Record<Framing, { y: number; z: number; look: number; bounds: numb
   island: { y: 1.62, z: 3.3, look: 1.5, bounds: 0 },
 };
 /**
- * Pulled back for a scene that needs room (the wardrobe and mirror), only when
+ * Pulled back for a scene that needs room (the wardrobe and mirror, the trunk), only when
  * the window has no room round his square to spill into.
  */
 const WIDE = { y: 1.75, z: 9.8, look: 1.3 };
@@ -35,7 +40,9 @@ const ROAM = 1.1;
 /** Further from the middle than this, he's outside his square: the canvas grows to the whole window. */
 const HOME_X = 0.36;
 /** Behaviours that move him about (or bring props in) and so may need the room. */
-const ROAMING: ReadonlySet<string> = new Set(["stroll", "walk", "wardrobe", "hop"]);
+const ROAMING: ReadonlySet<string> = new Set(["stroll", "walk", "wardrobe", "trunk", "hop"]);
+/** Dogesh's head sits a little lower than Rui's: the island's head-and-shoulders shot follows it down. */
+const HEAD_DROP: Record<Who, number> = { rui: 0, dogesh: 0.1 };
 /** How long after he appears to build the change-colour props, so the first change doesn't stutter. */
 const PREWARM_AFTER_MS = 4000;
 
@@ -44,7 +51,7 @@ const LASTING: ReadonlySet<string> = new Set(["work", "ponder", "shrug", "droop"
 /** Quick moves get every frame; slow, still ones get fewer. */
 const QUICK: ReadonlySet<string> = new Set([
   "hooray", "spin", "hop", "dizzy", "poke", "held", "land", "nod", "boot", "wave", "twirl", "paint", "wardrobe",
-  "exercise", "call", "stand", "sit",
+  "trunk", "exercise", "call", "stand", "sit", "spook",
 ]);
 const STILL: ReadonlySet<string> = new Set(["nap", "doze", "rest", "seated"]);
 /** After this long in the same lasting behaviour (working, pondering...), he's drawn as rarely as when dozing. */
@@ -75,7 +82,8 @@ export function cueFor(state: StateName, variant: Variant): Cue | null {
 }
 
 export class RuiStage {
-  readonly rui: Rui;
+  /** The character on this stage. */
+  readonly actor: Rui | Dogesh;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(28, 1, 0.1, 50);
@@ -87,6 +95,9 @@ export class RuiStage {
   private state: StateName = "OFF";
   /** 0 normal framing … 1 pulled back for a scene that needs room. */
   private wideNow = 0;
+  /** Where Dogesh's head is (eased), for the island's shot of him. */
+  private headY = 1.45;
+  private headAt = new THREE.Vector3();
   /** A colour change is under way: "starting" until the scene shows, then "scene". */
   private changing: "starting" | "scene" | null = null;
   private warmed = false;
@@ -116,7 +127,11 @@ export class RuiStage {
   private last = 0;
   private resizer: ResizeObserver;
 
-  constructor(private canvas: HTMLCanvasElement, framing: Framing) {
+  /**
+   * `who`: Rui (the default) or Dogesh Bhai. Dogesh has no colour themes:
+   * `setTheme` and `changeTheme` do nothing for him.
+   */
+  constructor(private canvas: HTMLCanvasElement, framing: Framing, readonly who: Who = "rui") {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "low-power" });
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -128,8 +143,8 @@ export class RuiStage {
     this.back.position.set(2.5, 3, -4);
     this.scene.add(this.key, this.key.target, this.back);
 
-    this.rui = new Rui(this.scene);
-    this.rui.naps = false; // the app decides when he sleeps
+    this.actor = who === "dogesh" ? new Dogesh(this.scene) : new Rui(this.scene);
+    this.actor.naps = false; // the app decides when he sleeps
     this.framing = framing;
     this.setFraming(framing);
 
@@ -144,9 +159,9 @@ export class RuiStage {
     this.framing = framing;
     this.layout();
     this.frameCamera();
-    const b = this.rui.bounds;
-    this.rui.root.position.x = Math.max(-b, Math.min(b, this.rui.root.position.x));
-    this.rui.autoLife = this.lively();
+    const b = this.actor.bounds;
+    this.actor.root.position.x = Math.max(-b, Math.min(b, this.actor.root.position.x));
+    this.actor.autoLife = this.lively();
   }
 
   /** The window has (or no longer has) see-through room round his square. */
@@ -163,28 +178,34 @@ export class RuiStage {
   setLook(look: Look): void {
     if (look === this.look) return;
     this.look = look;
-    this.rui.setLook(look);
+    this.actor.setLook(look);
     this.scene.environment = look === "toy" ? this.studio : null;
     this.back.visible = look === "toy";
   }
 
-  /** Puts a colour on at once (on start-up, with no scene). */
+  /** The character on this stage (kept for older callers; see `actor`). */
+  get rui(): Rui | Dogesh {
+    return this.actor;
+  }
+
+  /** Puts a colour on at once (on start-up, with no scene). Rui only. */
   setTheme(name: ThemeName): void {
-    setTheme(name);
+    if (this.actor instanceof Rui) setTheme(name);
   }
 
   /**
    * A new colour chosen in Settings or the tray: he changes into it with one
-   * of the three scenes, picked at random. At the top edge there's only room
+   * of the four scenes, picked at random. At the top edge there's only room
    * for a twirl; with reduced motion it just changes.
    */
   changeTheme(name: ThemeName): void {
+    if (!(this.actor instanceof Rui)) return;
     if (name === currentTheme() && !this.changing) return;
     if (this.reduced || this.hidden) {
       setTheme(name);
       return;
     }
-    this.rui.applyTheme(name, this.framing === "island" ? "twirl" : undefined);
+    this.actor.applyTheme(name, this.framing === "island" ? "twirl" : undefined);
     this.changing = "starting";
   }
 
@@ -195,7 +216,8 @@ export class RuiStage {
 
   setReducedMotion(on: boolean): void {
     this.reduced = on;
-    this.rui.autoLife = this.lively();
+    if (this.actor instanceof Dogesh) this.actor.calm = on;
+    this.actor.autoLife = this.lively();
   }
 
   // ── Driven by the app ───────────────────────────────────────────────────────
@@ -205,28 +227,28 @@ export class RuiStage {
     this.state = state;
     // A new state takes over from a colour change still running (the colour is put on regardless).
     this.changing = null;
-    this.rui.mood = state === "ATTENTIVE" ? "happy" : "neutral";
-    this.rui.autoLife = this.lively();
+    this.actor.mood = state === "ATTENTIVE" ? "happy" : "neutral";
+    this.actor.autoLife = this.lively();
     let cue = cueFor(state, variant);
     if (cue && this.reduced) cue = CALMER[cue] ?? cue;
     if (cue) {
-      this.rui.play(cue);
+      this.actor.play(cue);
       return;
     }
     if (state === "TOUCHED") {
-      this.rui.play("poke");
+      this.actor.play("poke");
       return;
     }
     // Back to rest: stop whatever lasting thing he was doing (a scene he's in
     // the middle of, like eating or a twirl, finishes by itself).
-    if (LASTING.has(this.rui.current)) this.rui.play("stand");
+    if (LASTING.has(this.actor.current)) this.actor.play("stand");
   }
 
   /** One-shot extras the app plays over any state. */
   overlay(name: string): void {
     if (this.reduced) return;
-    if (name === "wiggle") this.rui.wiggle();
-    else if (name === "hopLeft" || name === "hopRight") this.rui.play(name);
+    if (name === "wiggle") this.actor.wiggle();
+    else if (name === "hopLeft" || name === "hopRight") this.actor.play(name);
   }
 
   /** A notification just went up: some get a reaction of their own. */
@@ -234,16 +256,16 @@ export class RuiStage {
     if (this.reduced || this.framing !== "corner") return;
     switch (category) {
       case "break":
-        this.rui.play("exercise"); // a stretch break, together
+        this.actor.play("exercise"); // a stretch break, together
         break;
       case "battery":
-        this.rui.play("sit"); // running low, and so is he
+        this.actor.play("sit"); // running low, and so is he
         break;
       case "download":
-        this.rui.play("eat"); // a treat for a finished download
+        this.actor.play("eat"); // a treat for a finished download
         break;
       case "welcome":
-        this.rui.play("wave");
+        this.actor.play("wave");
         break;
     }
   }
@@ -252,14 +274,14 @@ export class RuiStage {
   lookAt(x: number, y: number): void {
     const r = this.canvas.getBoundingClientRect();
     if (!r.width) return;
-    const head = this.rui.headWorld().project(this.camera);
+    const head = this.actor.headWorld().project(this.camera);
     const hx = r.left + ((head.x + 1) / 2) * r.width;
     const hy = r.top + ((1 - head.y) / 2) * r.height;
-    this.rui.lookAt((x - hx) / 260, -(y - hy) / 260);
+    this.actor.lookAt((x - hx) / 260, -(y - hy) / 260);
   }
 
   setCarry(vx: number, vy: number): void {
-    this.rui.setCarry(vx, vy);
+    this.actor.setCarry(vx, vy);
   }
 
   /**
@@ -267,7 +289,17 @@ export class RuiStage {
    * window without room). Out on a stroll it may reach past 0..1.
    */
   hitRect(): { x0: number; y0: number; x1: number; y1: number } {
-    const box = new THREE.Box3().setFromObject(this.rui.hitTarget);
+    // Only what's showing counts (props and face bits waiting hidden don't).
+    const box = new THREE.Box3();
+    const part = new THREE.Box3();
+    const target = this.actor.hitTarget;
+    target.updateWorldMatrix(true, true);
+    target.traverseVisible((o) => {
+      if (!(o instanceof THREE.Mesh) || o.userData.outline) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      box.union(part.copy(o.geometry.boundingBox!).applyMatrix4(o.matrixWorld));
+    });
+    if (box.isEmpty()) return { x0: 0, y0: 0, x1: 1, y1: 1 };
     const p = new THREE.Vector3();
     const r = this.canvas.getBoundingClientRect();
     const size = this.sq.size || r.width || 1;
@@ -308,7 +340,7 @@ export class RuiStage {
       const dt = (now - this.last) / 1000;
       this.last = now;
       const t0 = performance.now();
-      this.rui.update(dt);
+      this.actor.update(dt);
       this.afterChange();
       this.useRoom();
       this.frameCamera(dt);
@@ -317,6 +349,22 @@ export class RuiStage {
       if (this.speed.frame(now, fps, dt, performance.now() - t0)) this.onSlow?.();
     };
     this.raf = requestAnimationFrame(frame);
+  }
+
+  /**
+   * Development and pictures only: runs `seconds` of him at 60 steps a second
+   * right now (whether or not he's started), then draws once.
+   */
+  advance(seconds: number): void {
+    const steps = Math.round(seconds * 60);
+    for (let i = 0; i < steps; i++) {
+      this.actor.update(1 / 60);
+      this.afterChange();
+      this.useRoom();
+      this.frameCamera(1 / 60);
+      this.trackStill(1 / 60);
+    }
+    this.draw();
   }
 
   stop(): void {
@@ -341,7 +389,7 @@ export class RuiStage {
   /** After a colour-change scene, back to what the state asks for (an agent still working: the tablet again). */
   private afterChange(): void {
     if (!this.changing) return;
-    const now = this.rui.current;
+    const now = this.actor.current;
     const inScene = (CHANGE_STYLES as string[]).includes(now);
     if (this.changing === "starting") {
       if (inScene) this.changing = "scene";
@@ -350,13 +398,21 @@ export class RuiStage {
     if (inScene) return;
     this.changing = null;
     const cue = cueFor(this.state, null);
-    if (cue && LASTING.has(cue)) this.rui.play(cue);
+    if (cue && LASTING.has(cue)) this.actor.play(cue);
   }
 
   /** Eases the camera out while a scene needs room the window doesn't have, and back in after. */
   private frameCamera(dt = 1): void {
-    const c = CAMERA[this.framing];
-    const want = this.framing === "corner" && !this.hasRoom() ? this.rui.wide : 0;
+    const base = CAMERA[this.framing];
+    const drop = this.framing === "island" ? HEAD_DROP[this.who] : 0;
+    let c = { ...base, y: base.y - drop, look: base.look - drop };
+    if (this.framing === "island" && this.who === "dogesh") {
+      // His head drops a long way when he sits or lies down (long legs): the head-and-shoulders shot follows it.
+      const hy = this.actor.headWorld(this.headAt).y;
+      this.headY += (hy - this.headY) * (1 - Math.exp(-dt * 5));
+      c = { ...base, y: this.headY + 0.14, look: this.headY - 0.02 };
+    }
+    const want = this.framing === "corner" && !this.hasRoom() ? this.actor.wide : 0;
     this.wideNow += (want - this.wideNow) * (1 - Math.exp(-dt * 3));
     if (Math.abs(this.wideNow - want) < 0.001) this.wideNow = want;
     const k = this.wideNow * this.wideNow * (3 - 2 * this.wideNow);
@@ -364,18 +420,19 @@ export class RuiStage {
     this.camera.lookAt(0, c.look + (WIDE.look - c.look) * k, 0);
   }
 
-  /** Builds and compiles the wardrobe, mirror and paint things once, in both looks. */
+  /** Builds and compiles the wardrobe, mirror, trunk and paint things once, in both looks. */
   private async warmUp(): Promise<void> {
     if (this.warmed) return;
-    // It borrows the scene's wardrobe and mirror: not while he's using them, or while nobody can see.
-    if (!this.running || this.changing || this.hidden || (CHANGE_STYLES as string[]).includes(this.rui.current)) {
+    // It borrows the scene's wardrobe, mirror and trunk: not while he's using them, or while nobody can see.
+    if (!this.running || this.changing || this.hidden || (CHANGE_STYLES as string[]).includes(this.actor.current)) {
       this.warmTimer = window.setTimeout(() => void this.warmUp(), PREWARM_AFTER_MS);
       return;
     }
     this.warmed = true;
     this.warming = true;
     try {
-      await prewarm(this.renderer, this.camera, this.scene);
+      if (this.actor instanceof Dogesh) await this.actor.prewarm(this.renderer, this.camera, this.scene);
+      else await prewarm(this.renderer, this.camera, this.scene);
     } finally {
       this.warming = false;
     }
@@ -394,14 +451,14 @@ export class RuiStage {
    * lasting, like working), 30 otherwise. On battery: 30, 10 and 20.
    */
   private fps(): number {
-    const now = this.rui.current;
+    const now = this.actor.current;
     if (STILL.has(now) || this.stillFor > LONG_STILL_S) return this.saving ? 10 : 15;
     if (QUICK.has(now)) return this.saving ? 30 : 60;
     return this.saving ? 20 : 30;
   }
 
   private trackStill(dt: number): void {
-    const now = this.rui.current;
+    const now = this.actor.current;
     if (now === this.stillIn && LASTING.has(now)) this.stillFor += dt;
     else {
       this.stillIn = now;
@@ -424,14 +481,14 @@ export class RuiStage {
    */
   private useRoom(): void {
     if (!this.hasRoom()) return;
-    const x = Math.abs(this.rui.root.position.x);
-    const now = this.rui.current;
-    const want = this.rui.wide > 0 || ROAMING.has(now) || x > HOME_X;
+    const x = Math.abs(this.actor.root.position.x);
+    const now = this.actor.current;
+    const want = this.actor.wide > 0 || ROAMING.has(now) || x > HOME_X;
     if (want !== this.expanded) {
       this.expanded = want;
       this.layout();
     }
-    if (x > HOME_X && now === "idle" && this.state === "IDLE" && !this.changing) this.rui.walkHome();
+    if (x > HOME_X && now === "idle" && this.state === "IDLE" && !this.changing) this.actor.walkHome();
   }
 
   /** Sizes the canvas and camera to the window: his square alone, or the whole window round it. */
@@ -440,7 +497,7 @@ export class RuiStage {
     let w: number;
     let h: number;
     const room = this.hasRoom() ? this.room! : null;
-    this.rui.bounds = room ? ROAM : CAMERA[this.framing].bounds;
+    this.actor.bounds = room ? ROAM : CAMERA[this.framing].bounds;
     if (!room) {
       // Wherever the page's CSS puts it (the whole corner window, or the island's 40 px).
       this.expanded = false;
@@ -481,7 +538,7 @@ export class RuiStage {
   }
 
   private draw(): void {
-    const x = this.rui.root.position.x;
+    const x = this.actor.root.position.x;
     this.key.position.set(x - 1.4, 5, 3.2);
     this.key.target.position.set(x, 0.8, 0);
     lookShared.uLight.value.copy(this.key.position).sub(this.key.target.position).normalize()

@@ -15,6 +15,7 @@ export default defineConfig({
         companion: resolve(import.meta.dirname, "companion.html"),
         bubble: resolve(import.meta.dirname, "bubble.html"),
         panel: resolve(import.meta.dirname, "panel.html"),
+        app: resolve(import.meta.dirname, "app.html"),
       },
     },
   },

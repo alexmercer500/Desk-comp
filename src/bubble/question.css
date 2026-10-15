@@ -41,7 +41,7 @@
   border: 0;
   border-radius: 10px;
   background: var(--attention);
-  color: #1c1410;
+  color: var(--surface);
   font: inherit;
   font-size: 12px;
   font-weight: 650;

@@ -32,6 +32,9 @@ pub const BUBBLE_LABEL: &str = "bubble";
 /// The activity panel: sessions, what they did, what they're asking.
 pub const PANEL_LABEL: &str = "panel";
 
+/// The Desk Companion window: a normal window with every page (app.html).
+pub const HOME_LABEL: &str = "home";
+
 /// Bubble window size, logical px. The card inside is usually smaller; the
 /// rest is transparent and click-through.
 const BUBBLE_W: f64 = 340.0;
@@ -1009,4 +1012,39 @@ pub async fn hop_by(app: AppHandle, dx: f64, ms: f64) -> Result<f64, String> {
     }
     start_tween(&app, pos, (x, pos.1), ms, Ease::InOutSine);
     Ok(moved / scale)
+}
+
+// ── The Desk Companion window ────────────────────────────────────────────────
+
+/// Opens the Desk Companion window (made on first use, brought to the front
+/// after), on `page` if given ("home", "coding-agents", "system"…).
+pub fn open_home(app: &AppHandle, page: Option<&str>) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(HOME_LABEL) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        if let Some(p) = page {
+            let _ = app.emit_to(HOME_LABEL, "home:page", p);
+        }
+        return Ok(());
+    }
+    let url = match page {
+        Some(p) if p.chars().all(|c| c.is_ascii_lowercase() || c == '-') => format!("app.html#{p}"),
+        _ => "app.html".into(),
+    };
+    WebviewWindowBuilder::new(app, HOME_LABEL, WebviewUrl::App(url.into()))
+        .title("Desk Companion")
+        .inner_size(940.0, 660.0)
+        .min_inner_size(720.0, 520.0)
+        .center()
+        .focused(true)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// From the panel: "Open the Desk Companion window".
+#[tauri::command]
+pub async fn home_show(app: AppHandle, page: Option<String>) -> Result<(), String> {
+    open_home(&app, page.as_deref())
 }

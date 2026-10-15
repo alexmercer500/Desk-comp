@@ -13,11 +13,18 @@ const hero = $<HTMLCanvasElement>("#hero");
 const c = new CharacterController(SKINS, "kulhi", FAST);
 
 const picker = $<HTMLSelectElement>("#character");
-picker.addEventListener("change", () => {
+const pick = () => {
   if (!isCharacter(picker.value)) return;
   c.setCharacter(picker.value);
   $("#char-name").textContent = CHARACTER_NAMES[picker.value];
-});
+};
+picker.addEventListener("change", pick);
+// ?character=dogesh opens straight on that character.
+const asked = new URLSearchParams(location.search).get("character");
+if (asked && isCharacter(asked)) {
+  picker.value = asked;
+  pick();
+}
 c.engine.addView(hero);
 document.querySelectorAll<HTMLCanvasElement>(".previews canvas").forEach((cv) => c.engine.addView(cv));
 c.engine.start();

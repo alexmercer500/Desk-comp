@@ -14,23 +14,7 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --card: #2a221e;
-    --text: #f4ece6;
-    --muted: #c2b2a7;
-    --border: rgba(244, 239, 230, 0.16);
-    --attention: #ec8a5f;
-    --success: #7cc796;
-    --error: #ef8a72;
-    --info: #9cbde0;
-    --code: rgba(244, 239, 230, 0.07);
-    --allow: #7cc796;
-    --allow-hover: #8fd4a7;
-    --allow-text: #13261a;
-    color-scheme: dark;
-  }
-}
+/* Dark, and the other themes: src/theme.ts sets these on <html>. */
 
 html, body {
   margin: 0;

@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, Wry};
 use crate::{desktop, setup, system};
 
 /// Display names for the character and size choices.
-const CHARACTER_NAMES: &[(&str, &str)] = &[("kulhi", "Kulhi (chai cup)"), ("hexo", "Hexo (hex nut)"), ("glim", "Glim (firefly)"), ("billu", "Billu (space cat)"), ("rui", "Rui (3D yeti)")];
+const CHARACTER_NAMES: &[(&str, &str)] = &[("kulhi", "Kulhi (chai cup)"), ("hexo", "Hexo (hex nut)"), ("glim", "Glim (firefly)"), ("billu", "Billu (space cat)"), ("rui", "Rui (3D yeti)"), ("dogesh", "Dogesh Bhai (scaredy pup)")];
 const SIZE_NAMES: &[(&str, &str)] = &[("small", "Small"), ("medium", "Medium"), ("large", "Large")];
 const RUI_LOOK_NAMES: &[(&str, &str)] = &[("toy", "Toy (soft vinyl)"), ("anime", "Anime (outlined)")];
 const RUI_THEME_NAMES: &[(&str, &str)] = &[("cream", "Cream"), ("mint", "Mint"), ("sky", "Sky blue"), ("lavender", "Lavender"), ("peach", "Peach pink"), ("panda", "Panda")];
@@ -114,7 +114,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         &[
             &items.ask,
             &item("activity", "Show activity")?,
-            &item("settings", "Settings…")?,
+            &item("home", "Open Desk Companion…")?,
             &PredefinedMenuItem::separator(app)?,
             &place,
             &character,
@@ -143,6 +143,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             match id {
                 "quit" => app.exit(0),
                 "reset" => desktop::reset(app),
+                "home" => {
+                    let _ = desktop::open_home(app, None);
+                }
                 "ask" | "activity" | "settings" => {
                     let _ = app.emit_to(desktop::LABEL, "panel:toggle", id);
                 }
@@ -225,6 +228,7 @@ fn tooltip(character: &str) -> &'static str {
         "glim" => "Glim",
         "billu" => "Billu",
         "rui" => "Rui",
+        "dogesh" => "Dogesh Bhai",
         _ => "Kulhi",
     }
 }

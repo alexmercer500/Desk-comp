@@ -12,6 +12,7 @@
 // loaded only when he's chosen. The same controller still decides his state;
 // its 2D engine then only keeps time ("headless").
 
+import { initTheme } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import type { BubbleMessage } from "../bubble/types";
@@ -26,6 +27,9 @@ import { playFor } from "./sounds";
 import type { RuiStage } from "../three/stage";
 import { isLook, isTheme } from "../three/palette";
 
+// Colours from the chosen theme, before anything is drawn.
+initTheme();
+
 const canvas = document.getElementById("character") as HTMLCanvasElement;
 const islandEl = document.getElementById("island")!;
 const status = document.getElementById("status")!;
@@ -34,25 +38,34 @@ const initialPrefs = await invoke<Prefs>("get_prefs");
 /** The 2D character (with Rui, the one the controller keeps, unseen). */
 let character: CharacterId = isCharacter(initialPrefs.character) ? initialPrefs.character : "kulhi";
 let top = initialPrefs.place === "top";
-/** Rui's stage while he's the character, else null. */
+/** The 3D stage while a 3D character is shown (Rui, or Dogesh Bhai in 3D), else null. */
 let stage: RuiStage | null = null;
+type Who3d = "rui" | "dogesh";
+/** Who the stage is showing. */
+let stageWho: Who3d | null = null;
 /** On battery power (a laptop unplugged): Rui draws less often, or steps aside for a 2D character. */
 let onBattery = await invoke<boolean>("on_battery").catch(() => false);
-/** Why Rui (3D) can't be shown this session, once found out: no 3D graphics, or too slow. */
-let ruiFailed: "start" | "slow" | null = null;
+/** Why 3D can't be shown this session, once found out: no 3D graphics, or too slow. */
+let failed3d: "start" | "slow" | null = null;
 
-/** Rui is the chosen character and can be shown right now. */
-function wantRui(): boolean {
-  return prefs.character === "rui" && !ruiFailed && !(onBattery && prefs.ruiFlatOnBattery === true);
+/** The 3D character to show right now, if any: Rui, or Dogesh Bhai when he's in 3D. */
+function want3d(): Who3d | null {
+  const who: Who3d | null = prefs.character === "rui" ? "rui" : prefs.character === "dogesh" && prefs.dogeshStyle !== "2d" ? "dogesh" : null;
+  if (!who || failed3d || (onBattery && prefs.ruiFlatOnBattery === true)) return null;
+  return who;
 }
 
-/** Tells the user once why a 2D character stands in for Rui this session. */
-function ruiStandIn(reason: "start" | "slow") {
-  ruiFailed = reason;
-  void useRui(false);
+/** Tells the user once why a 2D character stands in for the 3D one this session. */
+function standIn(reason: "start" | "slow") {
+  const who = stageWho ?? want3d() ?? "rui";
+  failed3d = reason;
+  void use3d(null);
   const why = reason === "start" ? "can't start on this PC's graphics" : "is running too slowly on this PC";
-  const text = `My 3D self ${why}, so ${CHARACTER_NAMES[character]} is standing in for me.`;
-  bubble.show({ id: "notice:rui", category: "notice", title: "Rui", text, kind: "info" });
+  const text =
+    who === "dogesh"
+      ? `My 3D self ${why}, so I'm in 2D for now.`
+      : `My 3D self ${why}, so ${CHARACTER_NAMES[character]} is standing in for me.`;
+  bubble.show({ id: "notice:3d", category: "notice", title: who === "dogesh" ? "Dogesh Bhai" : "Rui", text, kind: "info" });
 }
 
 // Agent runs can take minutes, so WORKING never times out on the desktop.
@@ -79,41 +92,46 @@ c.engine.overlay = (name) => {
   stage?.overlay(name);
 };
 
-/** Shows Rui (loading his stage the first time) or goes back to the 2D character. */
-async function useRui(on: boolean) {
+/** Shows a 3D character (loading the stage the first time) or goes back to the 2D one. */
+async function use3d(who: Who3d | null) {
+  if (stage && who !== stageWho) {
+    // Off, or the other 3D character: the stage goes, and comes back with them.
+    void invoke("set_room", { x: 0, top: 0 });
+    stage.dispose();
+    document.getElementById("rui")?.remove();
+    stage = null;
+    stageWho = null;
+  }
+  const on = who !== null;
   document.body.dataset.character = on ? "rui" : "flat";
-  if (on && !stage) {
+  if (who && !stage) {
     const { RuiStage, ROOM } = await import("../three/stage");
     const view = document.createElement("canvas");
     view.id = "rui";
     view.setAttribute("aria-hidden", "true");
     canvas.after(view);
     try {
-      stage = new RuiStage(view, top ? "island" : "corner");
+      stage = new RuiStage(view, top ? "island" : "corner", who);
+      stageWho = who;
     } catch (e) {
       // No WebGL (old or blocked graphics driver): the 2D character it is.
-      console.warn("Rui couldn't start", e);
+      console.warn("3D couldn't start", e);
       view.remove();
-      ruiStandIn("start");
+      standIn("start");
       return;
     }
-    stage.onSlow = () => ruiStandIn("slow");
+    stage.onSlow = () => standIn("slow");
     stage.setPowerSaving(onBattery);
     // See-through room round his square, for scenes and strolls (only used in the corner).
     stage.setRoom(ROOM);
     void invoke("set_room", { x: ROOM.x, top: ROOM.top });
     // His saved look and colour, straight on (the latest, in case they changed while he loaded).
     if (isLook(prefs.ruiLook)) stage.setLook(prefs.ruiLook);
-    if (isTheme(prefs.ruiTheme)) stage.setTheme(prefs.ruiTheme);
+    if (who === "rui" && isTheme(prefs.ruiTheme)) stage.setTheme(prefs.ruiTheme);
     stage.setReducedMotion(reducedMotion.matches);
     stage.setState(c.getState(), c.getVariant());
     stage.setHidden(top && island.shapeNow() === "tucked");
     if (!fullscreen) stage.start();
-  } else if (!on && stage) {
-    void invoke("set_room", { x: 0, top: 0 });
-    stage.dispose();
-    document.getElementById("rui")?.remove();
-    stage = null;
   }
   c.engine.setHeadless(on);
   reportHit();
@@ -293,15 +311,15 @@ void listen<Prefs>("prefs", ({ payload }) => {
   if (stage) {
     if (isLook(payload.ruiLook)) stage.setLook(payload.ruiLook);
     // A new colour: he changes into it with a little scene.
-    if (isTheme(payload.ruiTheme) && payload.ruiTheme !== before.ruiTheme) stage.changeTheme(payload.ruiTheme);
+    if (stageWho === "rui" && isTheme(payload.ruiTheme) && payload.ruiTheme !== before.ruiTheme) stage.changeTheme(payload.ruiTheme);
   }
-  const showRui = wantRui();
-  if (showRui !== (stage !== null) || (isCharacter(payload.character) && payload.character !== character)) {
+  const show3d = want3d();
+  if (show3d !== stageWho || (isCharacter(payload.character) && payload.character !== character)) {
     if (isCharacter(payload.character)) {
       character = payload.character;
       c.setCharacter(character);
     }
-    void useRui(showRui).then(() => c.tap()); // a little hello from the newcomer
+    void use3d(show3d).then(() => c.tap()); // a little hello from the newcomer
   }
   const nextTop = payload.place === "top";
   if (nextTop !== top) {
@@ -443,7 +461,7 @@ async function openPanel(focus: string | null = null, tab: Tab | null = null) {
   bubble.hide();
   refreshIsland();
   sendSessions();
-  lastOpen = { focus, tab, character: stage ? "rui" : character, place: top ? "top" : "corner" };
+  lastOpen = { focus, tab, character: stageWho === "rui" ? "rui" : character, place: top ? "top" : "corner" };
   await invoke("panel_show");
   await emitTo("panel", "panel:open", lastOpen);
 }
@@ -710,11 +728,11 @@ void listen<string>("demo", async ({ payload }) => {
 void listen<boolean>("power", ({ payload }) => {
   onBattery = payload;
   stage?.setPowerSaving(payload);
-  const showRui = wantRui();
-  if (showRui !== (stage !== null)) void useRui(showRui).then(() => c.tap());
+  const show3d = want3d();
+  if (show3d !== stageWho) void use3d(show3d).then(() => c.tap());
 });
 
 islandReady = true;
 applyPlace(top);
-if (wantRui()) await useRui(true);
+if (want3d()) await use3d(want3d());
 await c.boot();

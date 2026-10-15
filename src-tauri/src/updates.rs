@@ -154,7 +154,21 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
                 continue;
             }
         };
-        match update.download_and_install(|_, _| {}, || {}).await {
+        // How far the download is, for the button in Settings: at most once per whole percent.
+        let mut done: u64 = 0;
+        let mut told: Option<u64> = None;
+        let progress = |chunk: usize, total: Option<u64>| {
+            done += chunk as u64;
+            let percent = total.filter(|t| *t > 0).map(|t| (done * 100 / t).min(100));
+            if percent.is_none() || percent != told {
+                told = percent;
+                let _ = app.emit("update:progress", serde_json::json!({ "done": done, "total": total }));
+            }
+        };
+        let finished = || {
+            let _ = app.emit("update:installing", ());
+        };
+        match update.download_and_install(progress, finished).await {
             Ok(()) => app.restart(),
             // A bad signature is not a network problem: never retry past it.
             Err(e @ tauri_plugin_updater::Error::Minisign(_)) | Err(e @ tauri_plugin_updater::Error::SignatureUtf8(_)) => {

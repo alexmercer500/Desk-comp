@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connect-found-agents"
+description = "Enables the connect_found_agents command without any pre-configured scope."
+commands.allow = ["connect_found_agents"]
+
+[[permission]]
+identifier = "deny-connect-found-agents"
+description = "Denies the connect_found_agents command without any pre-configured scope."
+commands.deny = ["connect_found_agents"]

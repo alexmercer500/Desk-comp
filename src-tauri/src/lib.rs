@@ -4,6 +4,7 @@ use tauri::Manager;
 
 mod agents;
 mod assistant;
+mod connections;
 mod desktop;
 mod focus;
 mod phone;
@@ -21,7 +22,10 @@ pub fn uninstall_cleanup() {
 pub fn run() {
     tauri::Builder::default()
         // One character per desktop: a second launch just exits.
-        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
+        // Starting it again while it runs opens the Desk Companion window.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = desktop::open_home(app, None);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(desktop::Desk::default())
         .manage(agents::Pending::default())
@@ -59,10 +63,15 @@ pub fn run() {
             assistant::assistant_ask,
             updates::check_update,
             updates::install_update,
+            connections::agent_connections,
+            connections::test_connection,
+            connections::connect_found_agents,
+            desktop::home_show,
         ])
         .setup(|app| {
             let handle = app.handle();
             app.manage(system::PrefsState(Mutex::new(system::load_prefs(handle))));
+            app.manage(connections::Connections::load(handle));
             // Keep the relay the hooks point at in step with this version.
             setup::install_relay(handle);
             // Agents connected by an older version get this version's hook format.
@@ -73,6 +82,13 @@ pub fn run() {
             agents::spawn(handle.clone());
             system::spawn(handle.clone());
             updates::spawn(handle.clone());
+            // Test that agents can reach us (an antivirus may hold the relay).
+            connections::spawn(handle.clone());
+            // Started by you (not by Windows at sign-in): the window opens, like any app.
+            setup::refresh_autostart();
+            if !std::env::args().any(|a| a == setup::AUTOSTART_ARG) {
+                let _ = desktop::open_home(handle, None);
+            }
             // Listen for a paired phone, if the link is on.
             phone::apply(handle);
             Ok(())

@@ -4,11 +4,15 @@
 // A permission bubble also carries Allow / Deny / In terminal, reported as
 // "permission:answer" — the companion window forwards it to the waiting agent.
 
+import { initTheme } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { ClickGuard } from "./guard";
 import { renderQuestions } from "./question";
 import type { BubbleMessage } from "./types";
+
+// Colours from the chosen theme, before anything is drawn.
+initTheme();
 
 const wrap = document.getElementById("wrap")!;
 const card = document.getElementById("card")!;

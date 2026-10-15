@@ -6,9 +6,12 @@
 import * as THREE from "three";
 import { Face, FaceState, Expression, expression, HEAD, rimGeometry } from "./face";
 import {
-  Look, ThemeName, finishTheme, incomingColor, paint, paintShared, setTheme, startTheme, tag, themeColors,
+  Look, ThemeName, finishTheme, incomingColor, magicShared, paint, paintShared, setTheme, startTheme, tag, themeColors,
 } from "./looks";
-import { brush, dispose, palette, tablet, theMirror, theWardrobe } from "./props";
+import {
+  brush, dispose, palette, reachArm, tablet, theGhosts, theMirror, theQuestion, theTrunk, theWardrobe,
+} from "./props";
+import { Wobble, clamp, kf, lerp, limbGeometry, smooth, softShadow } from "./rig";
 
 // ── Pose ──────────────────────────────────────────────────────────────────────
 
@@ -40,37 +43,6 @@ function blendInto(p: Pose, to: Partial<Pose>, u: number): void {
   for (const k of Object.keys(to) as Channel[]) p[k] += (to[k]! - p[k]) * u;
 }
 
-// ── Timing helpers ────────────────────────────────────────────────────────────
-
-const smooth = (u: number) => u * u * (3 - 2 * u);
-const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-
-/** Value at time `t` along `[time, value]` keys, eased between keys. */
-function kf(t: number, keys: [number, number][], ease = smooth): number {
-  if (t <= keys[0][0]) return keys[0][1];
-  for (let i = 1; i < keys.length; i++) {
-    const [t1, v1] = keys[i];
-    if (t <= t1) {
-      const [t0, v0] = keys[i - 1];
-      return v0 + (v1 - v0) * ease((t - t0) / (t1 - t0));
-    }
-  }
-  return keys[keys.length - 1][1];
-}
-
-/** A damped spring for wobbly bits (ears, tuft). */
-class Wobble {
-  s = 0;
-  v = 0;
-  constructor(private stiffness: number, private damping: number) {}
-  step(target: number, dt: number): number {
-    this.v += ((target - this.s) * this.stiffness - this.v * this.damping) * dt;
-    this.s += this.v * dt;
-    return this.s;
-  }
-}
-
 // ── Behaviours ────────────────────────────────────────────────────────────────
 
 export type ActionName = "walk" | "stroll" | "spin" | "wave" | "sit" | "exercise" | "eat" | "nap" | "poke";
@@ -84,9 +56,9 @@ export type Cue =
   | "rest" | "boot" | "stand" | "work" | "hooray" | "nod" | "ponder" | "shrug" | "droop"
   | "call" | "doze" | "sleep" | "wake" | "held" | "land" | "dizzy" | "hopLeft" | "hopRight";
 
-/** The three ways of putting on a new colour theme. */
-export type ChangeStyle = "paint" | "twirl" | "wardrobe";
-export const CHANGE_STYLES: ChangeStyle[] = ["paint", "twirl", "wardrobe"];
+/** The four ways of putting on a new colour theme. */
+export type ChangeStyle = "paint" | "twirl" | "wardrobe" | "trunk";
+export const CHANGE_STYLES: ChangeStyle[] = ["paint", "twirl", "wardrobe", "trunk"];
 
 interface Running {
   name: string;
@@ -95,6 +67,8 @@ interface Running {
   t: number;
   /** Writes this frame's pose; returns false when finished. */
   step(t: number, dt: number): boolean;
+  /** Places things that follow him, once this frame's pose is on. */
+  after?(t: number): void;
   end?(): void;
 }
 
@@ -114,23 +88,6 @@ function bodyGeometry(): THREE.BufferGeometry {
   g.rotateY(Math.PI);
   g.scale(1, 1, 0.9);
   g.translate(0, -HIP, 0);
-  g.computeVertexNormals();
-  return g;
-}
-
-/** A capsule hanging down from its top, a little fatter at the far end (mitten / foot). */
-function limbGeometry(radius: number, length: number, top: number, swell: number): THREE.BufferGeometry {
-  const g = new THREE.CapsuleGeometry(radius, length, 12, 28);
-  const half = length / 2 + radius;
-  g.translate(0, top - half, 0);
-  const pos = g.getAttribute("position");
-  const span = length + radius * 2;
-  for (let i = 0; i < pos.count; i++) {
-    const f = clamp((top - pos.getY(i)) / span, 0, 1);
-    const s = 1 + swell * f * f;
-    pos.setX(i, pos.getX(i) * s);
-    pos.setZ(i, pos.getZ(i) * s);
-  }
   g.computeVertexNormals();
   return g;
 }
@@ -159,27 +116,6 @@ function curlGeometry(): THREE.BufferGeometry {
   }
   g.computeVertexNormals();
   return g;
-}
-
-function softShadow(): THREE.Mesh {
-  const c = document.createElement("canvas");
-  c.width = c.height = 64;
-  const g = c.getContext("2d")!;
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, "rgba(60,40,25,0.4)");
-  grad.addColorStop(0.6, "rgba(60,40,25,0.14)");
-  grad.addColorStop(1, "rgba(60,40,25,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
-  const tex = new THREE.CanvasTexture(c);
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.6, 1.1),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }),
-  );
-  m.rotation.x = -Math.PI / 2;
-  m.position.y = 0.003;
-  m.renderOrder = -1;
-  return m;
 }
 
 function bubbleMaterial(): THREE.ShaderMaterial {
@@ -262,6 +198,8 @@ export class Rui {
   private bubble = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), bubbleMaterial());
   private snack = cookie();
   private sweat: THREE.Mesh;
+  /** A second drop, for the other side of his hood when he's really scared. */
+  private sweat2: THREE.Mesh;
 
   private pose: Pose = { ...REST };
   private poseVel = Object.fromEntries(CHANNELS.map((c) => [c, 0])) as Pose;
@@ -370,6 +308,9 @@ export class Rui {
     this.sweat.scale.set(0.03, 0.045, 0.03);
     this.sweat.visible = false;
     this.head.add(this.sweat);
+    this.sweat2 = tag(new THREE.Mesh(this.sweat.geometry), "sweat");
+    this.sweat2.visible = false;
+    this.head.add(this.sweat2);
 
     this.setLook("toy");
   }
@@ -377,8 +318,10 @@ export class Rui {
   setLook(look: Look): void {
     this.look = look;
     paint(this.root, look);
-    // The wardrobe and mirror stand in the room, not on him; repaint them if they're out.
-    for (const prop of [theWardrobe().group, theMirror()]) if (prop.parent) paint(prop, look);
+    // The wardrobe, mirror and trunk stand in the room, not on him; repaint them if they're out.
+    for (const prop of [theWardrobe().group, theMirror(), theTrunk().group, theGhosts().group]) {
+      if (prop.parent) paint(prop, look);
+    }
   }
 
   /** Objects a click can land on. */
@@ -400,6 +343,19 @@ export class Rui {
 
   get current(): string {
     return this.action?.name ?? "idle";
+  }
+
+  /** Leaves the scene for good: stops what he's doing (putting props away) and takes his sparkles with him. */
+  retire(): void {
+    this.action?.end?.();
+    this.action = null;
+    this.queue = [];
+    for (const p of this.particles) {
+      p.mesh.removeFromParent();
+      (p.mesh.material as THREE.Material).dispose();
+    }
+    this.particles = [];
+    this.root.removeFromParent();
   }
 
   // ── Starting behaviours ─────────────────────────────────────────────────────
@@ -522,7 +478,7 @@ export class Rui {
   }
 
   /**
-   * Puts on a new colour theme with one of the three scenes: a random one
+   * Puts on a new colour theme with one of the four scenes: a random one
    * (never the same twice in a row) unless `style` names one.
    */
   applyTheme(name: ThemeName, style?: ChangeStyle): ChangeStyle {
@@ -530,8 +486,13 @@ export class Rui {
     const pick = style ?? others[Math.floor(Math.random() * others.length)];
     this.lastChange = pick;
     const scene = () =>
-      pick === "paint" ? this.paintScene(name) : pick === "twirl" ? this.twirlScene(name) : this.wardrobeScene(name);
-    this.begin([...(this.seated ? [() => this.standUp()] : []), scene]);
+      pick === "paint" ? this.paintScene(name)
+      : pick === "twirl" ? this.twirlScene(name)
+      : pick === "trunk" ? this.trunkScene(name)
+      : this.wardrobeScene(name);
+    // The trunk scene needs the room either side of the middle: walk back there first.
+    const homeFirst = pick === "trunk" && Math.abs(this.root.position.x) > 0.3 ? [() => this.walkTo(0, 0.8, false)] : [];
+    this.begin([...(this.seated ? [() => this.standUp()] : []), ...homeFirst, scene]);
     return pick;
   }
 
@@ -602,6 +563,7 @@ export class Rui {
 
     this.follow(dt);
     this.applyPose();
+    this.action?.after?.(this.action.t);
     if (this.paintFrom) {
       this.hips.updateWorldMatrix(true, false);
       paintShared.uPaintCenter.value.copy(this.paintFrom).applyMatrix4(this.hips.matrixWorld);
@@ -725,7 +687,10 @@ export class Rui {
 
   // ── Particles ───────────────────────────────────────────────────────────────
 
-  private burst(at: THREE.Vector3, count: number, color: string, size: number, speed: number, gravity: number): void {
+  /** A puff of little balls from `at`: every which way, or mostly along `toward` if given. */
+  private burst(
+    at: THREE.Vector3, count: number, color: string, size: number, speed: number, gravity: number, toward?: THREE.Vector3,
+  ): void {
     const geo = new THREE.SphereGeometry(1, 10, 8);
     for (let i = 0; i < count; i++) {
       const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true }));
@@ -735,6 +700,7 @@ export class Rui {
       const v = new THREE.Vector3(Math.cos(a), Math.sin(a) * 0.8 + 0.4, Math.random() * 0.6).multiplyScalar(
         speed * (0.5 + Math.random() * 0.7),
       );
+      if (toward) v.multiplyScalar(0.3).addScaledVector(toward, speed * (0.7 + Math.random() * 0.6));
       const max = 0.45 + Math.random() * 0.35;
       this.world.add(mesh);
       this.particles.push({ mesh, v, life: max, max, gravity });
@@ -1422,6 +1388,624 @@ export class Rui {
         this.unwind();
         // Interrupted part-way? Back where he started.
         this.root.position.z = 0;
+      },
+    };
+  }
+
+  /**
+   * A spooky (but friendly) mimic trunk pops up behind him. Its lid creaks
+   * open, ghostly hands reach out and grab him; he digs his heels in, gets
+   * pulled off his feet, claws at the floor on his tummy as he's dragged back,
+   * hangs on to the rim by his mittens, and is finally stuffed inside. It
+   * rattles and puffs while he changes, then throws him back out in the new
+   * colour: a bump, a puzzled look, and then he's delighted.
+   */
+  private trunkScene(name: ThemeName): Running {
+    const x0 = this.root.position.x;
+    const home = new THREE.Vector3(x0, 0, 0);
+    // Behind him and off to one side (whichever has more room), turned a little towards him.
+    const s = x0 > 0.05 ? -1 : x0 < -0.05 ? 1 : Math.random() < 0.5 ? -1 : 1;
+    const tr = theTrunk();
+    paint(tr.group, this.look);
+    tr.group.position.set(x0 + s * 1.4, 0, -2.0);
+    tr.group.rotation.set(0, -s * 0.4, 0);
+    tr.group.scale.setScalar(0.01);
+    tr.body.position.set(0, 0, 0);
+    tr.body.rotation.set(0, 0, 0);
+    tr.body.scale.setScalar(1);
+    tr.lid.rotation.x = 0;
+    tr.eyes.visible = false;
+    tr.beamLight.value = 0;
+    tr.auraLight.value = 0;
+    this.world.add(tr.group);
+    const gh = theGhosts();
+    paint(gh.group, this.look);
+    for (const h of gh.hands) h.root.visible = h.arm.visible = false;
+    this.world.add(gh.group);
+    const q = theQuestion();
+    q.visible = false;
+    this.world.add(q);
+    magicShared.uFade.value = 1;
+
+    // Spots in the trunk's own frame (at full size), in world units.
+    const place = new THREE.Matrix4().compose(
+      tr.group.position, new THREE.Quaternion().setFromEuler(tr.group.rotation), new THREE.Vector3(1, 1, 1),
+    );
+    const at = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyMatrix4(place);
+    const H = tr.rim;
+    /** Just in front of the trunk, on his side: where his feet end up. */
+    const edge = at(-s * 0.3, 0, 0.78);
+    const toEdge = edge.clone().sub(home).setY(0).normalize();
+    /**
+     * Lying on his tummy he faces away from the trunk's side, mostly sideways
+     * so you see him side-on (and so he stays clear of the bottom of the corner
+     * window), and he's dragged back feet first along his own length.
+     */
+    const faceYaw = -s * 1.2;
+    const face = new THREE.Vector3(Math.sin(faceYaw), 0, Math.cos(faceYaw));
+    const toTrunk = face.clone().negate();
+    const rightOf = new THREE.Vector3(face.z, 0, -face.x);
+    const trunkYaw = tr.group.rotation.y;
+    /** How far he's pulled while still on his feet, then where the tummy-drag ends (then he's hauled in). */
+    const fallAt = home.clone().addScaledVector(toEdge, 0.4);
+    const crawlEnd = fallAt.clone().addScaledVector(toTrunk, 1.0);
+    /** Stood inside, hanging on to the front rim; and where he's thrown out from. */
+    const rimAt = at(0, 0, -0.04);
+    const rimGrip = [at(-0.3, H + 0.04, 0.44), at(0.3, H + 0.04, 0.44)];
+    const mouths = [0.42, 0.15, -0.12, 0.25].map((x, k) => at(-s * x, H - 0.03, k === 3 ? 0.25 : 0.02));
+    const newColor = themeColors(name).body;
+
+    const T = {
+      notice: 0.3, creak: 1.2, open: 1.95, uhoh: 2.15, grab: 2.95, fall: 4.1, down: 4.45,
+      lift: 6.6, rim: 7.15, pry: 7.85, squash: 8.05, slam: 8.45, shake: 8.6, swap: 9.3, burst: 10.1,
+      land: 10.9, gone: 11.35, over: 12.3, joy: 13.0, done: 13.8,
+    };
+    /** When each hand sets off, and how long it takes to get to him. */
+    const launch = [2.4, 2.55, 2.7, T.rim + 0.15];
+    const REACH = 0.55;
+    // Pulled back in jerks: a little ground won back now and then.
+    const standDrag = (t: number) => kf(t, [[2.95, 0], [3.25, 0.35], [3.6, 0.35], [3.75, 0.25], [3.9, 0.6], [T.fall, 1]]);
+    const crawlDrag = (t: number) => kf(t, [
+      [T.down, 0], [4.7, 0.2], [5.05, 0.2], [5.2, 0.12], [5.45, 0.12], [5.65, 0.45], [5.95, 0.45], [6.05, 0.4], [6.3, 0.75], [T.lift, 1],
+    ]);
+    const jerks = [3.0, 3.8, 4.5, 5.55, 6.15];
+    // His near side (towards the trunk): 1 is his right (+x) arm.
+    const near = s > 0 ? 1 : 0;
+    const mittens = [this.handL, this.hand];
+    const curves = gh.hands.map(() => new THREE.CubicBezierCurve3(
+      new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(),
+    ));
+    const away = new THREE.Vector2(face.x, face.z);
+
+    // Scuff marks his mittens and tummy leave on the floor, fading after.
+    const marks: THREE.Mesh[] = [];
+    const markGeo = new THREE.PlaneGeometry(1, 1);
+    markGeo.rotateX(-Math.PI / 2);
+    const mark = (c: THREE.Vector3, len: number, wide: number, opacity: number) => {
+      if (marks.length > 24) return;
+      const m = new THREE.Mesh(markGeo, new THREE.MeshBasicMaterial({ color: "#3a2b24", transparent: true, opacity, depthWrite: false }));
+      m.position.set(c.x, 0.006, c.z);
+      m.rotation.y = Math.atan2(toTrunk.x, toTrunk.z);
+      m.scale.set(wide, 1, len);
+      m.renderOrder = -1;
+      m.userData.opacity = opacity;
+      this.world.add(m);
+      marks.push(m);
+    };
+    // Mittens dig into the floor; dragged too far, one slips and grabs again further on.
+    const plants: (THREE.Vector3 | null)[] = [null, null];
+    const reachFrom = [T.down - 0.2, T.down - 0.05];
+    let slipped = false;
+
+    // While it's open the room dims a little (lights put back after).
+    const lights: [THREE.Light, number][] = [];
+    this.world.traverse((o) => {
+      if (o instanceof THREE.DirectionalLight) lights.push([o, o.intensity]);
+    });
+    const room = this.world instanceof THREE.Scene ? this.world : null;
+    const env0 = room?.environmentIntensity ?? 1;
+    const dim = (k: number) => {
+      for (const [l, i] of lights) l.intensity = i * k;
+      if (room) room.environmentIntensity = env0 * k;
+    };
+
+    let swapped = false;
+    let landed = false;
+    let puffs = 0;
+    let tears = 0;
+    let scuffs = 0;
+    let wisps = 0;
+    let dusty = 0;
+    const fx = new Set<string>();
+    const once = (key: string, when: boolean) => when && !fx.has(key) && !!fx.add(key);
+    const tmp = new THREE.Vector3();
+    const tmp2 = new THREE.Vector3();
+    const grip = new THREE.Vector3();
+    const grip2 = new THREE.Vector3();
+    const toward = new THREE.Vector3();
+    const toward2 = new THREE.Vector3();
+    const tan = new THREE.Vector3();
+    const bx = new THREE.Vector3();
+    const basis = new THREE.Matrix4();
+    const lastPos = new THREE.Vector3().copy(home);
+
+    /** Tips him over towards (ax, az) on the floor by `amt`, keeping his feet down. */
+    const lean = (ax: number, az: number, amt: number) => {
+      const y = this.pose.yaw;
+      const lx = ax * Math.cos(y) - az * Math.sin(y);
+      const lz = ax * Math.sin(y) + az * Math.cos(y);
+      this.target.hipsRx += lz * amt;
+      this.target.hipsRz -= lx * amt;
+      this.target.hipsY -= LEG_REACH * (1 - Math.cos(amt));
+    };
+    /** Comic terror: huge trembling eyes and a wobbling wail. */
+    const panic = (t: number) => {
+      this.expr = "panic";
+      this.faceMods.eyeScale = 1.72 + Math.sin(t * 53) * 0.07;
+      this.faceMods.lookX = Math.sin(t * 41) * 0.14;
+      this.faceMods.lookY = 0.1 + Math.sin(t * 37) * 0.1;
+      this.faceMods.mouthOpen = 1.1 + Math.sin(t * 17) * 0.25;
+      this.faceMods.mouthWidth = 1.75 + Math.sin(t * 11 + 1) * 0.25;
+      this.target.headRz += Math.sin(t * 47) * 0.025;
+    };
+    /** "No no no!": quick shakes of the head. */
+    const noNo = (t: number) =>
+      Math.sin(t * 19) * 0.32 * Math.max(
+        kf(t, [[3.25, 0], [3.35, 1], [3.65, 1], [3.75, 0]]),
+        kf(t, [[5.15, 0], [5.25, 1], [5.5, 1], [5.6, 0]]),
+        kf(t, [[7.35, 0], [7.45, 1], [7.75, 1], [7.85, 0]]),
+      );
+    /** Lying flat on his tummy, head up, legs out behind (k: how far down). */
+    const prone = (k: number) => {
+      const P = this.target;
+      P.hipsRx = lerp(P.hipsRx, 1.38, k);
+      P.hipsRz = lerp(P.hipsRz, 0, k);
+      P.hipsY = lerp(P.hipsY, 0.5, k);
+      P.headRx = lerp(P.headRx, -1.35, k);
+      // Face turned out towards you, so you see the panic.
+      P.headRy = lerp(P.headRy, s * 0.55, k);
+      P.headRz = lerp(P.headRz, -s * 0.25, k);
+      P.legLz = lerp(P.legLz, -0.14, k);
+      P.legRz = lerp(P.legRz, 0.14, k);
+    };
+
+    return {
+      name: "trunk",
+      t: 0,
+      step: (t, dt) => {
+        const P = this.target;
+        this.wide = 1;
+        const pos = this.root.position;
+
+        // ── The trunk ──
+        tr.group.scale.setScalar(kf(t, [
+          [0, 0.01], [0.3, 1.12], [0.45, 0.95], [0.55, 1], [T.gone + 0.25, 1], [T.gone + 0.4, 1.12], [T.gone + 0.65, 0.01],
+        ]));
+        tr.group.visible = t < T.gone + 0.65;
+        const shaking = kf(t, [[T.shake, 0], [T.shake + 0.15, 1], [T.burst - 0.1, 1], [T.burst, 0]]);
+        let lid = kf(t, [
+          [T.creak, 0], [T.creak + 0.25, 0.22], [T.creak + 0.4, 0.15], [T.creak + 0.55, 0.26], [T.open, 0.24],
+          [T.open + 0.16, 2.1], [T.open + 0.32, 1.9], [T.slam - 0.12, 1.9], [T.slam, 0], [T.slam + 0.07, 0.14], [T.slam + 0.14, 0],
+          [T.burst, 0], [T.burst + 0.1, 2.25], [T.burst + 0.3, 1.95], [T.gone, 1.95], [T.gone + 0.25, 0],
+        ]);
+        if (t > T.creak && t < T.open) lid += Math.sin(t * 40) * 0.015;
+        lid += Math.max(0, Math.sin(t * 21)) * 0.22 * shaking;
+        tr.lid.rotation.x = -lid;
+        tr.body.rotation.z = Math.sin(t * 47) * 0.08 * shaking;
+        tr.body.rotation.x = Math.sin(t * 31) * 0.04 * shaking;
+        tr.body.position.y = Math.abs(Math.sin(t * 19)) * 0.08 * shaking;
+        tr.body.scale.set(1 - Math.sin(t * 29) * 0.03 * shaking, 1 + Math.sin(t * 29) * 0.06 * shaking, 1);
+        // Two eyes peek out of the dark under the lid: a slow, sly blink, a glance at him.
+        const peek = t - T.creak - 0.3;
+        tr.eyes.visible = peek > 0 && t < T.open + 0.05;
+        tr.eyes.scale.set(1, kf(peek, [[0, 0.2], [0.12, 1], [0.3, 1], [0.45, 0.3], [0.6, 0.3], [0.72, 1]]), 1);
+        tr.eyes.position.x = kf(peek, [[0.1, 0], [0.25, -s * 0.05]]);
+        tr.beamLight.value = kf(t, [
+          [T.open, 0], [T.open + 0.15, 1.3], [T.open + 0.5, 1], [T.slam - 0.1, 1], [T.slam, 0],
+          [T.burst, 0], [T.burst + 0.05, 1.6], [T.burst + 0.6, 0.6], [T.gone, 0],
+        ]) * (0.9 + 0.1 * Math.sin(t * 13));
+        tr.auraLight.value = kf(t, [[0, 0], [0.5, 0.55], [T.creak, 0.55], [T.open + 0.3, 1], [T.gone, 1], [T.gone + 0.5, 0]]);
+        // The runes crawl and flicker, wilder when it's up to something.
+        magicShared.uTime.value = t;
+        magicShared.uPulse.value = shaking > 0 ? 1 : kf(t, [[0, 0.15], [T.creak, 0.15], [T.open, 0.65], [T.burst + 0.5, 0.65], [T.gone, 0.2]]);
+        dim(kf(t, [[T.creak, 1], [T.open + 0.3, 0.72], [T.gone, 0.72], [T.gone + 0.5, 1]]));
+
+        if (once("pop", t > 0.15)) this.burst(at(0, 0.5, 0.4), 10, "#5b3a7a", 0.05, 1.6, -0.5);
+        if (once("open", t > T.open + 0.05)) {
+          this.burst(at(0, H + 0.15, 0.1), 14, "#8d4dff", 0.06, 1.5, -1.2);
+          this.burst(at(0, H + 0.15, 0.1), 8, "#9cffd9", 0.035, 2.2, -0.8);
+        }
+        // Dark wisps curling up off the floor round it.
+        if (t > T.open && t < T.gone && t > T.open + wisps * 0.3) {
+          wisps++;
+          const a = Math.random() * Math.PI * 2;
+          this.burst(at(Math.cos(a) * 0.95, 0.05, Math.sin(a) * 0.65), 2, "#3a1f55", 0.07, 0.35, -0.5);
+        }
+        if (once("slam", t > T.slam)) this.burst(at(0, H + 0.05, 0.5), 12, "#8d4dff", 0.06, 1.8, -0.6);
+        // Puffs out of the rattling lid, in the new colour.
+        if (shaking > 0.5 && puffs < 5 && t > T.shake + 0.15 + puffs * 0.3) {
+          puffs++;
+          this.burst(at((Math.random() - 0.5) * 1.0, H + 0.12, 0.35), 10, puffs % 2 ? newColor : "#cdb4ff", 0.09, 1.5, -1.3);
+        }
+        if (!swapped && t > T.swap) {
+          swapped = true;
+          setTheme(name);
+        }
+        if (once("burst", t > T.burst)) {
+          this.burst(at(0, H + 0.3, 0.1), 18, newColor, 0.05, 2.8, 1.5);
+          this.burst(at(0, H + 0.3, 0.1), 12, "#b98cff", 0.04, 2.4, 1);
+        }
+        if (once("gone", t > T.gone + 0.5)) this.burst(at(0, 0.5, 0.2), 14, "#5b3a7a", 0.06, 1.6, -0.8);
+        const fade = kf(t, [[T.slam, 1], [T.burst, 0]]);
+        for (const m of marks) (m.material as THREE.MeshBasicMaterial).opacity = m.userData.opacity * fade;
+
+        // ── Him ──
+        this.root.visible = t < T.slam || t > T.burst;
+        let sy = 1;
+        let sxz = 1;
+        const scared = t > T.grab && t < T.slam;
+        if (t < T.uhoh) {
+          // Something popped up behind him: a start, then a curious look back over his shoulder.
+          const look = kf(t, [[0.55, 0], [0.95, 1], [T.open + 0.05, 1], [T.uhoh, 0.6]]);
+          P.yaw = s * 0.45 * look;
+          P.headRy = s * 0.75 * look;
+          P.headRx = -0.08 * look;
+          P.hipsY = HIP + kf(t, [[T.notice, 0], [T.notice + 0.1, 0.12], [T.notice + 0.28, 0]]);
+          P.armLz += kf(t, [[T.notice, 0], [T.notice + 0.1, -0.5], [T.notice + 0.4, 0]]);
+          P.armRz -= kf(t, [[T.notice, 0], [T.notice + 0.1, -0.5], [T.notice + 0.4, 0]]);
+          P.hipsRz = -s * 0.06 * look;
+          this.expr = t < T.notice ? "neutral" : t < T.notice + 0.35 ? "surprised" : t < T.open ? "ooh" : "surprised";
+          this.rate = 14;
+        } else if (t < T.fall) {
+          // Uh-oh: he turns back to you, the hands get hold, and he digs his heels in.
+          const struggle = kf(t, [[T.grab - 0.1, 0], [T.grab + 0.2, 1]]);
+          pos.lerpVectors(home, fallAt, standDrag(t));
+          P.yaw = lerp(0, faceYaw * 0.4, struggle) + Math.sin(t * 7) * 0.08 * struggle;
+          this.rate = 18;
+          this.bounce = 0.5;
+          lean(away.x, away.y, (0.42 + Math.sin(t * 9) * 0.06) * struggle);
+          P.squash = 1 - 0.04 * struggle;
+          P.legLz = -0.24 * struggle;
+          P.legRz = 0.24 * struggle;
+          P.legLx = Math.sin(t * 17) * 0.32 * struggle;
+          P.legRx = -Math.sin(t * 17) * 0.32 * struggle;
+          const glance = kf(t, [[2.3, 0], [2.45, 1], [2.75, 1], [2.9, 0]]);
+          P.headRy = s * 0.7 * glance + noNo(t);
+          P.headRz = Math.sin(t * 11) * 0.06 * struggle;
+          P.headRx = -0.06;
+          // His near arm is held and pulled towards the trunk; the other flails.
+          const pull = new THREE.Vector3(pos.x + toTrunk.x * 2, 1.0, pos.z + toTrunk.z * 2);
+          const aim = this.aimArm(near, pull);
+          const held = kf(t, [[launch[0] + REACH - 0.05, 0], [launch[0] + REACH + 0.15, 1]]);
+          const flail = kf(t, [[T.uhoh, 0], [T.uhoh + 0.3, 1]]);
+          const swing = Math.sin(t * 15);
+          if (near === 1) {
+            P.armRx = lerp(P.armRx, aim.x, held) + Math.sin(t * 19) * 0.06 * held;
+            P.armRz = lerp(P.armRz, aim.z, held);
+            P.armLz = lerp(P.armLz, -1.9 + swing * 0.8, flail);
+            P.armLx = lerp(P.armLx, Math.cos(t * 15) * 0.7, flail);
+          } else {
+            P.armLx = lerp(P.armLx, aim.x, held) + Math.sin(t * 19) * 0.06 * held;
+            P.armLz = lerp(P.armLz, aim.z, held);
+            P.armRz = lerp(P.armRz, 1.9 - swing * 0.8, flail);
+            P.armRx = lerp(P.armRx, Math.cos(t * 15) * 0.7, flail);
+          }
+          if (t < T.grab) this.expr = "surprised";
+          else panic(t);
+        } else if (t < T.lift) {
+          // Pulled off his feet: down on his tummy, facing away, clawing at the floor.
+          const k = kf(t, [[T.fall, 0], [T.fall + 0.28, 1]]);
+          if (t < T.down) pos.copy(fallAt);
+          else pos.lerpVectors(fallAt, crawlEnd, crawlDrag(t));
+          this.rate = 18;
+          this.bounce = 0.5;
+          P.yaw = faceYaw;
+          prone(k);
+          if (once("thud", t > T.fall + 0.28)) {
+            this.burst(tmp.copy(pos).addScaledVector(face, 0.6).setY(0.05), 10, "#d9cbb8", 0.045, 1.1, 1.5);
+          }
+          P.squash = kf(t, [[T.fall + 0.25, 1], [T.fall + 0.32, 0.86], [T.fall + 0.48, 1.04], [T.fall + 0.6, 1]]);
+          // Kicking against the hands that hold his feet.
+          P.legLx = 0.12 + Math.sin(t * 18) * 0.3 * k;
+          P.legRx = 0.12 - Math.sin(t * 18) * 0.3 * k;
+          P.headRy += noNo(t);
+          // Each mitten digs in ahead of him; dragged too far, it slips (a scratch, a puff) and grabs again.
+          for (const i of [0, 1]) {
+            const side = i === 1 ? 1 : -1;
+            const sh = this.shoulders[i].getWorldPosition(tmp2);
+            let p = plants[i];
+            if (!p && t > T.down - 0.1 && t - reachFrom[i] > 0.2) {
+              p = plants[i] = new THREE.Vector3(
+                sh.x + face.x * 0.35 + rightOf.x * side * 0.14, 0.03, sh.z + face.z * 0.35 + rightOf.z * side * 0.14,
+              );
+            }
+            const ahead = p ? (p.x - sh.x) * face.x + (p.z - sh.z) * face.z : 0;
+            const forced = !slipped && i === near && t > 5.45;
+            if (p && (ahead > 0.72 || ahead < 0.05 || forced)) {
+              if (forced) slipped = true;
+              mark(tmp.copy(p).addScaledVector(toTrunk, 0.16).addScaledVector(rightOf, 0.03), 0.32, 0.035, 0.45);
+              mark(tmp.copy(p).addScaledVector(toTrunk, 0.16).addScaledVector(rightOf, -0.03), 0.32, 0.035, 0.45);
+              this.burst(tmp.copy(p).setY(0.05), 5, "#d9cbb8", 0.03, 0.9, 2);
+              plants[i] = p = null;
+              reachFrom[i] = t;
+            }
+            // Planted: pointing at the spot. Reaching: up and forward for a new hold.
+            const aim = p
+              ? this.aimArm(i, p)
+              : this.aimArm(i, tmp.copy(sh).addScaledVector(face, 0.9).addScaledVector(rightOf, side * 0.2).setY(sh.y + 0.35));
+            const claw = Math.sin(t * 23 + i * 2) * 0.07;
+            if (i === 1) {
+              P.armRx = lerp(P.armRx, aim.x + claw, k);
+              P.armRz = lerp(P.armRz, aim.z, k);
+            } else {
+              P.armLx = lerp(P.armLx, aim.x + claw, k);
+              P.armLz = lerp(P.armLz, aim.z, k);
+            }
+          }
+          panic(t);
+          // Dust trailing off his tummy as he's dragged, and a smear where he was.
+          const speed = pos.distanceTo(lastPos) / Math.max(dt, 1e-3);
+          if (speed > 0.5 && t > T.down + dusty * 0.08) {
+            dusty = (t - T.down) / 0.08 + 1;
+            this.burst(tmp.copy(pos).addScaledVector(face, 0.5).setY(0.04), 2, "#d9cbb8", 0.035, 0.6, 1);
+          }
+        } else if (t < T.slam) {
+          const u = clamp((t - T.lift) / (T.rim - T.lift), 0, 1);
+          if (t < T.rim) {
+            // Hauled up feet first over the rim and dropped in.
+            const across = smooth(clamp(u / 0.8, 0, 1));
+            pos.set(lerp(crawlEnd.x, rimAt.x, across), kf(u, [[0, 0], [0.4, H + 0.4], [0.8, H + 0.25], [1, 0]]), lerp(crawlEnd.z, rimAt.z, across));
+            sy = kf(u, [[0.6, 1], [1, 0.92]]);
+            sxz = kf(u, [[0.6, 1], [1, 0.85]]);
+            this.rate = 22;
+            P.yaw = lerp(faceYaw, trunkYaw, smooth(u));
+            P.hipsRx = kf(u, [[0, 1.38], [0.35, -0.5], [0.8, -0.3], [1, 0.15]]);
+            P.hipsY = kf(u, [[0, 0.5], [0.4, HIP]]);
+            P.headRx = kf(u, [[0, -1.1], [0.5, 0]]);
+            P.armLz = -2.4 + Math.sin(t * 21) * 0.3;
+            P.armRz = 2.4 - Math.sin(t * 21 + 1) * 0.3;
+            P.legLx = Math.sin(t * 22) * 0.6;
+            P.legRx = -Math.sin(t * 22) * 0.6;
+            panic(t);
+          } else if (t < T.squash) {
+            // Hanging on to the rim by both mittens, tugged down from below, until a hand prises one off.
+            pos.copy(rimAt);
+            sy = 0.92;
+            sxz = 0.85;
+            this.rate = 20;
+            this.bounce = 0.5;
+            P.yaw = trunkYaw;
+            P.hipsRx = 0.18;
+            const tug = Math.abs(Math.sin(t * 9));
+            P.hipsY = HIP - 0.08 * tug;
+            P.squash = 1 - 0.05 * tug;
+            const pry = kf(t, [[T.pry, 0], [T.pry + 0.12, 1]]);
+            for (const i of [0, 1]) {
+              const aim = this.aimArm(i, rimGrip[i]);
+              const off = i === near ? pry : 0;
+              const up = this.aimArm(i, tmp.copy(rimGrip[i]).setY(H + 1.1));
+              const x = lerp(aim.x, up.x, off) + Math.sin(t * 25 + i) * 0.05;
+              const z = lerp(aim.z, up.z, off);
+              if (i === 1) {
+                P.armRx = x;
+                P.armRz = z;
+              } else {
+                P.armLx = x;
+                P.armLz = z;
+              }
+            }
+            P.headRy = noNo(t);
+            panic(t);
+          } else {
+            // Yanked down inside, arms last.
+            const v = clamp((t - T.squash) / (T.slam - T.squash), 0, 1);
+            pos.copy(rimAt);
+            sy = kf(v, [[0, 0.92], [0.2, 1.0], [1, 0.28]]);
+            sxz = kf(v, [[0, 0.85], [0.3, 0.9], [1, 0.7]]);
+            this.rate = 24;
+            P.yaw = trunkYaw;
+            P.armLz = -2.85;
+            P.armRz = 2.85;
+            panic(t);
+            this.faceMods.mouthOpen = 1.3;
+          }
+        } else if (t < T.burst) {
+          // Inside, changing.
+          pos.copy(rimAt);
+          P.yaw = 0;
+        } else if (t < T.land) {
+          // Flung out in a big arc, spinning, arms and legs everywhere.
+          const u = (t - T.burst) / (T.land - T.burst);
+          // Kept low enough that his head stays in the corner window at the top of the arc.
+          pos.set(lerp(rimAt.x, home.x, u), 4 * 0.7 * u * (1 - u), lerp(rimAt.z, home.z, u));
+          sy = kf(u, [[0, 0.55], [0.15, 1.12], [0.5, 1]]);
+          sxz = kf(u, [[0, 1.1], [0.15, 0.85], [0.5, 1]]);
+          this.rate = 30;
+          this.bounce = 0.55;
+          P.yaw = kf(t, [[T.burst + 0.05, 0], [T.land - 0.08, Math.PI * 2]]);
+          P.armLz = -2.0 + Math.sin(t * 24) * 0.35;
+          P.armRz = 2.0 - Math.sin(t * 24 + 1) * 0.35;
+          P.legLz = -0.4;
+          P.legRz = 0.4;
+          P.legLx = Math.sin(t * 20) * 0.4;
+          P.legRx = -Math.sin(t * 20) * 0.4;
+          P.headRy = 0;
+          this.expr = "surprised";
+        } else {
+          if (!landed) {
+            landed = true;
+            pos.copy(home);
+            this.unwind();
+            this.burst(tmp.set(home.x, 0.05, home.z + 0.1), 10, "#d9cbb8", 0.04, 1.2, 1.5);
+          }
+          // A bump and a little bounce...
+          pos.y = kf(t, [[T.land, 0], [T.land + 0.16, 0.15], [T.land + 0.32, 0]]);
+          this.rate = 20;
+          this.bounce = 0.5;
+          P.squash = kf(t, [[T.land, 0.72], [T.land + 0.16, 1.08], [T.land + 0.32, 0.84], [T.land + 0.5, 1.04], [T.land + 0.65, 1]]);
+          P.headRy = 0;
+          if (t < T.over) {
+            // ...then "huh?": a tilt of the head and a look round.
+            const v = t - T.land;
+            P.headRz = kf(v, [[0.3, 0], [0.55, 0.26], [1.4, -0.18], [T.over - T.land, 0]]);
+            P.headRy = kf(v, [[0.3, 0], [0.6, s * 0.45], [1.0, s * 0.45], [1.25, -s * 0.3], [T.over - T.land, 0]]);
+            const shrug = kf(v, [[0.35, 0], [0.55, 1], [1.25, 1], [1.4, 0]]);
+            P.armLz = lerp(P.armLz, -0.75, shrug);
+            P.armRz = lerp(P.armRz, 0.75, shrug);
+            P.armLx = P.armRx = -0.35 * shrug;
+            this.expr = v < 0.3 ? "dizzy" : "confused";
+          } else if (t < T.joy) {
+            // Looks himself over: down at his tummy, at one arm, then the other.
+            const v = t - T.over;
+            P.headRx = kf(v, [[0, 0], [0.2, 0.36]]);
+            P.headRy = kf(v, [[0.1, 0], [0.3, -0.35], [0.4, -0.35], [0.55, 0.35]]);
+            P.yaw = Math.sin(v * 5) * 0.18;
+            P.armLx = kf(v, [[0, 0], [0.2, -0.75]]);
+            P.armLz = kf(v, [[0, REST.armLz], [0.2, -0.55]]);
+            P.armRx = kf(v, [[0, 0], [0.25, -0.75]]);
+            P.armRz = kf(v, [[0, REST.armRz], [0.25, 0.55]]);
+            this.expr = "ooh";
+          } else {
+            // Oh, it's lovely! A hop with both arms up.
+            const v = t - T.joy;
+            P.hipsY = HIP + kf(v, [[0.05, 0], [0.15, -0.05], [0.35, 0.24], [0.55, 0], [0.65, -0.03], [0.8, 0]]);
+            const up = kf(v, [[0, 0], [0.2, 1], [0.65, 1], [0.8, 0.6]]);
+            P.armLz = lerp(REST.armLz, -2.45, up) + Math.sin(v * 14) * 0.12 * up;
+            P.armRz = -P.armLz;
+            this.expr = "joy";
+            if (once("joy", v > 0.3)) this.burst(this.head.getWorldPosition(tmp), 14, newColor, 0.03, 2.4, 2);
+          }
+        }
+        this.root.scale.set(sxz, sy, sxz);
+        // Keep his round shadow on the floor whatever he's doing.
+        this.shadow.position.y = (0.003 - pos.y) / sy;
+
+        // Tears and sweat flying off both sides of his face, turn about, and dust where he's yanked.
+        if (scared && t > T.grab + tears * 0.15) {
+          tears++;
+          const side = tears % 2 ? 1 : -1;
+          const from = this.head.localToWorld(tmp.set(side * 0.42, 0.02, 0.36));
+          const dir = this.head.localToWorld(tmp2.set(side * 1.0, 0.75, 0.35)).sub(this.head.getWorldPosition(grip)).normalize();
+          this.burst(from, 2, "#a6dbff", 0.034, 1.7, 5.5, dir);
+        }
+        if (scuffs < jerks.length && t > jerks[scuffs]) {
+          scuffs++;
+          if (t < T.fall) this.burst(tmp.set(pos.x, 0.05, pos.z + 0.1), 7, "#d9cbb8", 0.035, 0.9, 1.5);
+          else mark(tmp.copy(pos).addScaledVector(face, 0.45), 0.4, 0.42, 0.14);
+        }
+        lastPos.copy(pos);
+
+        // Sweat drops sliding down both sides of his hood while it all goes on.
+        const sweating = t > T.uhoh && t < T.squash;
+        [this.sweat, this.sweat2].forEach((drop, i) => {
+          drop.visible = sweating;
+          if (!sweating) return;
+          const k = ((t - T.uhoh + i * 0.4) % 0.8) / 0.8;
+          const x = (i ? s : -s) * (0.5 - k * 0.04);
+          const y = 0.24 - k * 0.24;
+          const z = HEAD.z * Math.sqrt(Math.max(0, 1 - (x / HEAD.x) ** 2 - (y / HEAD.y) ** 2)) + 0.03;
+          drop.position.set(x, y, z);
+          const f = 1 - smooth(clamp((k - 0.7) / 0.3, 0, 1));
+          drop.scale.set(0.042 * f, 0.06 * f, 0.042 * f);
+        });
+
+        // "?" over his head after the landing.
+        const qs = kf(t, [[T.land + 0.45, 0], [T.land + 0.6, 0.6], [T.land + 0.7, 0.5], [T.over - 0.15, 0.5], [T.over, 0]]);
+        q.visible = qs > 0.01;
+        if (q.visible) {
+          this.head.getWorldPosition(tmp);
+          q.position.set(tmp.x - s * 0.5, tmp.y + 0.75 + Math.sin(t * 5) * 0.03, tmp.z + 0.2);
+          q.scale.setScalar(qs);
+          q.material.rotation = Math.sin(t * 4) * 0.18;
+        }
+        return t < T.done;
+      },
+      after: (t) => {
+        // The ghostly hands reach out along curves and take hold: arms and hips while
+        // he's standing, his feet once he's down, and one prises a mitten off the rim.
+        this.hips.updateWorldMatrix(true, true);
+        const nx = near === 1 ? 1 : -1;
+        const gone = kf(t, [[T.squash, 1], [T.slam, 0.01]]);
+        const toFeet = kf(t, [[T.fall, 0], [T.fall + 0.35, 1]]);
+        /** Where hand k holds on (and which way its palm faces), standing or down. */
+        const holdOf = (k: number, down: boolean, g: THREE.Vector3, d: THREE.Vector3) => {
+          if (k === 3) {
+            mittens[near].getWorldPosition(g);
+            d.subVectors(g, mouths[k]).normalize();
+          } else if (down) {
+            if (k === 2) this.hips.localToWorld(g.set(0, 0.0, -0.48));
+            else this.legs[k === 0 ? near : 1 - near].localToWorld(g.set(0, -0.34, 0.04));
+            d.subVectors(g, mouths[k]).normalize();
+          } else if (k === 0) {
+            mittens[near].getWorldPosition(g);
+            d.subVectors(g, mouths[k]).normalize();
+          } else {
+            this.hips.localToWorld(g.set(k === 1 ? nx * 0.5 : -nx * 0.48, k === 1 ? 0.22 : 0.36, 0.22));
+            this.hips.localToWorld(d.set(0, 0.3, -0.1)).sub(g).normalize();
+          }
+        };
+        // The ones on his feet go in with him as he drops inside; only the one at the rim stays out.
+        const inside = kf(t, [[T.rim - 0.15, 1], [T.rim + 0.05, 0.01]]);
+        gh.hands.forEach((h, k) => {
+          const u = smooth(clamp((t - launch[k]) / REACH, 0, 1));
+          const left = k === 3 ? gone : Math.min(gone, inside);
+          const showing = u > 0 && left > 0.02 && t < T.slam;
+          h.root.visible = h.arm.visible = showing;
+          if (!showing) return;
+          holdOf(k, false, grip, toward);
+          if (toFeet > 0 && k < 3) {
+            holdOf(k, true, grip2, toward2);
+            grip.lerp(grip2, toFeet);
+            toward.lerp(toward2, toFeet).normalize();
+          }
+          grip.addScaledVector(toward, -0.1);
+          const c = curves[k];
+          const w = t * 3 + k * 1.7;
+          c.v0.copy(mouths[k]);
+          c.v1.copy(mouths[k]).add(tmp.set(Math.sin(w) * 0.12, 0.8, Math.cos(w) * 0.08));
+          c.v2.copy(grip).add(tmp.subVectors(mouths[k], grip).multiplyScalar(0.2)).add(tmp.set(Math.cos(w * 1.3) * 0.08, 0.45, 0));
+          c.v3.copy(grip);
+          c.getPoint(u, h.root.position);
+          c.getTangent(u, tan);
+          // Fingers along the reach, palm towards him.
+          bx.copy(toward).addScaledVector(tan, -toward.dot(tan));
+          if (bx.lengthSq() < 1e-6) bx.set(0, 0, 1);
+          bx.normalize();
+          tmp.crossVectors(tan, bx);
+          basis.makeBasis(tmp, tan, bx);
+          h.root.quaternion.setFromRotationMatrix(basis);
+          h.root.position.addScaledVector(tan, 0.04);
+          const size = (0.6 + 0.8 * u) * left;
+          h.root.scale.set(k % 2 ? -size : size, size, size);
+          reachArm(h, c, u, 0.045 * left, 0.1 * left);
+          // Open and wiggling on the way; then a firm (squeezy) grip.
+          const hold = kf(t - launch[k] - REACH, [[-0.15, 0], [0.05, 1]]);
+          h.fingers.forEach((f, i) => {
+            const wiggle = Math.sin(t * 16 + i * 0.9) * 0.25 * (1 - hold);
+            f.rotation.x = lerp(0.1 + wiggle, i === 4 ? 0.9 : 1.25 + Math.sin(t * 9 + k) * 0.08, hold);
+          });
+        });
+      },
+      end: () => {
+        // Kept for next time.
+        tr.group.removeFromParent();
+        gh.group.removeFromParent();
+        q.removeFromParent();
+        for (const m of marks) {
+          m.removeFromParent();
+          (m.material as THREE.Material).dispose();
+        }
+        markGeo.dispose();
+        dim(1);
+        if (!swapped) setTheme(name);
+        this.wide = 0;
+        this.unwind();
+        // Interrupted part-way? Back where he started, the right size.
+        this.root.position.copy(home);
+        this.root.scale.setScalar(1);
+        this.root.visible = true;
+        this.shadow.position.y = 0.003;
+        this.sweat.visible = this.sweat2.visible = false;
       },
     };
   }

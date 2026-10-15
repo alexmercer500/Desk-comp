@@ -4,7 +4,7 @@
 
 import { Engine } from "../engine/engine";
 import { SKINS } from "../skins";
-import type { StateName } from "../engine/types";
+import type { CharacterId, StateName } from "../engine/types";
 
 /** Phone mood → the character state it is drawn in, and how long to let it settle (ms). */
 const MOODS: Record<string, [StateName, number]> = {
@@ -14,6 +14,13 @@ const MOODS: Record<string, [StateName, number]> = {
   done: ["SUCCESS", 500],
   droop: ["ERROR", 700],
   sleep: ["SLEEPING", 1200],
+};
+
+/** A character whose mood reads better at another moment of the state (ms). */
+const SETTLE: Partial<Record<CharacterId, Partial<Record<string, number>>>> = {
+  // Dogesh's moods come later in their states: hiding under his scarf (call),
+  // fainted stiff after the scream (droop), curled up under the scarf (sleep).
+  dogesh: { call: 1500, droop: 1250, sleep: 2200 },
 };
 
 const SIZE = 192;
@@ -34,7 +41,7 @@ for (const [id, skin] of Object.entries(SKINS)) {
     engine.setState("IDLE", null, 0);
     engine.advance(300);
     engine.setState(state, null, 0);
-    engine.advance(settle);
+    engine.advance(SETTLE[id as CharacterId]?.[mood] ?? settle);
     pictures[`${id}-${mood}`] = canvas.toDataURL("image/webp", 0.9);
   }
 }

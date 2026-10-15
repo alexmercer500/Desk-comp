@@ -26,7 +26,7 @@ const STATES: [StateName, Variant][] = [
 ];
 const MOMENTS = [0, 16, 90, 150, 300, 450, 700, 1200, 1500, 2100, 2600, 5300, 9100];
 
-describe.each(["kulhi", "hexo", "glim", "billu"])("%s", (name) => {
+describe.each(["kulhi", "hexo", "glim", "billu", "dogesh"])("%s", (name) => {
   let skin: Skin;
   beforeAll(async () => {
     skin = (await import("../src/skins"))["SKINS"][name as "kulhi"];

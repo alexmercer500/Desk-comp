@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Desk Companion</title>
+    <link rel="stylesheet" href="/src/panel/style.css" />
+    <link rel="stylesheet" href="/src/app/app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="side" aria-label="Pages">
+        <div class="brand">
+          <span class="brand-name">Desk Companion</span>
+          <span class="brand-version" id="version"></span>
+        </div>
+        <ul class="nav" id="nav">
+          <li><button type="button" data-page="home" aria-current="page">Home</button></li>
+          <li><button type="button" data-page="coding-agents">Coding agents</button></li>
+          <li><button type="button" data-page="appearance">Character</button></li>
+          <li><button type="button" data-page="notifications">Notifications</button></li>
+          <li><button type="button" data-page="phone">Phone</button></li>
+          <li><button type="button" data-page="ask-ai">Ask (AI)</button></li>
+          <li><button type="button" data-page="system">System and updates</button></li>
+        </ul>
+        <p class="side-foot">Your character keeps working when this window is closed.</p>
+      </nav>
+
+      <main class="main">
+        <header class="band" id="band">
+          <div class="band-text">
+            <h1 id="page-title">Home</h1>
+            <p id="page-lede"></p>
+          </div>
+          <div class="stage" id="stage" aria-hidden="true"></div>
+        </header>
+
+        <div class="content">
+          <div class="home" id="home"></div>
+          <div class="settings" id="settings"></div>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>
