@@ -1,6 +1,6 @@
 [package]
 name = "desk-companion"
-version = "0.10.1"
+version = "0.10.2"
 description = "A small character that lives in the corner of your desktop"
 edition = "2021"
 
@@ -33,10 +33,11 @@ ring = "0.17"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 if-addrs = "0.13"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
 # Pinned to a minor version: updates.rs adjusts its HTTP client (configure_client), which may change between minors.
 tauri-plugin-updater = "~2.13"
 # Phone relay (phone/relay.rs): a WebSocket client to the relay, TLS on ring too.
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
-webpki-roots = "1"
+# Windows' own certificate check for the relay, so antivirus HTTPS scanning doesn't break it.
+rustls-platform-verifier = "0.7"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

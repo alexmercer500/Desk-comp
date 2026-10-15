@@ -9,6 +9,10 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.10.2 (15 October 2026, Android 0.4.4 carried over)
+
+- **The phone link over the internet works with antivirus HTTPS scanning.** Avast, AVG, ESET and other antivirus programs check secure connections by putting their own certificate in front of the website's. Desk Companion only accepted certificates from its own built-in list, so on those PCs the link to the relay was slow to connect, kept retrying, or failed. It now checks certificates the way Windows and your browser do, so anything your browser trusts, it trusts too. Ask (AI) also accepts the certificates Windows trusts now.
+
 ## 0.10.1 (15 October 2026, Android 0.4.4)
 
 - **Dogesh Bhai's outfits on your phone.** The phone app now shows Dogesh Bhai in the outfit he wears on your PC, in every mood (working, needs you, done, droop, asleep), and takes the outfit's colour. You can pick his outfit on the phone too: Settings → Character → Dogesh Bhai, and the PC changes into it. Both directions need both apps updated; an older one just keeps the Cozy scarf.

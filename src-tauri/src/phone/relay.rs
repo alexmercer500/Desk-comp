@@ -258,11 +258,15 @@ impl Ended {
 
 fn client_tls() -> Result<rustls::ClientConfig, String> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+    // Windows' own certificate check, as browsers and the updater use. A built-in root
+    // list rejected the certificate that antivirus HTTPS scanning (Avast, AVG, ESET…)
+    // puts in front of the relay's, so the link failed or kept retrying on those PCs.
+    let verifier = rustls_platform_verifier::Verifier::new(provider.clone()).map_err(|e| e.to_string())?;
     Ok(rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|e| e.to_string())?
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
         .with_no_client_auth())
 }
 

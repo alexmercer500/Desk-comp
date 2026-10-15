@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "companion-hook"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "serde_json",
 ]
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "desk-companion"
-version = "0.10.1"
+version = "0.10.2"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
@@ -800,6 +800,7 @@ dependencies = [
  "reqwest 0.12.28",
  "ring",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "tauri",
@@ -809,7 +810,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
- "webpki-roots 1.0.9",
 ]
 
 [[package]]
@@ -1628,6 +1628,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rustls",
+ "rustls-native-certs",
  "tokio",
  "tokio-rustls",
  "tower-service",
@@ -3108,6 +3109,7 @@ dependencies = [
  "pin-project-lite",
  "quinn",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "serde",
  "serde_json",
