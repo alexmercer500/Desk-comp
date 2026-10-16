@@ -641,6 +641,22 @@ export function lineTotals(changes: Change[]): string | false {
   return add + del > 0 && `+${add} −${del}`;
 }
 
+/**
+ * What kind of task a tool is, for the character's working pose: reading or
+ * searching, editing, running a command, or the web. Null when it's none of
+ * those (planning, delegating): the pose stays as it was.
+ */
+export function activityOf(tool: string | null | undefined): "research" | "edit" | "run" | "browse" | null {
+  if (!tool) return null;
+  const t = tool.toLowerCase();
+  if (/^mcp__.*(playwright|browser|chrome|puppeteer|fetch|web)/.test(t)) return "browse";
+  if (/^(webfetch|websearch|web_fetch|web_search|google_web_search|fetch_url)$/.test(t)) return "browse";
+  if (/^(bash|powershell|shell|shell_command|run_shell_command|run_command|execute_command|terminal|bashoutput|killshell)$/.test(t)) return "run";
+  if (/^(edit|multiedit|write|notebookedit|write_file|edit_file|replace|str_replace|apply_patch|create_file)$/.test(t)) return "edit";
+  if (/^(read|grep|glob|ls|notebookread|read_file|read_many_files|read_directory|list_directory|search_files|search_file_content|grep_search|file_search|codebase_search)$/.test(t)) return "research";
+  return null;
+}
+
 /** Present-tense line for what a step is doing, e.g. "Editing cart.ts". */
 export function describeStep(step: Step): string {
   const d = step.detail ? firstLine(step.detail, 60) : "";

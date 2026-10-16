@@ -172,7 +172,8 @@ const DOG_LABELS: Record<string, string> = {
 };
 /** The app's states, as the desktop stage cues them (stage.ts). */
 const CUES: [string, string][] = [
-  ["call", "Needs you"], ["work", "Working"], ["hooray", "Success"], ["droop", "Error"],
+  ["call", "Needs you"], ["work", "Working (editing)"], ["research", "Reading / searching"], ["run", "Running a command"],
+  ["browse", "On the web"], ["hooray", "Success"], ["droop", "Error"],
   ["poke", "Poked"], ["dizzy", "Dizzy"], ["ponder", "Suggesting"], ["shrug", "Confused"],
   ["nod", "Nod"], ["boot", "Waking up"], ["doze", "Dozing"], ["sleep", "Asleep"],
   ["held", "Held"], ["land", "Landing"], ["hopRight", "Hop"], ["stand", "Stand / stop"],

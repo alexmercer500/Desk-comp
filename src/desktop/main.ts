@@ -19,7 +19,7 @@ import { showFor, type BubbleMessage } from "../bubble/types";
 import { CharacterController } from "../engine/controller";
 import type { CharacterId, StateName } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
-import { AgentTracker, type AgentEvent, type DayStats, type Decision, type StatsStore } from "./agents";
+import { AgentTracker, activityOf, type AgentEvent, type DayStats, type Decision, type StatsStore } from "./agents";
 import { Companion, allowed, type Prefs, type SystemEvent } from "./companion";
 import { Island, agentRows, agentStatus, workingCard } from "./island";
 import { phoneView } from "./phone";
@@ -496,7 +496,16 @@ agents.onChange = () => {
   refreshIsland();
   sendToPhone();
   syncWaiting();
+  syncActivity();
 };
+
+/** Rui and Dogesh's working pose follows what the busiest agent is doing now (stage.ts settles it). */
+function syncActivity() {
+  const working = agents.snapshot().filter((s) => s.status === "working");
+  const latest = working.sort((a, b) => b.lastEvent - a.lastEvent)[0];
+  const step = latest?.current?.steps.at(-1);
+  stage?.setActivity(activityOf(step?.tool));
+}
 
 /** Rui and Dogesh keep calling you (or look at you, asking) for as long as an agent waits. */
 function syncWaiting() {

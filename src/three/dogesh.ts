@@ -96,7 +96,9 @@ export const DOG_ACTIONS: DogAction[] = [
 /** Behaviours the desktop app cues as the character's state changes (the same names as Rui's). */
 export type DogCue =
   | "rest" | "boot" | "stand" | "work" | "hooray" | "nod" | "ponder" | "shrug" | "droop"
-  | "call" | "doze" | "sleep" | "wake" | "held" | "land" | "dizzy" | "hopLeft" | "hopRight";
+  | "call" | "doze" | "sleep" | "wake" | "held" | "land" | "dizzy" | "hopLeft" | "hopRight"
+  /** Working, by what the agent is doing: reading or searching, running a command, on the web ("work" is editing). */
+  | "research" | "run" | "browse";
 
 interface Running {
   name: string;
@@ -565,6 +567,11 @@ export class Dogesh {
       case "wake":
         return standFirst();
       case "work":
+        return [...sitFirst(), () => this.working()];
+      // Placeholders until each has a pose of its own: the tablet.
+      case "research":
+      case "run":
+      case "browse":
         return [...sitFirst(), () => this.working()];
       case "hooray":
         return [...standFirst(), () => this.jig()];

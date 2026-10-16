@@ -54,7 +54,9 @@ export const ACTIONS: ActionName[] = ["walk", "stroll", "spin", "wave", "sit", "
  */
 export type Cue =
   | "rest" | "boot" | "stand" | "work" | "hooray" | "nod" | "ponder" | "shrug" | "droop"
-  | "call" | "doze" | "sleep" | "wake" | "held" | "land" | "dizzy" | "hopLeft" | "hopRight";
+  | "call" | "doze" | "sleep" | "wake" | "held" | "land" | "dizzy" | "hopLeft" | "hopRight"
+  /** Working, by what the agent is doing: reading or searching, running a command, on the web ("work" is editing). */
+  | "research" | "run" | "browse";
 
 /** The four ways of putting on a new colour theme. */
 export type ChangeStyle = "paint" | "twirl" | "wardrobe" | "trunk";
@@ -408,6 +410,11 @@ export class Rui {
       case "stand":
         return standFirst();
       case "work":
+        return [...sitFirst(), () => this.working()];
+      // Placeholders until each has a pose of its own: the tablet.
+      case "research":
+      case "run":
+      case "browse":
         return [...sitFirst(), () => this.working()];
       case "hooray":
         return [...standFirst(), () => (Math.random() < 0.4 ? this.spin() : this.hooray())];
