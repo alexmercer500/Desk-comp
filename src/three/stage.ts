@@ -126,6 +126,8 @@ export class RuiStage {
   /** Called once if he can't keep up on this PC (the app shows a 2D character instead). */
   onSlow: (() => void) | null = null;
   private reduced = false;
+  private still = false;
+  private waiting: "permission" | "question" | null = null;
   private running = false;
   private hidden = false;
   private raf = 0;
@@ -273,7 +275,7 @@ export class RuiStage {
     this.changing = null;
     this.actor.mood = state === "ATTENTIVE" ? "happy" : "neutral";
     this.actor.autoLife = this.lively();
-    let cue = cueFor(state, variant);
+    let cue = this.cueNow(state, variant);
     if (cue && this.reduced) cue = CALMER[cue] ?? cue;
     if (cue) {
       this.actor.play(cue);
@@ -286,6 +288,25 @@ export class RuiStage {
     // Back to rest: stop whatever lasting thing he was doing (a scene he's in
     // the middle of, like eating or a twirl, finishes by itself).
     if (LASTING.has(this.actor.current)) this.actor.play("stand");
+  }
+
+  /**
+   * An agent is waiting for you: for an OK ("permission") or an answer
+   * ("question"). While it waits he keeps at it (calling you, or a
+   * questioning look), instead of going back to work after the first nudge.
+   */
+  setWaiting(kind: "permission" | "question" | null): void {
+    if (this.waiting === kind) return;
+    this.waiting = kind;
+    if (this.state !== "WORKING" || this.changing || this.held) return;
+    const cue = this.cueNow(this.state, null);
+    if (cue) this.actor.play(cue);
+  }
+
+  /** The cue for a state, with an agent waiting for you taking over from work. */
+  private cueNow(state: StateName, variant: Variant): Cue | null {
+    if (state === "WORKING" && this.waiting) return this.waiting === "question" ? "ponder" : "call";
+    return cueFor(state, variant);
   }
 
   /** One-shot extras the app plays over any state. */
@@ -447,7 +468,7 @@ export class RuiStage {
       this.setState(this.state, null);
       return;
     }
-    const cue = cueFor(this.state, null);
+    const cue = this.cueNow(this.state, null);
     if (cue && LASTING.has(cue)) this.actor.play(cue);
   }
 
@@ -493,7 +514,14 @@ export class RuiStage {
   }
 
   private lively(): boolean {
-    return this.state === "IDLE" && this.framing === "corner" && !this.reduced;
+    return this.state === "IDLE" && this.framing === "corner" && !this.reduced && !this.still;
+  }
+
+  /** No wandering off on his own (a speech bubble beside him is pointing at him). */
+  setStill(on: boolean): void {
+    if (this.still === on) return;
+    this.still = on;
+    this.actor.autoLife = this.lively();
   }
 
   /**

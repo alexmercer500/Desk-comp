@@ -191,6 +191,18 @@ export class CharacterController {
     this.request({ state, variant: null });
   }
 
+  /**
+   * One task's result while others carry on: the reaction (a cheer, a droop,
+   * a shrug), then straight back to work. Only from plain working: a call for
+   * your attention isn't cut short.
+   */
+  interlude(result: { confidence: number; error?: boolean }) {
+    if (this.state !== "WORKING") return;
+    const { high, low } = this.cfg;
+    this.go(result.error ? "ERROR" : result.confidence >= high ? "SUCCESS" : result.confidence >= low ? "SUGGESTING" : "CONFUSED");
+    this.resume = { state: "WORKING", variant: null };
+  }
+
   suggestionPicked() {
     if (this.state === "SUGGESTING") this.go("SUCCESS", "short");
   }

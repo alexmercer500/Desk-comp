@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { ClickGuard } from "./guard";
 import { renderQuestions } from "./question";
-import type { BubbleMessage } from "./types";
+import { showFor, type BubbleMessage } from "./types";
 
 // Colours from the chosen theme, before anything is drawn.
 initTheme();
@@ -21,12 +21,12 @@ const title = document.getElementById("title")!;
 const text = document.getElementById("text")!;
 const detail = document.getElementById("detail")!;
 const meta = document.getElementById("meta")!;
+const rows = document.getElementById("rows")!;
 const actions = document.getElementById("actions")!;
 const questionsBox = document.getElementById("questions")!;
 
-/** How long a non-sticky bubble stays up; longer when there's more to read. */
-const SHOW_MS = 6000;
-const SHOW_MS_DETAIL = 9000;
+/** While a card is up it's re-placed this often, so it stays beside the character if he moves. */
+const FOLLOW_MS = 250;
 
 let hideTimer = 0;
 /** The card on screen. */
@@ -46,6 +46,8 @@ function top(): BubbleMessage | null {
 }
 
 function receive(msg: BubbleMessage) {
+  // What agents are up to never covers a card waiting for an answer.
+  if (msg.category === "agent-working" && pinned.size) return;
   if (msg.sticky) {
     pinned.delete(msg.id); // re-added last: it's the newest
     pinned.set(msg.id, msg);
@@ -73,6 +75,23 @@ async function display(msg: BubbleMessage | null) {
   current = msg;
   title.textContent = msg.title;
   text.textContent = msg.text;
+  text.hidden = !msg.text;
+  rows.hidden = !msg.rows?.length;
+  rows.replaceChildren(
+    ...(msg.rows ?? []).map((r) => {
+      const row = document.createElement("span");
+      row.className = "row";
+      row.dataset.tone = r.tone;
+      const project = document.createElement("span");
+      project.className = "row-project";
+      project.textContent = r.project;
+      const line = document.createElement("span");
+      line.className = "row-line";
+      line.textContent = r.line;
+      row.append(project, line);
+      return row;
+    }),
+  );
   detail.textContent = msg.detail ?? "";
   detail.hidden = !msg.detail;
   detail.classList.toggle("mono", !!msg.mono);
@@ -109,23 +128,37 @@ async function display(msg: BubbleMessage | null) {
   // Buttons that just appeared under the cursor don't take clicks for a moment.
   if (newRequest) guard.arm(msg.request!);
 
-  wrap.dataset.tail = await invoke<string>("bubble_place");
-  // Measure after layout so the click area matches the card exactly.
-  requestAnimationFrame(() => {
-    if (current !== msg) return;
-    const r = card.getBoundingClientRect();
-    void invoke("bubble_card", { rect: { x: r.left, y: r.top, w: r.width, h: r.height } });
-    card.classList.add("shown");
-    // The agent waits only for a card that's on screen (see agents.rs).
-    if (msg.request) void emitTo("companion", "permission:shown", msg.request);
-  });
+  // Lay the card out, then measure it, then put it beside the character (desktop.rs, placement.rs).
+  await new Promise(requestAnimationFrame);
+  if (current !== msg) return;
+  await place();
+  if (current !== msg) return;
+  void invoke("bubble_card", { rect: { x: wrap.offsetLeft, y: wrap.offsetTop, w: card.offsetWidth, h: card.offsetHeight } });
+  card.classList.add("shown");
+  // The agent waits only for a card that's on screen (see agents.rs).
+  if (msg.request) void emitTo("companion", "permission:shown", msg.request);
   if (!msg.sticky) {
     hideTimer = window.setTimeout(() => {
       if (passing?.id === msg.id) passing = null;
       void display(top());
-    }, msg.detail ? SHOW_MS_DETAIL : SHOW_MS);
+    }, showFor(msg));
   }
 }
+
+/** Moves the window so the card sits beside the character, its tail pointing at him. */
+async function place() {
+  const keep = card.classList.contains("shown") ? wrap.dataset.tail : undefined;
+  const spot = await invoke<{ tail: string; at: number }>("bubble_place", {
+    card: { w: card.offsetWidth, h: card.offsetHeight, keep: keep && keep !== "none" ? keep : null },
+  });
+  wrap.dataset.tail = spot.tail;
+  wrap.style.setProperty("--tail-at", `${spot.at}px`);
+}
+
+// Rui and Dogesh can be mid-step when a card appears, and he can be dragged: follow him.
+window.setInterval(() => {
+  if (current && card.classList.contains("shown")) void place();
+}, FOLLOW_MS);
 
 function hide() {
   window.clearTimeout(hideTimer);

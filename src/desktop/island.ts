@@ -15,8 +15,8 @@
 
 import { ClickGuard } from "../bubble/guard";
 import { renderQuestions, type Answers } from "../bubble/question";
-import type { BubbleKind, BubbleMessage } from "../bubble/types";
-import { describeStep, type Decision, type SessionView } from "./agents";
+import { showFor, type BubbleKind, type BubbleMessage } from "../bubble/types";
+import { AGENT_NAMES, describeStep, type Decision, type SessionView } from "./agents";
 import { firstLine } from "./format";
 
 export type IslandState = "tucked" | "peek" | "status" | "list" | "notice";
@@ -57,10 +57,7 @@ const EDGE_REACH = 120;
 const HOVER_MARGIN = 18;
 /** …and this long after it leaves. */
 const LEAVE_MS = 700;
-/** How long a notification stays (longer with more to read), and how long
- *  after the cursor leaves it if the user was reading it. */
-const NOTICE_MS = 6000;
-const NOTICE_MS_DETAIL = 9000;
+/** How long a notification stays after the cursor leaves it, if the user was reading it. */
 const NOTICE_AFTER_HOVER_MS = 2000;
 
 /**
@@ -99,6 +96,38 @@ export function agentRows(sessions: SessionView[]): IslandRow[] {
       project: name(s),
       line: s.permission ? `wants to ${s.permission.action}` : nowLine(s, 110),
     }));
+}
+
+/**
+ * In the corner, the card that says what's going on (when a task gets going,
+ * or while you hover the character): one busy session's current step and the
+ * prompt, or every busy session as a line, the ones waiting for an OK first.
+ */
+export function workingCard(sessions: SessionView[]): Pick<BubbleMessage, "kind" | "title" | "text" | "meta" | "rows" | "session"> | null {
+  const busy = sessions.filter((s) => s.status === "waiting" || s.status === "working");
+  if (!busy.length) return null;
+  const waiting = busy.filter((s) => s.status === "waiting").length;
+  const kind = waiting ? "attention" : "info";
+  if (busy.length === 1) {
+    const [s] = busy;
+    const agent = AGENT_NAMES[s.agent] ?? s.agent;
+    const prompt = s.current?.prompt;
+    return {
+      kind,
+      session: s.id,
+      title: s.project ? `${agent} · ${s.project}` : agent,
+      text: s.permission ? `Wants to ${s.permission.action}` : nowLine(s, 90),
+      meta: prompt ? `“${firstLine(prompt, 70)}”` : undefined,
+    };
+  }
+  const rows = agentRows(sessions);
+  return {
+    kind,
+    title: `${busy.length} agents working`,
+    text: waiting ? `${waiting === busy.length ? "All" : waiting} waiting for your OK` : "",
+    rows: rows.map(({ tone, project, line }) => ({ tone, project, line })),
+    meta: busy.length > rows.length ? `+${busy.length - rows.length} more` : undefined,
+  };
 }
 
 const name = (s: SessionView) => s.project || "Agent";
@@ -228,7 +257,7 @@ export class Island {
       }
     } else {
       this.passing = msg;
-      this.armPassing(msg.detail ? NOTICE_MS_DETAIL : NOTICE_MS);
+      this.armPassing(showFor(msg));
     }
     this.update();
   }

@@ -14,6 +14,7 @@ let t: AgentTracker;
 const character: CharacterSink = {
   startWork: () => { calls.push("startWork"); state = "WORKING"; },
   finishWork: (r) => { calls.push(r.error ? "finish:error" : `finish:${r.confidence}`); state = "SUCCESS"; },
+  interlude: (r) => { calls.push(r.error ? "interlude:error" : `interlude:${r.confidence}`); },
   cancelWork: () => { calls.push("cancelWork"); state = "IDLE"; },
   notify: () => { calls.push("notify"); },
   getState: () => state,
@@ -99,6 +100,53 @@ describe("a finished task", () => {
       t.handle(ev("Stop"));
     }
     expect(t.snapshot()[0].history.map((h) => h.prompt)).toEqual(["task 6", "task 5", "task 4", "task 3", "task 2"]);
+  });
+});
+
+describe("two agents at once", () => {
+  it("cheers when one finishes, back to work, and finishes properly with the last", () => {
+    t.handle(ev("UserPromptSubmit", { session: "a", prompt: "one" }));
+    t.handle(ev("UserPromptSubmit", { session: "b", prompt: "two" }));
+    t.handle(ev("Stop", { session: "a" }));
+    expect(calls).toEqual(["startWork", "interlude:1"]);
+    t.handle(ev("Stop", { session: "b" }));
+    expect(calls).toEqual(["startWork", "interlude:1", "finish:1"]);
+  });
+});
+
+describe("a task getting going (the corner's working card)", () => {
+  it("once per task, at its first step", () => {
+    const started: string[] = [];
+    t.onStarted = (id) => started.push(id);
+    t.handle(ev("UserPromptSubmit", { prompt: "Fix the cart" }));
+    expect(started).toEqual([]);
+    step("Read", `${CWD}\a.ts`);
+    step("Edit", `${CWD}\a.ts`);
+    expect(started).toEqual(["s1"]);
+    t.handle(ev("Stop"));
+    t.handle(ev("UserPromptSubmit", { prompt: "Now the tests" }));
+    step("Bash", "npm test");
+    expect(started).toEqual(["s1", "s1"]);
+  });
+
+  it("a task that only thinks gets it a few seconds in; one that answers at once doesn't", () => {
+    const started: string[] = [];
+    t.onStarted = (id) => started.push(id);
+    t.handle(ev("UserPromptSubmit", { prompt: "Explain this" }));
+    clock = 3000;
+    t.sweep();
+    expect(started).toEqual([]);
+    clock = 5000;
+    t.sweep();
+    expect(started).toEqual(["s1"]);
+
+    t.handle(ev("Stop"));
+    t.handle(ev("UserPromptSubmit", { prompt: "Quick one" }));
+    clock = 6000;
+    t.handle(ev("Stop"));
+    clock = 20_000;
+    t.sweep();
+    expect(started).toEqual(["s1"]);
   });
 });
 
@@ -204,11 +252,11 @@ describe("other endings", () => {
 });
 
 describe("stopped by the user", () => {
-  it("an Interrupt ends the turn quietly: no done, no error, not working any more", () => {
+  it("an Interrupt ends the turn quietly: no done, no error, a little shrug, not working any more", () => {
     t.handle(ev("UserPromptSubmit", { agent: "codex", prompt: "Refactor the API" }));
     step("Edit", `${CWD}\src\api.ts`);
     t.handle(ev("Interrupt", { agent: "codex" }));
-    expect(calls).toEqual(["startWork", "cancelWork"]);
+    expect(calls).toEqual(["startWork", "finish:0"]);
     expect(shown).toEqual([]);
     const [view] = t.snapshot();
     expect(view.status).toBe("idle");

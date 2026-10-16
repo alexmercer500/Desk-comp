@@ -21,6 +21,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+use crate::placement::{place_card, Rect, Tail};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
@@ -39,6 +41,12 @@ pub const HOME_LABEL: &str = "home";
 /// rest is transparent and click-through.
 const BUBBLE_W: f64 = 340.0;
 const BUBBLE_H: f64 = 330.0;
+/// The card's corner inside the bubble window (room for its tail), logical px.
+const CARD_INSET: f64 = 14.0;
+/// Clear space between the card and the character's body, logical px.
+const CARD_GAP: f64 = 12.0;
+/// Keeps the tail off the card's rounded corners, logical px.
+const TAIL_INSET: f64 = 20.0;
 /// Panel window size, logical px.
 const PANEL_W: f64 = 380.0;
 const PANEL_H: f64 = 540.0;
@@ -206,6 +214,8 @@ struct Inner {
     /// Set while the bubble is on screen.
     card: Option<CardRect>,
     card_clickable: bool,
+    /// The cursor is on the character or his card (sent to the page as "hover").
+    hovering: bool,
     /// Where the character was before stepping aside for a full-screen app.
     parked_from: Option<(f64, f64)>,
 }
@@ -791,6 +801,13 @@ fn tick(app: &AppHandle) -> bool {
         }
     }
 
+    // Hovering him (or his card, to read it): the page shows what his agents are up to.
+    let on = !is_top() && drag.is_none() && (over || app.state::<Desk>().with(|s| s.card_clickable));
+    let flipped = app.state::<Desk>().with(|s| std::mem::replace(&mut s.hovering, on) != on);
+    if flipped {
+        let _ = win.emit("hover", on);
+    }
+
     busy
 }
 
@@ -881,36 +898,51 @@ fn mouse_down() -> bool {
     true
 }
 
-/// Moves the bubble window beside the character, on the side with more room,
-/// or just below the island in top mode. Returns where the card's tail sits:
-/// "left", "right", or "top" (no tail: the card hangs from the island).
+/// The card's size, logical px (measured by the bubble page), and the side its tail is on now, if it's showing.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CardSize {
+    w: f64,
+    h: f64,
+    #[serde(default)]
+    keep: Option<String>,
+}
+
+/// Where the bubble page draws its card's tail: the card's edge ("left",
+/// "right", "top", "bottom", or "none" under the island) and how far along it, logical px.
+#[derive(Clone, Copy, Serialize)]
+pub struct BubbleSpot {
+    tail: &'static str,
+    at: f64,
+}
+
+/// Moves the bubble window so its card sits beside the character, never over
+/// him (placement.rs), or just below the island in top mode.
 #[tauri::command]
-pub async fn bubble_place(app: AppHandle) -> Result<String, String> {
+pub async fn bubble_place(app: AppHandle, card: CardSize) -> Result<BubbleSpot, String> {
     let win = window(&app).ok_or("no window")?;
     let bubble = app.get_webview_window(BUBBLE_LABEL).ok_or("no bubble")?;
     let pos = square(&win).ok_or("no position")?;
     let scale = win.scale_factor().unwrap_or(1.0);
     let area = area_near(&app, body_center(pos, scale)).ok_or("no display")?;
-    let (bw, bh) = (BUBBLE_W * scale, BUBBLE_H * scale);
+    let (w, h) = (card.w * scale, card.h * scale);
+    // The card sits this far in from the bubble window's top-left corner.
+    let inset = CARD_INSET * scale;
+    let put_card = |x: f64, y: f64| bubble.set_position(PhysicalPosition::new((x - inset).round(), (y - inset).round())).map_err(|e| e.to_string());
 
     if is_top() {
-        let x = (pos.0 + (ISLAND_W * scale - bw) / 2.0).clamp(area.x, area.x + area.w - bw);
-        let y = pos.1 + (ISLAND_BOTTOM + 4.0) * scale;
-        bubble.set_position(PhysicalPosition::new(x.round(), y.round())).map_err(|e| e.to_string())?;
-        return Ok("top".into());
+        let x = (pos.0 + (ISLAND_W * scale - w) / 2.0).clamp(area.x, (area.x + area.w - w).max(area.x));
+        put_card(x, pos.1 + (ISLAND_BOTTOM + 4.0) * scale)?;
+        return Ok(BubbleSpot { tail: "none", at: 0.0 });
     }
 
-    // On the right half of the screen the bubble opens to the left of the character.
     let side = side() * scale;
-    let anchor_x = pos.0 + side * 0.5;
-    let on_right = anchor_x > area.center().0;
-    let tail_reach = 28.0 * scale;
-    let x = if on_right { anchor_x + tail_reach - bw } else { anchor_x - tail_reach };
-    let y = pos.1 + side * 0.34 - bh;
-    let x = x.clamp(area.x, area.x + area.w - bw);
-    let y = y.max(area.y);
-    bubble.set_position(PhysicalPosition::new(x.round(), y.round())).map_err(|e| e.to_string())?;
-    Ok(if on_right { "right" } else { "left" }.into())
+    let hit = app.state::<Desk>().with(|s| s.hit).unwrap_or(HitRect { x0: 0.25, y0: 0.3, x1: 0.75, y1: 0.92 });
+    let body = Rect { x: pos.0 + hit.x0 * side, y: pos.1 + hit.y0 * side, w: (hit.x1 - hit.x0) * side, h: (hit.y1 - hit.y0) * side };
+    let screen = Rect { x: area.x, y: area.y, w: area.w, h: area.h };
+    let keep = card.keep.as_deref().and_then(Tail::from_name);
+    let placed = place_card(body, w, h, screen, CARD_GAP * scale, TAIL_INSET * scale, keep);
+    put_card(placed.card.x, placed.card.y)?;
+    Ok(BubbleSpot { tail: placed.tail.name(), at: placed.tail_at / scale })
 }
 
 /// The card's rectangle inside the bubble window, so only it takes clicks.

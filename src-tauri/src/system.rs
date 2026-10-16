@@ -55,6 +55,8 @@ pub struct Prefs {
     pub notify_done: bool,
     pub notify_permission: bool,
     pub notify_waiting: bool,
+    /// A few seconds of what an agent is working on when it starts (corner only).
+    pub notify_working: bool,
     pub notify_errors: bool,
     /// Allow / Deny from the companion. Off: requests go straight to the terminal.
     pub answer_permissions: bool,
@@ -104,6 +106,7 @@ impl Default for Prefs {
             notify_done: true,
             notify_permission: true,
             notify_waiting: true,
+            notify_working: true,
             notify_errors: true,
             answer_permissions: true,
             ask_enabled: true,

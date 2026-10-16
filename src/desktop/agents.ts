@@ -44,6 +44,8 @@ export type Decision = "allow" | "always" | "deny" | "terminal";
 export interface CharacterSink {
   startWork(opts: { timeoutMs: number | null }): void;
   finishWork(result: { confidence: number; error?: boolean }): void;
+  /** One task's result while other agents are still busy: a reaction, then back to work. */
+  interlude(result: { confidence: number; error?: boolean }): void;
   cancelWork(): void;
   notify(): void;
   getState(): string;
@@ -136,6 +138,8 @@ const KEEP_ENDED_MS = 30 * 60_000;
 /** While a permission is pending, nudge again this often, at most MAX_NUDGES times. */
 const NUDGE_EVERY_MS = 45_000;
 const MAX_NUDGES = 3;
+/** A task that's still only thinking this long after the prompt gets its "working" card anyway. */
+const THINKING_MS = 4000;
 /** After a finish, an "idle prompt" notification within this window is redundant. */
 const QUIET_AFTER_FINISH_MS = 90_000;
 /** Steps kept per task, finished tasks kept per session. */
@@ -171,6 +175,12 @@ export class AgentTracker {
   private sessions = new Map<string, Session>();
   /** Called whenever anything the panel shows changes. */
   onChange: (() => void) | null = null;
+  /**
+   * A task got going: its first step, or still thinking a few seconds after
+   * the prompt. Once per task; the corner shows what it's doing for a moment.
+   */
+  onStarted: ((session: string) => void) | null = null;
+  private announced = new WeakSet<Turn>();
 
   private stats: DayStats;
 
@@ -227,6 +237,7 @@ export class AgentTracker {
         s.nudgedAt = now;
         this.character.notify();
       }
+      if (s.status === "working" && s.current && now - s.current.startedAt >= THINKING_MS) this.announce(id, s);
       if ((s.status === "working" || s.status === "waiting") && now - s.lastEvent > STALE_MS) {
         this.clearPermission(id, s);
         this.endTurn(s, "cancelled");
@@ -329,6 +340,7 @@ export class AgentTracker {
       }
       this.clearPermission(id, s);
       this.setStatus(s, "working");
+      if (turn.steps.length > 0) this.announce(id, s);
       return;
     }
 
@@ -382,6 +394,7 @@ export class AgentTracker {
           detail: turn.summary ? firstLine(turn.summary.replace(/\s+/g, " "), 220) : undefined,
         });
         if (!this.anyBusy()) this.character.finishWork({ confidence: 1 });
+        else this.character.interlude({ confidence: 1 });
         return;
       }
 
@@ -391,7 +404,8 @@ export class AgentTracker {
 
       // Stopped by the user (Esc in Codex, an interrupted or refused run in Command Code):
       // the turn ends quietly, no "done" and no error.
-      case "Interrupt":
+      case "Interrupt": {
+        const wasBusy = s.status === "working" || s.status === "waiting";
         this.clearPermission(id, s);
         if (s.current) {
           s.current.summary = e.message ?? null;
@@ -399,8 +413,15 @@ export class AgentTracker {
         }
         s.status = "idle";
         s.finishedAt = now;
-        if (!this.anyBusy()) this.character.cancelWork();
+        // Stopped part-way: a little shrug ("oh, okay"), rather than just going quiet.
+        if (!this.anyBusy()) {
+          if (wasBusy) this.character.finishWork({ confidence: 0 });
+          else this.character.cancelWork();
+        } else if (wasBusy) {
+          this.character.interlude({ confidence: 0 });
+        }
         return;
+      }
 
       case "SessionEnd":
         this.clearPermission(id, s);
@@ -426,6 +447,7 @@ export class AgentTracker {
     s.finishedAt = this.now();
     this.say(id, s, { kind: "error", category: "agent-error", text: "Stopped with an error", detail: reason ?? undefined });
     if (!this.anyBusy()) this.character.finishWork({ confidence: 0, error: true });
+    else this.character.interlude({ confidence: 0, error: true });
   }
 
   private recordStep(s: Session, turn: Turn, e: AgentEvent, now: number) {
@@ -555,6 +577,13 @@ export class AgentTracker {
     }
     if (s.status === "ended" && e.event !== "SessionEnd") s.status = "idle";
     return s;
+  }
+
+  private announce(id: string, s: Session) {
+    const turn = s.current;
+    if (!turn || s.status !== "working" || this.announced.has(turn)) return;
+    this.announced.add(turn);
+    this.onStarted?.(id);
   }
 
   private setStatus(s: Session, status: Status) {

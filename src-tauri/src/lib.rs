@@ -8,6 +8,7 @@ mod connections;
 mod desktop;
 mod focus;
 mod phone;
+mod placement;
 mod secrets;
 mod setup;
 mod system;

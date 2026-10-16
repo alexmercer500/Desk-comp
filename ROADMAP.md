@@ -6,7 +6,8 @@ Last updated: 12 October 2026.
 
 ## Where things stand
 
-- **0.6.0** is the latest version (12 October 2026). It has everything from the 0.5.0 previews: **Rui**, a 3D character built with three.js and drawn entirely in code, plus Command Code, Cursor, Antigravity and VS Code's agent mode, the bigger "done" and "What it did". It's unsigned and has automatic updates off (see [Waiting on decisions](#waiting-on-decisions)).
+- **0.11.0** (16 October 2026) is the latest: the corner shows what agents are doing, its cards never cover the character, and Rui and Dogesh react to each moment of a task (see [0.11](#011-the-corner-speaks-up)). Releases are published to Desk-comp-releases with automatic updates; see CHANGELOG.md for everything since 0.6.
+- **0.6.0** (12 October 2026) was the first full release with Rui. It has everything from the 0.5.0 previews: **Rui**, a 3D character built with three.js and drawn entirely in code, plus Command Code, Cursor, Antigravity and VS Code's agent mode, the bigger "done" and "What it did". It's unsigned and has automatic updates off (see [Waiting on decisions](#waiting-on-decisions)).
 - **0.4.1** was the last version before Rui: the four 2D characters, the first coding-agent alerts, Settings, and code signing and automatic updates ready to switch on.
 - The 0.5.0 previews were never a full release; their notes are in CHANGELOG.md under 0.6.0.
 
@@ -91,6 +92,16 @@ Ideas taken from comparing with coucou (12 October 2026). Do them in this order;
 - [ ] **More agents**: OpenCode, Amp, Muse Code, and a generic `--agent <name>` tag.
 
 Later (0.8): weekly recap, a custom-sounds folder, choosing the display, Ollama for Ask.
+
+## 0.11: the corner speaks up
+
+Asked for 16 October 2026: in corner mode, show what's running for a few seconds (like the top island does), again when it finishes or needs you, never over the character, and give Rui and Dogesh a reaction for each moment.
+
+- [x] **Card placement** (`src-tauri/src/placement.rs`, tested over the whole screen, all sizes, two scales): beside his body box (the hit rect, which follows Rui and Dogesh), the roomier side, 12 px clear, then above / below; follows him while it's up; 3D characters don't wander off while a card is up (`stage.setStill`).
+- [x] **Working card**: 5 s at a task's first step (or 4 s into thinking), "N agents working" with a line each; Settings → Notifications → "What agents are working on". Not in top mode (the island's status line does it).
+- [x] **Hover list**: hovering him (or the card) shows every busy session. Built; not yet tried with a real mouse.
+- [x] **Reactions**: waiting for an OK keeps "call" going until answered; a question → "ponder"; one task done while others carry on → a cheer, then back to work (`controller.interlude`); stopped by you → a shrug. Checked live with Dogesh; Rui uses the same cues (his `call` and `ponder` loop too) but wasn't watched live.
+- [ ] **Working poses by what the agent is doing** (reading/searching, editing, running a command, the web): proposed, waiting for the user's go.
 
 ## Android companion
 

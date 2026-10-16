@@ -30,6 +30,7 @@ interface Prefs {
   notifyDone: boolean;
   notifyPermission: boolean;
   notifyWaiting: boolean;
+  notifyWorking: boolean;
   notifyErrors: boolean;
   answerPermissions: boolean;
   askEnabled: boolean;
@@ -433,6 +434,7 @@ function build() {
     "Coding agents",
     testRow,
     ...agentRows,
+    switchRow("notifyWorking", "What agents are working on", "A few seconds when one starts. In the top island it's always on its status line."),
     switchRow("notifyDone", "When a task finishes"),
     switchRow("notifyPermission", "When an agent needs permission"),
     switchRow("answerPermissions", "Allow / Deny from here", "Off: requests go straight to your terminal. Nothing is ever allowed without your click."),

@@ -15,13 +15,13 @@
 import { initTheme } from "../theme";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import type { BubbleMessage } from "../bubble/types";
+import { showFor, type BubbleMessage } from "../bubble/types";
 import { CharacterController } from "../engine/controller";
 import type { CharacterId, StateName } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
 import { AgentTracker, type AgentEvent, type DayStats, type Decision, type StatsStore } from "./agents";
 import { Companion, allowed, type Prefs, type SystemEvent } from "./companion";
-import { Island, agentRows, agentStatus } from "./island";
+import { Island, agentRows, agentStatus, workingCard } from "./island";
 import { phoneView } from "./phone";
 import { playFor } from "./sounds";
 import type { RuiStage } from "../three/stage";
@@ -172,6 +172,8 @@ const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
 
 /** While a bubble is up the character stays put, so the bubble keeps pointing at it. */
 let bubbleUntil = 0;
+/** The card on screen is the "what's going on" one from hovering (it goes when you leave). */
+let hoverCard = false;
 
 /** While a full-screen app has the display, bubbles wait here (the latest one). */
 let fullscreen = false;
@@ -195,13 +197,17 @@ const bubble = {
       heldBack = { msg, at: performance.now() };
       return;
     }
-    // At the top edge the island itself grows into the notification.
+    // At the top edge the island itself grows into the notification
+    // (what agents are doing is always on its status line there).
+    if (top && msg.category === "agent-working") return;
     if (top) {
       island.notify(msg);
       return;
     }
     // As long as the bubble itself stays up (src/bubble/main.ts), plus its fade.
-    bubbleUntil = msg.sticky ? Infinity : performance.now() + (msg.detail ? 9200 : 6200);
+    bubbleUntil = msg.sticky ? Infinity : performance.now() + showFor(msg) + 200;
+    if (msg.id !== "working") hoverCard = false;
+    stage?.setStill(true);
     void emitTo("bubble", "bubble:show", msg);
   },
   hide(id: string | null = null) {
@@ -385,6 +391,46 @@ const statsStore: StatsStore = {
 };
 const agents = new AgentTracker(c, bubble, undefined, statsStore);
 
+// ── What's going on, in the corner ───────────────────────────────────────────
+// For a few seconds when a task gets going, and while you hover the character.
+
+/** How long the card stays when a task starts. */
+const WORKING_MS = 5000;
+/** Hover this long before the card comes up, and it goes this long after you leave. */
+const HOVER_IN_MS = 350;
+const HOVER_OUT_MS = 600;
+
+let hoverTimer = 0;
+
+function showWorking(hover: boolean) {
+  const card = workingCard(agents.snapshot());
+  if (top || !card) return;
+  hoverCard = hover;
+  bubble.show({
+    id: "working",
+    // Asked for by hovering, so it shows even with the switch off.
+    category: hover ? "notice" : "agent-working",
+    ms: hover ? 60_000 : WORKING_MS,
+    ...card,
+  });
+}
+
+agents.onStarted = () => showWorking(false);
+
+void listen<boolean>("hover", ({ payload: on }) => {
+  window.clearTimeout(hoverTimer);
+  if (on) {
+    // Not over a card that's already up (a finished task, a permission): that one stays.
+    if (performance.now() < bubbleUntil && !hoverCard) return;
+    hoverTimer = window.setTimeout(() => showWorking(true), HOVER_IN_MS);
+  } else if (hoverCard) {
+    hoverTimer = window.setTimeout(() => {
+      hoverCard = false;
+      bubble.hide("working");
+    }, HOVER_OUT_MS);
+  }
+});
+
 // "Show window" (panel): bring that session's terminal or editor to the front.
 void listen<string>("session:focus", async ({ payload }) => {
   const s = agents.snapshot().find((x) => x.id === payload);
@@ -449,7 +495,14 @@ agents.onChange = () => {
   if (panelOpen) sendSessions();
   refreshIsland();
   sendToPhone();
+  syncWaiting();
 };
+
+/** Rui and Dogesh keep calling you (or look at you, asking) for as long as an agent waits. */
+function syncWaiting() {
+  const waiting = agents.snapshot().filter((s) => s.status === "waiting");
+  stage?.setWaiting(!waiting.length ? null : waiting.some((s) => !s.permission?.questions?.length) ? "permission" : "question");
+}
 
 // ── Phone link (src-tauri/src/phone) ─────────────────────────────────────────
 
@@ -666,6 +719,8 @@ let wandering = false;
 
 window.setInterval(async () => {
   const now = performance.now();
+  // A 3D character wanders off on his own: not while a bubble is pointing at him.
+  stage?.setStill(now < bubbleUntil || panelOpen);
   if (top || c.getState() !== "IDLE" || press || reducedMotion.matches || now < bubbleUntil || panelOpen) {
     nextWander = Math.max(nextWander, now + 5_000);
     return;

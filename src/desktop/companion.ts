@@ -34,6 +34,7 @@ export interface Prefs {
   notifyDone?: boolean;
   notifyPermission?: boolean;
   notifyWaiting?: boolean;
+  notifyWorking?: boolean;
   notifyErrors?: boolean;
   /** Allow / Deny from the companion (off: straight to the terminal). */
   answerPermissions?: boolean;
@@ -183,6 +184,9 @@ export function allowed(msg: BubbleMessage, p: Prefs, now: number): boolean {
       break;
     case "agent-waiting":
       if (p.notifyWaiting === false) return false;
+      break;
+    case "agent-working":
+      if (p.notifyWorking === false) return false;
       break;
     case "agent-error":
       if (p.notifyErrors === false) return false;

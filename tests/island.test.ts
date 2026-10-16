@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionView } from "../src/desktop/agents";
-import { agentRows, agentStatus, islandState } from "../src/desktop/island";
+import { agentRows, agentStatus, islandState, workingCard } from "../src/desktop/island";
 
 const session = (over: Partial<SessionView>): SessionView => ({
   id: "s1",
@@ -91,6 +91,38 @@ describe("agentRows", () => {
     expect(agentRows([working, waiting, idle])).toEqual([
       { id: "s2", tone: "attention", project: "blog", line: "wants to run" },
       { id: "s1", tone: "working", project: "shop-app", line: "Running npm test" },
+    ]);
+  });
+});
+
+describe("workingCard (the corner's what's-going-on card)", () => {
+  it("nothing when nothing is busy", () => {
+    expect(workingCard([session({ status: "idle" })])).toBeNull();
+  });
+
+  it("one agent: who, what it's doing now, and what you asked", () => {
+    const card = workingCard([session({ status: "working", current: turn([{ tool: "Edit", detail: "C:/Projects/shop-app/src/cart.ts" }]) })]);
+    expect(card).toMatchObject({ kind: "info", session: "s1", title: "Claude Code · shop-app", text: "Editing cart.ts", meta: "“Add checkout”" });
+  });
+
+  it("one agent still thinking", () => {
+    expect(workingCard([session({ status: "working", current: turn([]) })])?.text).toBe("Thinking…");
+  });
+
+  it("several: a line each, the one waiting for you first", () => {
+    const card = workingCard([
+      session({ id: "a", project: "blog", status: "working", current: turn([{ tool: "Bash", detail: "npm test" }]) }),
+      session({
+        id: "b",
+        status: "waiting",
+        current: turn([]),
+        permission: { tool: "Bash", action: "run", detail: "git push", since: 0, rid: null, canAlways: false, questions: null },
+      }),
+    ]);
+    expect(card).toMatchObject({ kind: "attention", title: "2 agents working", text: "1 waiting for your OK" });
+    expect(card?.rows).toEqual([
+      { tone: "attention", project: "shop-app", line: "wants to run" },
+      { tone: "working", project: "blog", line: "Running npm test" },
     ]);
   });
 });

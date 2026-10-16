@@ -9,6 +9,16 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.11.0 (16 October 2026, Android 0.4.4 carried over)
+
+**The character in the corner tells you what's going on**, the way the island at the top already did.
+
+- **What agents are working on.** When an agent starts on something, a small card beside the character says what it's doing ("Claude Code · shop: Editing cart.ts", with what you asked) for 5 seconds, then goes. With more than one agent busy it says "2 agents working" and gives each a line. Switch it off in Settings → Notifications → **What agents are working on**.
+- **Hover to check.** Rest the mouse on the character and the same card shows every agent that's busy, the ones waiting for you first. Move away and it goes.
+- **Cards never cover the character.** Every card (working, done, needs your OK, questions, errors) now opens beside the character, on the side with more room, with a clear gap, and its tail points at his face. Near a screen edge it opens on the other side, or above or below him. If Rui or Dogesh is mid-step when a card appears, the card follows him, and he stays put until it's gone.
+- **Rui and Dogesh react to each moment of a task.** While an agent waits for your OK they keep calling you (Rui waves, Dogesh hides under his scarf and peeks out) until you answer, instead of going back to work after a few seconds. A question from the agent gets a thoughtful, questioning look. When one task finishes while another agent is still working they cheer, then get back to it; before, they only cheered once every agent was done. A task you stop part-way gets a little shrug.
+- The Allow / In terminal / Always / Deny buttons no longer wrap onto two lines.
+
 ## 0.10.4 (16 October 2026, Android 0.4.4 carried over)
 
 - **Dogesh Bhai walks on his own feet.** In 3D, his tiptoe looked like hopping: his feet slid along the floor the wrong way while his body lurched forward. Now each foot stays put on the floor while he steps over it, then lifts, knee up, and lands ahead of him, with one foot always down. He keeps his sneaky hunch, paws up in front and the freeze when he hears a noise halfway. The same goes for his strolls, walking back to his spot, and peeking in when he first appears.

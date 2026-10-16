@@ -265,3 +265,24 @@ describe("desktop drag", () => {
     expect(state()).toBe("WORKING");
   });
 });
+
+describe("interlude (one task done while others carry on)", () => {
+  it("reacts, then goes straight back to work", async () => {
+    await booted();
+    c.startWork({ timeoutMs: null });
+    c.interlude({ confidence: 1 });
+    expect(state()).toBe("SUCCESS");
+    advance(2600);
+    expect(state()).toBe("WORKING");
+    c.interlude({ confidence: 0, error: true });
+    expect(state()).toBe("ERROR");
+  });
+
+  it("doesn't cut short a call for your attention", async () => {
+    await booted();
+    c.startWork({ timeoutMs: null });
+    c.notify();
+    c.interlude({ confidence: 1 });
+    expect(state()).toBe("NOTIFY");
+  });
+});
