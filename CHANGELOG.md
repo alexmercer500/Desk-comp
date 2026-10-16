@@ -9,6 +9,19 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.12.0 (16 October 2026, Android 0.4.4 carried over)
+
+- **Keyboard shortcuts**, wherever you are in Windows:
+  - **Ctrl+Alt+Y / Ctrl+Alt+N**: Allow / Deny the request on screen. These two only exist while a request is waiting, so the rest of the time they belong to your other apps.
+  - **Ctrl+Alt+J**: go to the agent that needs you (its terminal or editor).
+  - **Ctrl+Alt+A**: the activity panel.
+  - **Ctrl+Alt+M**: pause notifications, and turn them back on.
+  - **Ctrl+Alt+H**: hide the character, and bring him back (also in the tray menu).
+
+  Switch them off in Settings → Coding agents → Keyboard shortcuts.
+- **Rui and Dogesh Bhai show what the agent is doing** (in 3D). While an agent reads or searches your code they peer through a magnifying glass at a book; while it runs a command they press a big button and wait for it; on the web they scan with binoculars; while it edits they type on the tablet as before. They change pose once a kind of task has gone on for a few seconds, so quick switches don't make them fidget.
+- **Fixed: an answered request could say "Answer in your terminal".** After you clicked Allow or Deny, the card sometimes stayed up telling you to answer in the terminal, though your answer had gone through. It now closes.
+
 ## 0.11.1 (16 October 2026, Android 0.4.4 carried over)
 
 - **The corner card holds still.** It used to follow every bob and arm-wave of Rui or Dogesh, so it shook. Now it stays exactly where it opened, and only moves if he really goes somewhere (you drag him, or he was mid-step).

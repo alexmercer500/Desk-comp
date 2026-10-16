@@ -457,8 +457,17 @@ void listen<{ rid: string; answers: Record<string, string> }>("question:answer",
   void answerQuestion(payload.rid, payload.answers),
 );
 
+/**
+ * Requests being answered from here right now. The relay's "closed" (below)
+ * can arrive before our own answer's reply does; it mustn't turn an answered
+ * card into "answer in your terminal".
+ */
+const answering = new Set<string>();
+
 async function answerQuestion(rid: string, answers: Record<string, string>) {
+  answering.add(rid);
   const delivered = await invoke<boolean>("answer_question", { rid, answers }).catch(() => false);
+  answering.delete(rid);
   if (delivered) {
     agents.answered(rid);
     c.acknowledge();
@@ -469,7 +478,9 @@ async function answerQuestion(rid: string, answers: Record<string, string>) {
 
 async function answerPermission(rid: string, decision: Decision) {
   if (!["allow", "always", "deny", "terminal"].includes(decision)) return;
-  const delivered = await invoke<boolean>("answer_permission", { rid, decision });
+  answering.add(rid);
+  const delivered = await invoke<boolean>("answer_permission", { rid, decision }).catch(() => false);
+  answering.delete(rid);
   if (delivered) {
     agents.answer(rid, decision);
     if (decision !== "terminal") c.acknowledge();
@@ -481,7 +492,9 @@ async function answerPermission(rid: string, decision: Decision) {
 // agent is let go after a moment and asks in its terminal (agents.rs).
 void listen<string>("permission:shown", ({ payload }) => void invoke("permission_shown", { rid: payload }).catch(() => {}));
 // The relay stopped waiting: answered in the terminal, or out of time.
-void listen<string>("permission-closed", ({ payload }) => agents.permissionClosed(payload));
+void listen<string>("permission-closed", ({ payload }) => {
+  if (!answering.has(payload)) agents.permissionClosed(payload);
+});
 
 // ── Activity panel (its own window, see src/panel) ───────────────────────────
 

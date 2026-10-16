@@ -88,7 +88,7 @@ Ideas taken from comparing with coucou (12 October 2026). Do them in this order;
 - [x] **"Other…" free-text answer** to Claude's questions: text box in the panel; the bubble and island open the panel (they never take keyboard focus). Tested live end to end.
 - [ ] **Plan usage pills** for Claude (via Claude Code's `statusLine`, keeping the user's own status line running) and Codex (`codex app-server`, `account/rateLimits/read`). Also look into **Command Code** (does its mod API or CLI expose usage?) and any other agent that reports limits; show one pill per agent that has data.
 - [ ] **Rate-limit state** for the character (tired, sweating) when an agent reports a rate limit.
-- [ ] **Keyboard shortcuts**: Y / N on the card, and a few global keys (go to the waiting alert, mute, show/hide).
+- [x] **Keyboard shortcuts** (0.12.0, `src-tauri/src/shortcuts.rs`): global Ctrl+Alt+Y / N (registered only while a request holds a card, 600 ms guard), J (jump), A (activity), M (mute), H (hide, its own flag next to the full-screen step-aside). Tested live with injected keys (N denied a request, M and H both ways).
 - [ ] **More agents**: OpenCode, Amp, Muse Code, and a generic `--agent <name>` tag.
 
 Later (0.8): weekly recap, a custom-sounds folder, choosing the display, Ollama for Ask.
@@ -101,7 +101,8 @@ Asked for 16 October 2026: in corner mode, show what's running for a few seconds
 - [x] **Working card**: 5 s at a task's first step (or 4 s into thinking), "N agents working" with a line each; Settings → Notifications → "What agents are working on". Not in top mode (the island's status line does it).
 - [x] **Hover list**: hovering him (or the card) shows every busy session. Built; not yet tried with a real mouse.
 - [x] **Reactions**: waiting for an OK keeps "call" going until answered; a question → "ponder"; one task done while others carry on → a cheer, then back to work (`controller.interlude`); stopped by you → a shrug. Checked live with Dogesh; Rui uses the same cues (his `call` and `ponder` loop too) but wasn't watched live.
-- [ ] **Working poses by what the agent is doing** (reading/searching, editing, running a command, the web): proposed, waiting for the user's go.
+- [x] **Working poses by what the agent is doing** (0.12.0, 3D only): `activityOf` → `stage.setActivity` (settles after 2.5 s, holds 5 s) → cues research / run / browse; Rui and Dogesh each have a magnifier + book, a push button, binoculars. Checked live with Dogesh in the corner.
+- [ ] **The same reactions for 2D characters** (Kulhi, Hexo, Glim, Billu, 2D Dogesh): the lasting "waiting for you" / question looks and the working poses are 3D-only so far.
 
 ## Android companion
 
