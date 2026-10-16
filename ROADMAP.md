@@ -102,7 +102,7 @@ Asked for 16 October 2026: in corner mode, show what's running for a few seconds
 - [x] **Hover list**: hovering him (or the card) shows every busy session. Built; not yet tried with a real mouse.
 - [x] **Reactions**: waiting for an OK keeps "call" going until answered; a question → "ponder"; one task done while others carry on → a cheer, then back to work (`controller.interlude`); stopped by you → a shrug. Checked live with Dogesh; Rui uses the same cues (his `call` and `ponder` loop too) but wasn't watched live.
 - [x] **Working poses by what the agent is doing** (0.12.0, 3D only): `activityOf` → `stage.setActivity` (settles after 2.5 s, holds 5 s) → cues research / run / browse; Rui and Dogesh each have a magnifier + book, a push button, binoculars. Checked live with Dogesh in the corner.
-- [ ] **The same reactions for 2D characters** (Kulhi, Hexo, Glim, Billu, 2D Dogesh): the lasting "waiting for you" / question looks and the working poses are 3D-only so far.
+- [x] **The same reactions for 2D characters** (0.13.0): WORKING carries a `WorkVariant` (research / run / browse / wait / ask) set by `controller.setWork`, which also does the settling (one source for 2D and 3D; the stage maps variants to cues). Each 2D skin draws all five; checked live with 2D Dogesh in the corner and the island, and 3D Dogesh again.
 
 ## Android companion
 

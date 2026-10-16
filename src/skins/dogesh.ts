@@ -153,6 +153,18 @@ const rest: Pose = {
   prop: 0, music: 0,
   /** Coder: loosening his drawn-tight hood to peek out (0…1). */
   peek: 0,
+  /**
+   * Working, by kind (0…1 unless noted): reading a book (a page turning over,
+   * 0…1) through a magnifying glass, a "!" when he finds it; the big red push
+   * button (pushed down, its lamp lit); binoculars up (and lowered in a
+   * fright); a sign held up for you (tilted, radians; his near paw tapping it,
+   * and knocking); his paw at his chin (and tapping it).
+   */
+  book: 0, page: 0, lens: 0, excl: 0,
+  button: 0, press: 0, lamp: 0,
+  bino: 0, binoDrop: 0,
+  sign: 0, signTilt: 0, signTap: 0, signKnock: 0,
+  chin: 0, chinTap: 0,
 };
 
 const PAW_L: Pt = [0.05, -0.43];
@@ -323,9 +335,10 @@ function dress(i: PoseInput, out: PoseOut): PoseOut {
         p.mouthO = (p.mouthO ?? 0) * (1 - hide);
         p.tongue = (p.tongue ?? 0) * (1 - hide);
       }
-      // The magnifying glass up to his eye: while working, and for some idle double takes.
+      // The magnifying glass up to his eye: while working (reading, he holds
+      // it over his book instead), and for some idle double takes.
       let k = 0;
-      if (i.state === "WORKING") k = kf(st, [[0, 0], [350, 1, Ease.outBack]]);
+      if (i.state === "WORKING" && i.variant === null) k = kf(st, [[0, 0], [350, 1, Ease.outBack]]);
       else if (i.state === "IDLE") {
         const q = idleQuirk(t);
         if (q.act === 0) k = q.w;
@@ -347,7 +360,7 @@ function dress(i: PoseInput, out: PoseOut): PoseOut {
         p.pop = (p.pop ?? 0) * (1 - shut);
         p.browUp = (p.browUp ?? 0) * (1 - shut);
       }
-      if (i.state === "WORKING") {
+      if (i.state === "WORKING" && i.variant === null) {
         // Typing away, bobbing to the music in his headphones.
         const k = kf(st, [[0, 0], [300, 1, Ease.outBack]]);
         const tap = Math.sin(t * 22);
@@ -554,6 +567,13 @@ function basePose(i: PoseInput): PoseOut {
     }
 
     case "WORKING": {
+      switch (i.variant) {
+        case "research": return researching(i);
+        case "run": return pressing(i);
+        case "browse": return lookout(i);
+        case "wait": return calling(i);
+        case "ask": return pondering(i);
+      }
       // Tiptoeing in place, eyes darting, chewing his nails with chattering
       // teeth, sweat flying off now and then; the scarf's stripes knit up gold
       // with progress. After 5 s a determined little nod every 3 s.
@@ -853,6 +873,278 @@ function basePose(i: PoseInput): PoseOut {
   }
 }
 
+// ── Working, by what the agent is doing ───────────────────────────────────────
+// Each lasts as long as the work does, so each is a calm loop with a beat now
+// and then; all stand on his toes like plain working, so switching between
+// them (every few seconds at most) crossfades naturally. Props scale in over
+// the first ~350 ms. Under reduced motion the continuous wiggles stop (they
+// run on `t`, which is frozen then) and the beats (`st`) play smaller.
+
+/** Paw targets (body space). Reading: the far paw holds the book, the near one the glass over it. */
+const BOOK_PAW: Pt = [0.19, -0.48];
+const LENS_PAW: Pt = [0.52, -0.44];
+/** The push button stands on the ground in front of him: where, how tall (its housing's top). */
+const BUTTON_X = 0.5;
+const BUTTON_H = 0.36;
+/** How big the button is drawn (its housing's top is at BUTTON_H). */
+const BUTTON_S = 1.2;
+/** Running: his paw up over the button, and on its cap. */
+const HOVER: Pt = [BUTTON_X - 0.01, -0.68];
+const CAP: Pt = [BUTTON_X + 0.005, -0.445];
+/** The sign: the far paw holds its lower back corner, the near one its front edge (where `signFrame` puts it). */
+const SIGN_L: Pt = [0.19, -0.45];
+const SIGN_R: Pt = [0.51, -0.49];
+/** How big the sign is drawn. */
+const SIGN_S = 1.3;
+/** Thinking: the far paw holding his near elbow. */
+const ELBOW: Pt = [0.15, -0.49];
+
+/** What every kind of work shares: up on his toes, a little tremble, the scarf knitting up with progress. */
+function workBase(i: PoseInput, tipAmt = 1): Partial<Pose> {
+  const { t, motion: m } = i;
+  const tip = Math.sin(t * 9) * tipAmt * m;
+  return {
+    lift: 0.01 * m,
+    ...feet(add(FOOT_L, 0, -0.01 * Math.max(0, tip)), add(FOOT_R, 0, -0.01 * Math.max(0, -tip))),
+    kneeL: 0.25 + 0.08 * Math.max(0, tip), kneeR: 0.25 + 0.08 * Math.max(0, -tip),
+    hunch: 0.2,
+    earL: twitch(t, 3), earR: twitch(t, 4),
+    tailTuck: 0.5,
+    shiver: 0.12 * m,
+    fill: i.progress ?? 0,
+  };
+}
+
+/**
+ * Reading or searching: nose down in a book, peering through a magnifying
+ * glass. His eyes run along a line and flick back for the next, mouthing the
+ * words; every few seconds a page turns over, and now and then instead, "oh!":
+ * found it. Head up, ears up, eyes wide, a "!" and a wag, then back to it.
+ */
+function researching(i: PoseInput): PoseOut {
+  const { st, t, motion: m } = i;
+  const big = 0.4 + 0.6 * m;
+  const up = kf(st, [[0, 0], [350, 1, Ease.outBack]]);
+  const line = (st % 1400) / 1400;
+  const along = line < 0.8 ? lerp(-1, 1, line / 0.8) : lerp(1, -1, Ease.inOutSine((line - 0.8) / 0.2));
+  const n = Math.floor(st / 4200), u = st % 4200;
+  const found = n % 3 === 1 && hash01(n * 5 + 17) < 0.8;
+  const aha = found ? kf(u, [[1500, 0], [1620, 1, Ease.outBack], [2700, 1], [3100, 0, Ease.inOutSine]]) : 0;
+  const turning = !found && u >= 2700 && u < 3500;
+  const page = turning ? Ease.inOutSine((u - 2700) / 800) : 0;
+  const lensUp = found ? 0 : kf(u, [[2500, 0], [2700, 1], [3400, 1], [3650, 0]]);
+  const read = 1 - aha;
+  const sweep = along * read * (1 - lensUp);
+  const mouthing = 0.02 + 0.07 * Math.max(0, Math.sin(t * 13)) * Math.max(0, Math.sin(t * 2.1)) * m;
+  return {
+    pose: {
+      ...workBase(i, 0.6),
+      hunch: 0.27 - 0.12 * aha * big,
+      headTilt: 0.22 - 0.34 * aha * big,
+      headX: 0.012 * sweep * m,
+      headY: 0.012 - 0.02 * aha * big,
+      ...paws(mix(PAW_L, BOOK_PAW, up), mix(PAW_R, add(LENS_PAW, 0.035 * sweep, -0.06 * lensUp - 0.05 * aha), up)),
+      book: up, lens: up, page, excl: aha,
+      gazeLock: 1,
+      gazeLockX: aha > 0.3 ? -0.3 : turning ? lerp(0.9, -0.1, page) : lerp(0.05, 0.85, (along + 1) / 2),
+      gazeLockY: lerp(0.8, -0.1, aha),
+      pop: 0.1 + 0.6 * aha * big, pupil: 0.9 - 0.15 * aha, lid: 0.15 * read,
+      brow: lerp(0.75, 0.3, aha), browUp: aha,
+      earL: lerp(twitch(t, 3), 0.8 * big, aha), earR: lerp(twitch(t, 4), 0.95 * big, aha), earFlap: 0.3 * aha * m,
+      mouthO: mouthing * read + 0.32 * aha * (u < 2200 ? 1 : 0.4),
+      mouthCurve: 0.2 + 0.7 * aha,
+      tail: 0.8 * Math.sin(t * 18) * m * aha, tailTuck: 0.4 * read,
+    },
+    eye: aha > 0.5 && u > 2050 && u < 2600 ? "happy" : "round",
+  };
+}
+
+/** Running a command: the push button's cycle (ms), and when the first one starts. */
+const RUN_P = 6800;
+const RUN_AT = 600;
+/** When in the cycle his paw hits the button. */
+const RUN_HIT = 900;
+
+/**
+ * Running a command: the big red button. Paw up over it, trembling; he leans
+ * away, screws his eyes shut, and... *press*. A one-eyed peek; then he waits,
+ * wringing his paws, eyes on the blinking lamp (and darting to you), sweating,
+ * until he steels himself and presses again.
+ */
+function pressing(i: PoseInput): PoseOut {
+  const { st, t, motion: m } = i;
+  const big = 0.4 + 0.6 * m;
+  const base = workBase(i, 0.5);
+  const show = kf(st, [[0, 0], [350, 1, Ease.outBack]]);
+  const u = (st + RUN_P - RUN_AT) % RUN_P;
+  const wind = kf(u, [[0, 0], [450, 1, Ease.inOutSine], [850, 1], [940, 0]]);
+  const press = kf(u, [[820, 0], [RUN_HIT, 1, Ease.inQuad], [1600, 1], [1850, 0, Ease.inOutSine]]);
+  const down = kf(u, [[860, 0], [RUN_HIT + 10, 1], [1650, 1], [1720, 0]]);
+  const shut = kf(u, [[250, 0], [450, 1], [1700, 1], [1950, 0]]);
+  const peek = kf(u, [[1750, 0], [1950, 1], [2800, 1], [3100, 0]]);
+  const waiting = kf(u, [[2900, 0], [3300, 1], [RUN_P - 800, 1], [RUN_P - 500, 0]]);
+  const gulp = kf(u, [[RUN_P - 800, 0], [RUN_P - 550, 1], [RUN_P - 100, 1], [RUN_P, 0]]);
+  const click = kf(u, [[RUN_HIT - 20, 0], [RUN_HIT + 20, 1], [RUN_HIT + 300, 0]]);
+  const lit = u > RUN_HIT + 20 && u < RUN_P - 800;
+  const wring = (s: number) => 0.008 * Math.sin(t * 9 + s) * m;
+  const hover = add(HOVER, 0.008 * Math.sin(t * 38) * m * wind, 0.006 * Math.cos(t * 33) * m * wind);
+  const near = mix(mix(add(TUCK_R, wring(0), 0), hover, wind), add(CAP, 0, 0.028 * down), press);
+  const kn = knock(t, m, 0.9);
+  return {
+    pose: {
+      ...base,
+      hunch: 0.2 - 0.2 * shut * big + 0.1 * press + 0.06 * waiting,
+      bodyRot: -0.05 * shut * m,
+      headX: -0.05 * shut * big + 0.02 * peek,
+      headY: 0.015 * gulp,
+      headTilt: -0.25 * shut * big + 0.12 * peek + 0.16 * waiting + 0.05 * gulp,
+      sy: kf(u, [[RUN_HIT - 20, 1], [RUN_HIT + 30, 0.94], [RUN_HIT + 150, 1.03], [RUN_HIT + 300, 1]]),
+      sx: kf(u, [[RUN_HIT - 20, 1], [RUN_HIT + 30, 1.04], [RUN_HIT + 150, 0.98], [RUN_HIT + 300, 1]]),
+      kneeL: lerp(base.kneeL!, kn.kneeL, wind), kneeR: lerp(base.kneeR!, kn.kneeR, wind),
+      ...paws(add(TUCK_L, -wring(1.5), 0), near),
+      button: show, press: down,
+      lamp: lit ? (m && Math.floor(st / 400) % 2 ? 0.25 : 1) : 0,
+      lid: Math.max(shut, 0.45 * peek, 0.08), wink: peek,
+      grin: Math.max(0.9 * shut, 0.55 * waiting),
+      gazeLock: 1, gazeLockX: waiting > 0.5 && st % 2300 < 350 ? -0.35 : 0.85, gazeLockY: 0.6,
+      pop: 0.15 * waiting + 0.25 * click * big,
+      brow: lerp(1, -0.4, gulp), browUp: 0.3 * waiting,
+      earL: lerp(base.earL!, -0.7, shut) + 0.5 * click * big,
+      earR: lerp(base.earR!, -0.7, shut) + 0.6 * click * big,
+      sweat: waiting > 0.5 && u > 3300 ? ((u - 3300) % 1600) / 1600 : 0,
+      tailTuck: 0.5 + 0.5 * shut,
+      shiver: lerp(0.12, 0.5, Math.max(wind, shut)) * m,
+    },
+    eye: "round",
+  };
+}
+
+/** On the web: the binoculars' cycle (ms). */
+const BROWSE_P = 8500;
+
+/**
+ * On the web: binoculars up, slowly scanning the far distance, swaying from
+ * side to side... then a double take: "huh?", down come the binoculars, eyes
+ * popping, ears flying, fur on end... gulp... and up they go again.
+ */
+function lookout(i: PoseInput): PoseOut {
+  const { st, t, motion: m } = i;
+  const big = 0.4 + 0.6 * m;
+  const up = kf(st, [[0, 0], [400, 1, Ease.outBack]]);
+  const n = Math.floor(st / BROWSE_P), u = st % BROWSE_P;
+  const a = u - (4600 + 1800 * hash01(n * 3 + 11));
+  const freeze = kf(a, [[0, 0], [100, 1], [1800, 1], [2100, 0]]);
+  const huh = kf(a, [[0, 0], [80, 1], [220, 0]]);
+  const lower = kf(a, [[150, 0], [290, 1, Ease.outBack], [1250, 1], [1600, 0, Ease.inOutSine]]);
+  const fright = kf(a, [[220, 0], [320, 1], [950, 0.7], [1350, 0]]);
+  const gulp = kf(a, [[1150, 0], [1300, 1], [1650, 1], [1800, 0]]);
+  const sweep = Math.sin((st / 1000) * TAU / 5.5) * (1 - freeze) * m;
+  return {
+    pose: {
+      ...workBase(i, 0.5),
+      hunch: 0.13 + 0.05 * lower,
+      bodyRot: 0.04 * sweep,
+      headX: 0.035 * sweep - 0.03 * huh * big,
+      headY: 0.01 * gulp,
+      headTilt: -0.06 + 0.06 * sweep,
+      // (His paws are on the binoculars: drawStanding puts them there.)
+      ...paws(mix(PAW_L, [0.12, -0.74], up), mix(PAW_R, [0.33, -0.78], up)),
+      bino: up, binoDrop: lower,
+      lift: 0.01 * m + 0.03 * fright * m,
+      pop: fright * big, pupil: 1 - 0.55 * fright * big, lid: 0.1 * (1 - fright),
+      shock: fright * (0.5 + 0.5 * m), poof: 0.5 * fright * m,
+      earL: lerp(twitch(t, 3), 1.1 * big, fright), earR: lerp(twitch(t, 4), 1.2 * big, fright), earFlap: 0.5 * fright * m,
+      mouthO: 0.42 * fright * big, teeth: 1, grin: 0.8 * gulp,
+      gazeLock: 1, gazeLockX: 1, gazeLockY: 0,
+      brow: 0.7 + 0.3 * fright, browUp: fright,
+      tail: 0.3 * Math.sin(t * 2) * m * (1 - fright), tailTuck: 0.3 + 0.7 * fright,
+      shiver: (0.08 + 0.5 * fright) * m,
+    },
+    eye: "round",
+  };
+}
+
+/** Waiting for your OK: the sign's cycle (ms), after the first fright. */
+const WAIT_P = 5200;
+const WAIT_AT = 850;
+
+/**
+ * Waiting for your OK (as long as it takes): the jolt of his NOTIFY fright,
+ * then a sign with a big "!" held up at you: waved and pumped while he calls
+ * out "hey! hey!", eyes on you, ears up; then, holding it still, he leans in
+ * over it with pleading puppy eyes and taps the "!", then waves it again.
+ * Each wave starts with a little attention jolt.
+ */
+function calling(i: PoseInput): PoseOut {
+  const { st, t, motion: m } = i;
+  const big = 0.4 + 0.6 * m;
+  const into = kf(st, [[450, 0], [WAIT_AT, 1, Ease.inOutSine]]);
+  const sign = kf(st, [[450, 0], [WAIT_AT, 1, Ease.outBack]]);
+  const u = Math.max(0, st - WAIT_AT) % WAIT_P;
+  const wave = st < WAIT_AT ? 1 : kf(u, [[0, 1], [2600, 1], [2900, 0], [WAIT_P - 300, 0], [WAIT_P, 1]]);
+  const plead = 1 - wave;
+  const jolt = st < WAIT_AT ? 0 : kf(u, [[0, 0], [90, 1], [380, 0]]);
+  const tap = kf(u, [[3200, 0], [3400, 1], [4500, 1], [4700, 0]]);
+  const knockK = tap * Math.max(0, Math.sin(((u - 3400) / 1000) * TAU * 2.5)) * big;
+  const ph = t * TAU * 0.85;
+  const pump = 0.022 * Math.sin(2 * ph) * m * wave;
+  const loop: Partial<Pose> = {
+    ...workBase(i),
+    lift: 0.01 * m + 0.025 * Math.abs(Math.sin(ph)) * m * wave + 0.04 * jolt * m,
+    hunch: 0.16 + 0.07 * plead,
+    headX: 0.04 * plead * big, headY: -0.012 * plead,
+    headTilt: -0.07 * plead * big + 0.04 * Math.sin(ph) * m * wave,
+    ...paws(add(SIGN_L, 0, pump), add(SIGN_R, 0, pump)),
+    sign, signTilt: 0.16 * Math.sin(ph) * m * wave, signTap: tap, signKnock: knockK,
+    gazeLock: 1, gazeLockX: -0.35, gazeLockY: -0.05 + 0.1 * plead,
+    pop: 0.3 + 0.25 * plead + 0.5 * jolt * big, pupil: lerp(0.85, 1.3, plead), lid: 0, eyeTilt: 0.35 * plead,
+    brow: 1, browUp: 0.6 * wave + 0.3 * plead + 0.4 * jolt,
+    mouthO: wave * (0.1 + 0.14 * Math.abs(Math.sin(t * TAU * 1.7)) * m),
+    mouthCurve: lerp(0.4, -0.35, plead),
+    earL: 0.1 + 0.6 * wave, earR: 0.15 + 0.65 * wave + 0.4 * jolt * big, earFlap: 0.3 * wave * m,
+    shock: 0.7 * jolt,
+    tail: 0.4 * Math.sin(t * 9) * m * wave, tailTuck: 0.35,
+    shiver: 0.15 * m,
+  };
+  return { pose: blend(freakOut(st, m, 0.1), loop, into), eye: "round" };
+}
+
+/**
+ * The agent asked you something (as long as it takes to answer): a "?" over
+ * his head, his head tilted one way and (every few seconds) the other, a paw
+ * at his chin, tapping it, eyes rolled up thinking, "hmm"; every few seconds
+ * a hopeful look at you, brows up, the "?" bobbing.
+ */
+function pondering(i: PoseInput): PoseOut {
+  const { st, t, motion: m } = i;
+  const big = 0.4 + 0.6 * m;
+  const k = kf(st, [[0, 0], [400, 1, Ease.outBack]]);
+  const side = clamp(Math.sin((st / 1000) * TAU / 9) * 2.2, -1, 1);
+  const u = st % 3600;
+  const look = st > 1500 ? kf(u, [[2200, 0], [2450, 1], [3300, 1], [3550, 0]]) : 0;
+  const bob = st > 1500 ? kf(u, [[2200, 0], [2350, 1], [2700, 0]]) : 0;
+  return {
+    pose: {
+      ...workBase(i, 0.4),
+      hunch: 0.17,
+      headTilt: (0.1 + 0.17 * side) * big - 0.05 * look,
+      headX: 0.012 * look,
+      ...paws(mix(PAW_L, ELBOW, k), mix(PAW_R, [0.26, -0.64], k)),
+      // (Drawn at his chin, wherever his head is.)
+      chin: k, chinTap: Math.max(0, Math.sin(t * TAU * 1.6)) * m * (1 - look),
+      qmark: kf(st, [[150, 0], [550, 1.2, Ease.outBack]]) * (1 + 0.18 * bob),
+      gazeLock: 1, gazeLockX: lerp(-0.55, -0.3, look), gazeLockY: lerp(-0.8, 0.05, look),
+      lid: lerp(0.32, 0.05, look), brow: lerp(0.35, 0.8, look), browUp: 0.45 * look,
+      eyeScaleL: 1.08, eyeScaleR: 0.94,
+      whistle: 0.7 * (1 - look), mouthCurve: lerp(-0.2, 0.5, look),
+      earL: 0.3 + 0.2 * side + 0.2 * look, earR: 0.05 - 0.1 * side + 0.4 * look, earFlap: 0.15 * bob * m,
+      tail: 0.3 * Math.sin(t * 3) * m, tailTuck: 0.2,
+      shiver: 0.05 * m,
+    },
+    eye: "round",
+  };
+}
+
 /** Where the head is, in body space (head centre). */
 function headCentre(p: Pose): Pt {
   const nb = torsoPt(p, NECK_BASE[0], NECK_BASE[1]);
@@ -901,6 +1193,22 @@ function events(i: PoseInput, prev: number, emit: Emit, p: Pose) {
       break;
     case "LANDING":
       if (crossed(90)) dust();
+      break;
+    case "WORKING":
+      if (i.variant === "run") {
+        // Click! Sparks off the button.
+        const hit = RUN_AT + RUN_HIT + Math.floor((i.st - RUN_AT - RUN_HIT) / RUN_P) * RUN_P;
+        if (hit > 0 && crossed(hit)) {
+          for (let k = 0; k < 3; k++) {
+            const a = -Math.PI / 2 + (k - 1) * 0.7;
+            emit({ kind: "sparkle", x: p.bodyX + DX + BUTTON_X + Math.cos(a) * 0.09, y: BUTTON_H + 0.1 - Math.sin(a) * 0.04, vx: Math.cos(a) * 0.35, vy: 0.3, size: 0.045, life: 0.6, spin: 3 });
+          }
+        }
+      } else if (i.variant === "research" && p.excl > 0.5) {
+        // "Found it!": one sparkle by his head.
+        const n = Math.floor(i.st / 4200);
+        if (crossed(n * 4200 + 1600)) emit({ kind: "sparkle", x: head.x + 0.26, y: head.y + 0.2, vx: 0.15, vy: 0.2, size: 0.06, life: 0.8, spin: 2 });
+      }
       break;
     case "SLEEPING":
       if (i.st >= 1500) {
@@ -1018,6 +1326,15 @@ function draw(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Frame) {
     g.restore();
   }
 
+  // The push button, standing on the ground in front of him (it doesn't hop with him).
+  if (p.button > 0.01) {
+    g.save();
+    g.translate(ox + (p.bodyX + DX) * U, oy);
+    g.scale(U, U);
+    drawButton(g, p, f);
+    g.restore();
+  }
+
   // A tremble when he's frightened (fast and tiny; frozen under reduced motion).
   const quake = p.shiver * 0.006 * Math.sin(f.t * 75);
 
@@ -1057,6 +1374,10 @@ function drawStanding(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Fram
   const footL = mix([p.footLX, p.footLY], wheel(HIP_L, ph + Math.PI), run);
   const footR = mix([p.footRX, p.footRY], wheel(HIP_R, ph), run);
 
+  // His paws, unless a working prop holds them (binoculars, a sign, his chin).
+  const work = workPaws(p, hc);
+  const pawL = work.L, pawR = work.R;
+
   const cozy = outfit === "cozy";
   drawTail(g, p);
   if (cozy) drawScarfEnd(g, p, nb, f);
@@ -1065,7 +1386,7 @@ function drawStanding(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Fram
   // The far legs and arm, behind the body.
   if (run > 0.4) drawWheelBlur(g, run);
   drawLeg(g, HIP_L, footL, p.kneeL, f, -1);
-  drawArm(g, shL, [p.pawLX, p.pawLY], -1, f);
+  drawArm(g, shL, pawL, -1, f);
 
   drawTorso(g, p);
   drawLeg(g, HIP_R, footR, p.kneeR, f, 1);
@@ -1080,7 +1401,7 @@ function drawStanding(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Fram
   // Pulling a hat down, his near arm reaches up behind his head: only the mitt
   // shows, on the brim (so the arm never crosses his face).
   const armBehind = !cozy && HAT_HIDERS.has(outfit) && p.hide > 0.05;
-  if (armBehind) drawArm(g, shR, [p.pawRX, p.pawRY], 1, f, "arm");
+  if (armBehind) drawArm(g, shR, pawR, 1, f, "arm");
 
   g.save();
   g.translate(hc[0], hc[1]);
@@ -1089,8 +1410,10 @@ function drawStanding(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Fram
   drawHead(g, p, eye, f);
   g.restore();
 
+  // What he's working with, in front of him; the far paw that holds it on top.
+  if (drawWorkProps(g, p, work, f)) drawArm(g, shL, pawL, -1, f, "mitt");
   if (!cozy) drawHeldProp(g, p, hc, eye, f);
-  drawArm(g, shR, [p.pawRX, p.pawRY], 1, f, armBehind ? "mitt" : "all");
+  drawArm(g, shR, pawR, 1, f, armBehind ? "mitt" : "all");
   if (!cozy) drawOutfitFront(g, p, hc, nb);
   drawOverlays(g, p, hc, f);
 }
@@ -1963,7 +2286,9 @@ function drawOverlays(g: CanvasRenderingContext2D, p: Pose, hc: Pt, f: Frame) {
   // A "?" above his head.
   if (p.qmark > 0.01) {
     g.save();
-    g.translate(hx + 0.04, hy - 0.36 + 0.01 * Math.sin(f.t * 3));
+    // (Asking, in the chef's tall hat, it moves out in front of it.)
+    const aside = outfit === "chef" ? 0.2 * clamp(p.chin, 0, 1) : 0;
+    g.translate(hx + 0.04 + aside, hy - 0.36 + 0.01 * Math.sin(f.t * 3) + 0.3 * aside);
     g.scale(p.qmark, p.qmark);
     g.rotate(0.15);
     g.strokeStyle = outfit === "cozy" ? C.scarfDark : markColour();
@@ -1976,6 +2301,27 @@ function drawOverlays(g: CanvasRenderingContext2D, p: Pose, hc: Pt, f: Frame) {
     g.fillStyle = outfit === "cozy" ? C.scarfDark : markColour();
     g.beginPath();
     g.arc(0, 0.065, 0.014, 0, TAU);
+    g.fill();
+    g.restore();
+  }
+
+  // A "!" above his head: found it!
+  if (p.excl > 0.01) {
+    const col = outfit === "cozy" ? C.scarfDark : markColour();
+    g.save();
+    g.translate(hx + (outfit === "chef" ? 0.27 : 0.08), hy - (outfit === "chef" ? 0.32 : 0.4));
+    g.scale(p.excl, p.excl);
+    g.rotate(0.12);
+    g.strokeStyle = col;
+    g.lineWidth = 0.03;
+    g.lineCap = "round";
+    g.beginPath();
+    g.moveTo(0, -0.075);
+    g.lineTo(0, 0.02);
+    g.stroke();
+    g.fillStyle = col;
+    g.beginPath();
+    g.arc(0, 0.062, 0.018, 0, TAU);
     g.fill();
     g.restore();
   }
@@ -2017,6 +2363,349 @@ function drawDrop(g: CanvasRenderingContext2D, x: number, y: number, a: number, 
   g.strokeStyle = C.sweatEdge;
   g.lineWidth = 0.006;
   g.stroke(d);
+  g.restore();
+}
+
+// ── Working props (body space) ────────────────────────────────────────────────
+// The book and magnifying glass, the push button, the binoculars and the sign,
+// in his own palette (the detective's glass is his own). They're held where
+// his paws are; binoculars, the sign and his chin move his paws to them instead.
+
+/** A point in head space (as drawHead draws it) in body space. */
+function headPt(p: Pose, hc: Pt, x: number, y: number): Pt {
+  const c = Math.cos(p.headTilt), s = Math.sin(p.headTilt);
+  return [hc[0] + HEAD_SCALE * (x * c - y * s), hc[1] + HEAD_SCALE * (x * s + y * c)];
+}
+
+/** Where a held prop is: its origin and turn (body space). */
+interface Held { at: Pt; rot: number }
+
+/** A point in a held prop's own space, scaled by `s`. */
+function inHeld(h: Held, x: number, y: number, s: number): Pt {
+  const c = Math.cos(h.rot), sn = Math.sin(h.rot);
+  return [h.at[0] + s * (x * c - y * sn), h.at[1] + s * (x * sn + y * c)];
+}
+
+interface WorkPaws { L: Pt; R: Pt; bino: Held; sign: Held }
+
+/** His paws as drawn, and where the binoculars and the sign are. */
+function workPaws(p: Pose, hc: Pt): WorkPaws {
+  let L: Pt = [p.pawLX, p.pawLY];
+  let R: Pt = [p.pawRX, p.pawRY];
+  // Binoculars: at his eyes, or lowered to his chest and tipped down.
+  const drop = clamp(p.binoDrop, 0, 1);
+  const bino: Held = { at: mix(headPt(p, hc, 0.03, -0.068), headPt(p, hc, 0.07, 0.25), drop), rot: p.headTilt + 0.45 * drop };
+  const b = smoothstep(0, 1, clamp(p.bino, 0, 1));
+  if (b > 0) {
+    L = mix(L, inHeld(bino, -0.05, 0.08, HEAD_SCALE), b);
+    R = mix(R, inHeld(bino, 0.12, 0.085, HEAD_SCALE), b);
+  }
+  // The sign hangs off his far paw (its lower back corner); the near paw holds its front edge, or taps the "!".
+  const sign: Held = { at: L, rot: p.signTilt };
+  const s = clamp(p.sign, 0, 1);
+  if (s > 0) {
+    const grip = inHeld(sign, 0.245, -0.03, SIGN_S);
+    const tap = inHeld(sign, 0.205, -0.115 - 0.03 * p.signKnock, SIGN_S);
+    R = mix(R, mix(grip, tap, clamp(p.signTap, 0, 1)), s);
+  }
+  // A paw at his chin, tapping it.
+  const c = clamp(p.chin, 0, 1);
+  if (c > 0) R = mix(R, headPt(p, hc, 0.125, 0.13 + 0.018 * p.chinTap), c);
+  return { L, R, bino, sign };
+}
+
+/** Draws the working props; true if his far paw holds one (so its mitt goes on top). */
+function drawWorkProps(g: CanvasRenderingContext2D, p: Pose, w: WorkPaws, f: Frame): boolean {
+  let held = false;
+  g.save();
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  if (p.book > 0.01) {
+    drawBook(g, p, w.L, f);
+    held = true;
+  }
+  if (p.lens > 0.01) drawLens(g, p, w.R, f);
+  if (p.sign > 0.01) {
+    drawSign(g, p, w.sign, f);
+    held = true;
+  }
+  if (p.bino > 0.01) {
+    drawBinoculars(g, p, w.bino, f);
+    held = true;
+  }
+  g.restore();
+  return held;
+}
+
+/** The book's cover (one that doesn't match the outfit's own colours). */
+const COVER: Partial<Record<OutfitName, string>> = { hero: "#3D5A99", chef: "#3D5A99", desi: "#2F7A6B", rainy: "#3D5A99" };
+const PAGE = "#FFFCF0";
+const INK = "rgba(110,90,70,0.5)";
+
+/** An open book held up in his far paw, its pages towards him; a page turning over (`page`). */
+function drawBook(g: CanvasRenderingContext2D, p: Pose, paw: Pt, f: Frame) {
+  const k = clamp(p.book, 0, 1.2);
+  const W = 0.13, H = 0.072, V = 0.022;
+  g.save();
+  g.translate(paw[0] + 0.13, paw[1] - 0.05);
+  g.rotate(-0.1);
+  g.scale(1.25 * k, 1.25 * k);
+  paint(g, poly([[-W - 0.014, -H + 0.008], [0, -H + V + 0.006], [W + 0.014, -H + 0.008], [W + 0.014, H + 0.016], [0, H + V + 0.02], [-W - 0.014, H + 0.016]]), COVER[outfit] ?? "#B5473A", 0.008);
+  /** A page from the spine to its free edge at `x`, lifted off the book by `lift`. */
+  const leaf = (x: number, lift = 0) => {
+    const q = new Path2D();
+    q.moveTo(0, -H + V);
+    q.quadraticCurveTo(x * 0.5, -H - 0.014 - lift, x, -H - lift * 0.6);
+    q.lineTo(x, H - lift * 0.6);
+    q.quadraticCurveTo(x * 0.5, H - 0.004 - lift, 0, H + V);
+    q.closePath();
+    return q;
+  };
+  const lines = (q: Path2D, x: number, lift = 0) => {
+    g.save();
+    g.clip(q);
+    g.strokeStyle = INK;
+    g.lineWidth = f.detail > 0.3 ? 0.008 : 0.014;
+    g.beginPath();
+    for (const y of f.detail > 0.3 ? [-0.042, -0.016, 0.01, 0.036] : [-0.028, 0.016]) {
+      g.moveTo(Math.sign(x) * 0.02, y + V * 0.7 - lift * 0.5);
+      g.quadraticCurveTo(x * 0.5, y - 0.006 - lift, x - Math.sign(x) * 0.018, y + 0.002 - lift * 0.6);
+    }
+    g.stroke();
+    g.restore();
+  };
+  for (const x of [-W, W]) {
+    const q = leaf(x);
+    paint(g, q, PAGE, 0.006);
+    lines(q, x);
+  }
+  // The page turning over, right to left.
+  const turn = clamp(p.page, 0, 1);
+  if (turn > 0.01 && turn < 0.99) {
+    const x = W * Math.cos(Math.PI * turn);
+    const lift = 0.05 * Math.sin(Math.PI * turn);
+    const q = leaf(x, lift);
+    paint(g, q, x > 0 ? PAGE : "#F1E9D2", 0.006);
+    if (Math.abs(x) > 0.04) lines(q, x, lift);
+  }
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.006;
+  g.beginPath();
+  g.moveTo(0, -H + V);
+  g.lineTo(0, H + V);
+  g.stroke();
+  g.restore();
+}
+
+/** The magnifying glass over his book (the detective's own, in his colours), in his near paw. */
+function drawLens(g: CanvasRenderingContext2D, p: Pose, paw: Pt, f: Frame) {
+  const k = clamp(p.lens, 0, 1.2);
+  const det = outfit === "detective";
+  const lc: Pt = [-0.125, -0.07];
+  const r = 0.058;
+  g.save();
+  g.translate(paw[0], paw[1]);
+  g.scale(k, k);
+  noodle(g, hose([0.006, 0.018], [lc[0] + 0.022, lc[1] + r - 0.006], 0), 0.018, det ? K("handle") : "#6B4526");
+  const lens = new Path2D();
+  lens.arc(lc[0], lc[1], r, 0, TAU);
+  // The page through it: its lines, big.
+  g.save();
+  g.clip(lens);
+  g.fillStyle = "rgba(255,252,240,0.6)";
+  g.fill(lens);
+  g.strokeStyle = "rgba(110,90,70,0.6)";
+  g.lineWidth = 0.017;
+  g.beginPath();
+  for (const y of [-0.026, 0.016]) {
+    g.moveTo(lc[0] - r, lc[1] + y + 0.008);
+    g.lineTo(lc[0] + r, lc[1] + y - 0.004);
+  }
+  g.stroke();
+  g.restore();
+  g.fillStyle = "rgba(207,232,242,0.3)";
+  g.fill(lens);
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.024;
+  g.stroke(lens);
+  g.strokeStyle = det ? K("brass") : "#C9A04A";
+  g.lineWidth = 0.013;
+  g.stroke(lens);
+  if (f.detail > 0.2) {
+    g.strokeStyle = "rgba(255,255,255,0.85)";
+    g.lineWidth = 0.008;
+    g.beginPath();
+    g.arc(lc[0], lc[1], r - 0.016, -2.6, -1.8);
+    g.stroke();
+  }
+  g.restore();
+}
+
+/** The big red push button on its post, its cap pushed down (`press`), its lamp blinking (`lamp`). Ground space. */
+function drawButton(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
+  const k = clamp(p.button, 0, 1.2) * BUTTON_S;
+  const top = -BUTTON_H / BUTTON_S;
+  g.save();
+  g.translate(BUTTON_X, 0);
+  g.scale(k, k);
+  g.lineCap = "round";
+  g.lineJoin = "round";
+  g.fillStyle = "rgba(90,62,28,0.22)";
+  g.beginPath();
+  g.ellipse(0, 0, 0.12, 0.022, 0, 0, TAU);
+  g.fill();
+  // Foot, post and the box on top.
+  const foot = new Path2D();
+  foot.ellipse(0, -0.006, 0.075, 0.02, 0, 0, TAU);
+  paint(g, foot, "#4A505A", 0.008);
+  const post = new Path2D();
+  post.rect(-0.022, top + 0.07, 0.044, -top - 0.076);
+  const pg = g.createLinearGradient(-0.022, 0, 0.022, 0);
+  pg.addColorStop(0, "#7C8492");
+  pg.addColorStop(1, "#4F5561");
+  paint(g, post, pg, 0.008);
+  const box = new Path2D();
+  box.roundRect(-0.105, top, 0.21, 0.085, 0.02);
+  paint(g, box, "#4A505A", 0.009);
+  // Hazard stripes along its front.
+  g.save();
+  g.clip(box);
+  g.fillStyle = "#F2C230";
+  g.fillRect(-0.11, top + 0.04, 0.22, 0.028);
+  g.fillStyle = "#2E3138";
+  for (let x = -0.14; x < 0.12; x += 0.04) g.fill(poly([[x, top + 0.068], [x + 0.018, top + 0.04], [x + 0.036, top + 0.04], [x + 0.018, top + 0.068]]));
+  g.restore();
+  g.strokeStyle = C.line;
+  g.lineWidth = 0.009;
+  g.stroke(box);
+  const lid = new Path2D();
+  lid.ellipse(0, top + 0.004, 0.1, 0.02, 0, 0, TAU);
+  paint(g, lid, "#68707C", 0.007);
+  // The lamp on its back corner: lit while the command runs.
+  const lamp = clamp(p.lamp, 0, 1);
+  if (lamp > 0.05) {
+    const glow = g.createRadialGradient(-0.07, top - 0.006, 0, -0.07, top - 0.006, 0.07);
+    glow.addColorStop(0, `rgba(255,214,90,${0.55 * lamp})`);
+    glow.addColorStop(1, "rgba(255,214,90,0)");
+    g.fillStyle = glow;
+    g.beginPath();
+    g.arc(-0.07, top - 0.006, 0.07, 0, TAU);
+    g.fill();
+  }
+  dot(g, -0.07, top - 0.006, 0.021, lamp > 0.5 ? "#FFD34E" : lamp > 0.05 ? "#C9A040" : "#7A5E2A", 0.006);
+  // The collar and the big red cap.
+  const ring = new Path2D();
+  ring.ellipse(0.012, top - 0.002, 0.068, 0.017, 0, 0, TAU);
+  paint(g, ring, "#2E3138", 0.006);
+  const dy = 0.028 * clamp(p.press, 0, 1);
+  const cap = new Path2D();
+  cap.moveTo(-0.048, top - 0.004);
+  cap.bezierCurveTo(-0.05, top - 0.072 + dy, 0.074, top - 0.072 + dy, 0.072, top - 0.004);
+  cap.quadraticCurveTo(0.012, top + 0.016, -0.048, top - 0.004);
+  cap.closePath();
+  const cg = g.createRadialGradient(-0.005, top - 0.05 + dy, 0.005, 0.012, top - 0.02, 0.08);
+  cg.addColorStop(0, "#FF7A5E");
+  cg.addColorStop(0.5, "#E5412F");
+  cg.addColorStop(1, "#B32A1E");
+  paint(g, cap, cg, 0.009);
+  if (f.detail > 0.2) {
+    g.fillStyle = "rgba(255,255,255,0.6)";
+    g.beginPath();
+    g.ellipse(-0.008, top - 0.042 + dy * 0.8, 0.018, 0.008, -0.3, 0, TAU);
+    g.fill();
+  }
+  g.restore();
+}
+
+/** Binoculars over his eyes (or lowered), two barrels pointing where he looks. In head units. */
+function drawBinoculars(g: CanvasRenderingContext2D, p: Pose, h: Held, f: Frame) {
+  const k = clamp(p.bino, 0, 1.2);
+  g.save();
+  g.translate(h.at[0], h.at[1]);
+  g.rotate(h.rot);
+  g.scale(HEAD_SCALE * k, HEAD_SCALE * k);
+  const barrel = (x0: number, x1: number, y: number, r: number, body: string, light: string) => {
+    const q = new Path2D();
+    q.moveTo(x0, y - r);
+    q.lineTo(x1, y - r * 0.94);
+    q.ellipse(x1, y, r * 0.38, r * 0.94, 0, -Math.PI / 2, Math.PI / 2);
+    q.lineTo(x0, y + r);
+    q.ellipse(x0, y, r * 0.38, r, 0, Math.PI / 2, Math.PI * 1.5);
+    q.closePath();
+    const bg = g.createLinearGradient(0, y - r, 0, y + r);
+    bg.addColorStop(0, light);
+    bg.addColorStop(0.45, body);
+    bg.addColorStop(1, body);
+    paint(g, q, bg, 0.009);
+    // The rubber grip round its middle.
+    const gx = lerp(x0, x1, 0.42);
+    g.strokeStyle = "rgba(255,255,255,0.14)";
+    g.lineWidth = 0.022;
+    g.beginPath();
+    g.ellipse(gx, y, r * 0.38, r * 0.97, 0, -Math.PI / 2, Math.PI / 2);
+    g.stroke();
+    // The big front lens.
+    const rim = new Path2D();
+    rim.ellipse(x1, y, r * 0.38, r * 0.94, 0, 0, TAU);
+    paint(g, rim, "#24262B", 0.007);
+    const lens = new Path2D();
+    lens.ellipse(x1 + 0.003, y, r * 0.26, r * 0.72, 0, 0, TAU);
+    const lg = g.createRadialGradient(x1 - 0.004, y - r * 0.3, 0.002, x1, y, r * 0.8);
+    lg.addColorStop(0, "#BFE4F5");
+    lg.addColorStop(1, "#3F6F8E");
+    g.fillStyle = lg;
+    g.fill(lens);
+    if (f.detail > 0.2) {
+      g.fillStyle = "rgba(255,255,255,0.8)";
+      g.beginPath();
+      g.ellipse(x1 - 0.002, y - r * 0.38, r * 0.08, r * 0.18, 0, 0, TAU);
+      g.fill();
+    }
+  };
+  barrel(-0.085, 0.035, -0.022, 0.06, "#2C2F35", "#5A5F69");
+  // The hinge between them.
+  const hinge = new Path2D();
+  hinge.roundRect(-0.02, -0.07, 0.06, 0.036, 0.014);
+  paint(g, hinge, "#3A3E46", 0.007);
+  barrel(0.012, 0.14, 0.006, 0.066, "#33363D", "#646a75");
+  g.restore();
+}
+
+/** A card with a big "!" held up for you: hangs off his far paw (`h`). */
+function drawSign(g: CanvasRenderingContext2D, p: Pose, h: Held, f: Frame) {
+  const k = clamp(p.sign, 0, 1.2) * SIGN_S;
+  const red = "#D2392F";
+  g.save();
+  g.translate(h.at[0], h.at[1]);
+  g.rotate(h.rot);
+  g.scale(k, k);
+  const card = new Path2D();
+  card.roundRect(-0.025, -0.18, 0.28, 0.19, 0.022);
+  g.fillStyle = "rgba(90,62,28,0.18)";
+  g.save();
+  g.translate(0.008, 0.01);
+  g.fill(card);
+  g.restore();
+  paint(g, card, PAGE, 0.009);
+  if (f.detail > 0.3) {
+    g.strokeStyle = "rgba(210,57,47,0.35)";
+    g.lineWidth = 0.006;
+    g.beginPath();
+    g.roundRect(-0.008, -0.163, 0.246, 0.156, 0.014);
+    g.stroke();
+  }
+  const cx = 0.115, cy = -0.085;
+  g.strokeStyle = red;
+  g.lineCap = "round";
+  g.lineWidth = 0.036;
+  g.beginPath();
+  g.moveTo(cx, cy - 0.055);
+  g.lineTo(cx - 0.002, cy + 0.02);
+  g.stroke();
+  g.fillStyle = red;
+  g.beginPath();
+  g.arc(cx - 0.003, cy + 0.06, 0.021, 0, TAU);
+  g.fill();
   g.restore();
 }
 

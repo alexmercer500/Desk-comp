@@ -4,7 +4,7 @@
 // Drawing space: units, origin at the centre of the base, y down (so the rim is
 // at y ≈ −0.93). The engine scales 1 unit to the character's height.
 
-import { Ease, clamp, smoothstep } from "../engine/ease";
+import { Ease, clamp, lerp, smoothstep } from "../engine/ease";
 import { hash01, kf, osc } from "../engine/track";
 import type { Emit, Frame, Pose, PoseInput, PoseOut, Skin } from "../engine/types";
 
@@ -35,6 +35,15 @@ const rest: Pose = {
   steamLen: 1, steamAlpha: 1,
   steamWobble: 1, steamCurl: 1, steamLean: 0, steamDroop: 0, steamJitter: 0, steamPuff: 0,
   sSpiral: 0, sQuestion: 0, sHeart: 0,
+  // kinds of work (WORKING's variants): one eye squinted, nubs moved or held in
+  // front of the cup, and the props, each 0 (put away) … 1 (in hand)
+  eyeSquintL: 0, eyeSquintR: 0,
+  armLdx: 0, armLdy: 0, armRdx: 0, armRdy: 0, armLfront: 0, armRfront: 0,
+  book: 0, pageTurn: 0, lens: 0, lensLift: 0,
+  button: 0, buttonDown: 0, buttonLit: 0,
+  spyglass: 0, spyAngle: 0, spyDrop: 0,
+  sign: 0, signWave: 0,
+  steamShade: 0, // a deeper shadow under the steam, so a "?" in it reads on light wallpapers
 };
 
 function pose(i: PoseInput): PoseOut {
@@ -120,6 +129,13 @@ function pose(i: PoseInput): PoseOut {
     }
 
     case "WORKING": {
+      switch (i.variant) {
+        case "research": return researching(i);
+        case "run": return running(i);
+        case "browse": return lookingOut(i);
+        case "wait": return waitingForOk(i);
+        case "ask": return asking(i);
+      }
       // Spiral steam, eyes up-left, bobbing; after 5 s a determined nod every 3 s.
       const k = st > 5000 ? (st - 5000) % 3000 : Infinity;
       const nod = k < 350 ? Math.sin((Math.PI * k) / 350) : 0;
@@ -309,11 +325,227 @@ function pose(i: PoseInput): PoseOut {
   }
 }
 
+// ── Kinds of work ─────────────────────────────────────────────────────────────
+// WORKING's variants. Each loops for as long as it lasts, from the same upright
+// stance as plain working, so they crossfade into one another; props pop into
+// its nubs over the first 300 ms. Under reduced motion the cup and its props
+// hold still, and the eyes, mouth and steam carry the beats.
+
+/** 0 → 1 (with a little overshoot) over the first 300 ms: a prop pops into hand. */
+const propIn = (st: number) => kf(st, [[0, 0], [300, 1, Ease.outBack]]);
+
+/** The gentle working bob, in units. */
+const bob = (st: number, m: number) => 0.012 * Math.sin((TAU * st) / 1600) * m;
+
+/** Where a nub's centre is, in body space (see drawArms). */
+function nubAt(p: Pose, side: -1 | 1): { x: number; y: number } {
+  const a = side < 0 ? p.armL : p.armR;
+  return {
+    x: side * 0.385 + (side < 0 ? p.armLdx : p.armRdx) + side * 0.058 * Math.cos(a),
+    y: -0.47 + (side < 0 ? p.armLdy : p.armRdy) - 0.058 * Math.sin(a),
+  };
+}
+
+/** Offsets that put a nub (at angle `a`) on a point of the body. */
+function nubTo(side: -1 | 1, a: number, x: number, y: number) {
+  return { dx: x - side * 0.385 - side * 0.058 * Math.cos(a), dy: y + 0.47 + 0.058 * Math.sin(a) };
+}
+
+/** Reading, 12.6 s: three lines, a page turn, two lines, "found it!", a line, a page turn. */
+const READ = { cycle: 12600, line: 1800, aha: 9000, ahaMs: 1800 };
+
+function researching(i: PoseInput): PoseOut {
+  const { st, motion: m } = i;
+  const u = st % READ.cycle;
+  const a = u - READ.aha;
+  const aha = kf(a, [[0, 0], [120, 1, Ease.outBack], [1300, 1], [1800, 0, Ease.inOutSine]]);
+  // The reading clock stops while it looks up.
+  const r = u < READ.aha ? u : u < READ.aha + READ.ahaMs ? READ.aha : u - READ.ahaMs;
+  const k = (r % READ.line) / READ.line;
+  // Eyes run along a line through the glass, then flick back for the next.
+  const along = k < 0.8 ? lerp(-0.7, 0.7, k / 0.8) : lerp(0.7, -0.7, smoothstep(0.8, 1, k));
+  const turning = (from: number, ms: number) => (r >= from && r < from + ms ? (r - from) / ms : 0);
+  const pop = propIn(st);
+  const book = nubTo(-1, -0.3, -0.3, -0.215);
+  const lens = nubTo(1, 0.3, 0.315, -0.33);
+  return {
+    pose: {
+      book: pop, lens: pop,
+      pageTurn: (turning(5100, 800) + turning(10200, 600)) * m,
+      lensLift: aha * m,
+      lift: bob(st, m) + kf(a, [[0, 0], [150, 0.05, Ease.outCubic], [330, 0, Ease.inQuad]]) * m,
+      gazeLock: 1,
+      gazeLockX: lerp(along * 0.55, 0, aha),
+      gazeLockY: lerp(0.8, -0.1, aha),
+      // The right eye, big behind the magnifying glass.
+      eyeScaleR: 1 + 0.38 * clamp(pop, 0, 1) * (1 - aha * m) + 0.08 * aha,
+      eyeScale: 1 + 0.08 * aha,
+      mouthCurve: lerp(0.25, 0.9, aha),
+      mouthOpen: 0.32 * aha,
+      armL: -0.3, armLfront: 1, armLdx: book.dx, armLdy: book.dy - 0.03 * aha * m,
+      armR: 0.3, armRfront: 1, armRdx: lens.dx, armRdy: lens.dy - 0.1 * aha * m,
+      steamWobble: 0.6, steamCurl: 0.6 + aha,
+      steamPuff: kf(a, [[0, 0], [150, 1], [700, 0]]),
+    },
+    eye: aha > 0.5 ? "wide" : "oval",
+  };
+}
+
+/** Running a command, 7 s: wind up, press the big button, then wait on its light. */
+const RUN = { cycle: 7000, first: 600, press: 700 };
+/** Where the button stands (units from the cup's base centre), and its size. */
+const BUTTON = { x: 0.6, size: 1.35 };
+
+function running(i: PoseInput): PoseOut {
+  const { st, motion: m } = i;
+  // Before the first press: ready, eyes on the button.
+  const c = st < RUN.first ? -1 : (st - RUN.first) % RUN.cycle;
+  // Reduced motion: a nub resting on the pressed button, its light on.
+  const still = m < 0.5;
+  const wind = still ? 0 : kf(c, [[0, 0], [450, 1, Ease.inOutSine], [600, 1], [700, 0]]);
+  const press = still ? 1 : kf(c, [[600, 0], [RUN.press, 1, Ease.inQuad], [1250, 1], [1500, 0, Ease.outCubic]]);
+  const down = still ? 1 : kf(c, [[660, 0], [RUN.press, 1], [1250, 1], [1350, 0]]);
+  const waiting = still ? 1 : kf(c, [[1300, 0], [1700, 1], [6500, 1], [6900, 0]]);
+  const lit = still ? 1 : c >= RUN.press && c < 6600 ? (c < 1700 || c % 800 < 500 ? 1 : 0.3) : 0;
+  const thud = still ? 0 : kf(c, [[690, 0], [730, 1], [900, 0, Ease.outCubic]]);
+  // Waiting: watching the light, with a hopeful look up at you now and then.
+  const w = (c - 1700 + 3200) % 3200;
+  const atYou = waiting > 0.5 && w > 2000 && w < 3000 ? 1 : 0;
+  const onButton = nubTo(1, -1.0, BUTTON.x - 0.035, -0.335);
+  const raise = lerp(lerp(0.35, 1.25, wind), -1.0, press);
+  return {
+    pose: {
+      button: propIn(st), buttonDown: down, buttonLit: lit,
+      bodyRot: (-4 * wind + 7 * press) * DEG * m,
+      lift: bob(st, m) * (1 - waiting) + waiting * (0.008 + 0.008 * Math.sin((TAU * st) / 700)) * m,
+      sy: 1 - 0.05 * thud, sx: 1 + 0.04 * thud,
+      armR: raise,
+      armRdx: lerp(0.07 * wind, onButton.dx, press),
+      armRdy: lerp(-0.14 * wind, onButton.dy, press),
+      armL: 0.3 + 0.05 * waiting,
+      gazeLock: 1,
+      gazeLockX: lerp(0.7, 0.1, atYou),
+      gazeLockY: lerp(0.7, -0.05, atYou),
+      eyeScale: lerp(0.96, 1.06, waiting),
+      mouthCurve: lerp(0.05, 0.7, waiting),
+      steamWobble: 0.7, steamCurl: 0.7,
+      steamPuff: kf(c, [[RUN.press, 0], [800, 0.7], [1200, 0]]),
+    },
+    eye: !still && c >= RUN.press && c < 1050 ? "happy" : "oval",
+  };
+}
+
+/** On the web, 10 s: scanning the distance through a spyglass, then "oh!". */
+const LOOK = { cycle: 10000, oh: 6500 };
+
+function lookingOut(i: PoseInput): PoseOut {
+  const { st, motion: m } = i;
+  const a = (st % LOOK.cycle) - LOOK.oh;
+  const oh = kf(a, [[0, 0], [120, 1, Ease.outBack], [1500, 1], [1900, 0, Ease.inOutSine]]);
+  const scan = Math.sin((TAU * st) / 5500) * m;
+  const angle = -0.08 + 0.2 * scan;
+  const drop = oh * m;
+  // The left nub holds the tube up from underneath, a third of the way along.
+  const phi = angle + 0.9 * drop;
+  const hold = nubTo(-1, 0.85, -0.125 - 0.06 * drop - 0.3 * Math.cos(phi), -0.56 + 0.1 * drop + 0.3 * Math.sin(phi) + 0.1);
+  return {
+    pose: {
+      spyglass: propIn(st), spyAngle: angle, spyDrop: drop,
+      bodyRot: -3 * DEG * scan,
+      lift: bob(st, m) + kf(a, [[0, 0], [150, 0.045, Ease.outCubic], [320, 0, Ease.inQuad]]) * m,
+      armL: 0.85, armLfront: 1, armLdx: hold.dx, armLdy: hold.dy,
+      armR: 0.2 + 0.4 * oh,
+      eyeSquintR: 0.85 * (1 - oh),
+      gazeLock: 1,
+      gazeLockX: lerp(-0.5 + 0.15 * scan, -0.85, oh),
+      gazeLockY: lerp(-0.25 + 0.2 * scan, -0.1, oh),
+      eyeScale: 1 + 0.06 * oh,
+      mouthCurve: lerp(0.35, 0.8, oh),
+      mouthOpen: 0.36 * oh,
+      steamLean: -0.3, steamWobble: 0.6, steamCurl: 0.5 + 0.8 * oh,
+      steamPuff: kf(a, [[0, 0], [150, 1], [700, 0]]),
+    },
+    eye: oh > 0.5 ? "wide" : "oval",
+  };
+}
+
+/** Waiting for your OK: NOTIFY's pop, then a sign held up and waggled, two hops, every 3.2 s. */
+const CALL = { cycle: 3200, from: 400 };
+
+function waitingForOk(i: PoseInput): PoseOut {
+  const { st, motion: m } = i;
+  const u = st >= CALL.from ? (st - CALL.from) % CALL.cycle : -1;
+  const env = kf(u, [[0, 0], [100, 1], [1100, 1], [1400, 0]]);
+  const wave = Math.sin((TAU * Math.max(0, u)) / 600) * env;
+  const hop = kf(u, [[0, 0], [150, 0.045, Ease.outCubic], [300, 0, Ease.inQuad], [420, 0.022, Ease.outCubic], [540, 0, Ease.inQuad]]);
+  const pulse = kf(u, [[0, 0], [120, 1], [450, 0]]);
+  const sc = kf(st, [[0, 1], [400, 1.1, Ease.outBack], [700, 1.05, Ease.outCubic]]);
+  return {
+    pose: {
+      sx: sc, sy: sc,
+      lift: (kf(st, [[0, 0], [200, 0.06, Ease.outCubic], [400, 0, Ease.inQuad]]) + hop) * m,
+      sign: propIn(st), signWave: 0.2 * wave * m,
+      armL: 1.15 + 0.08 * pulse * m, armLfront: 1,
+      armR: 0.95 + 0.35 * wave * m,
+      gazeLock: 1, gazeLockX: 0, gazeLockY: 0.05,
+      eyeScale: 1.04 + 0.05 * pulse,
+      mouthCurve: 0.55, mouthOpen: 0.18 + 0.12 * pulse,
+      steamCurl: 0, steamWobble: 0.25, steamLen: 1.05,
+      steamPuff: pulse,
+    },
+    eye: "wide",
+  };
+}
+
+/** Asking you something: a steady tilt, a nub on its cheek, the steam a "?", and a "hm?" every 4.5 s. */
+const HMM = { cycle: 4500, at: 2600 };
+
+function asking(i: PoseInput): PoseOut {
+  const { st, motion: m } = i;
+  const u = st % HMM.cycle;
+  const hm = kf(u - HMM.at, [[0, 0], [250, 1, Ease.outCubic], [900, 1], [1400, 0, Ease.inOutSine]]);
+  // Two taps of the nub on its cheek.
+  const tap = u >= 600 && u < 1200 ? Math.max(0, Math.sin((TAU * (u - 600)) / 300)) : 0;
+  const settle = kf(st, [[0, 0], [500, 1, Ease.outCubic]]);
+  const cheek = nubTo(1, 0.4, 0.27, -0.45);
+  return {
+    pose: {
+      bodyRot: (7 + 1.5 * Math.sin((TAU * st) / 5000) + 2 * hm) * DEG * settle * m,
+      sx: 1 + 0.025 * hm * m, sy: 1 + 0.025 * hm * m,
+      lift: bob(st, m) * 0.6,
+      sQuestion: kf(st, [[0, 0], [400, 1, Ease.outCubic]]),
+      steamShade: 1,
+      steamLen: 1 + 0.08 * hm,
+      steamPuff: 0.4 * kf(u - HMM.at, [[0, 0], [200, 1], [700, 0]]),
+      gazeLock: 1, gazeLockX: 0.12, gazeLockY: -0.12,
+      eyeScale: 1.03 + 0.05 * hm, eyeScaleL: 1.12, eyeScaleR: 0.92,
+      mouthCurve: 0.2, mouthOpen: 0.14 * hm,
+      armR: 0.4, armRfront: 1, armRdx: cheek.dx, armRdy: cheek.dy - 0.018 * tap * m,
+      armL: 0.1,
+    },
+    eye: "oval",
+  };
+}
+
 function events(i: PoseInput, prev: number, emit: Emit, p: Pose) {
   const crossed = (ms: number) => prev < ms && i.st >= ms;
   const top = 0.95 + 0.6 * p.steamLen + p.lift; // steam tip height, units
+  /** A moment `at` ms into every `cycle` ms from `from`. */
+  const each = (cycle: number, from: number, at: number) =>
+    i.st >= from && crossed(from + Math.floor((i.st - from) / cycle) * cycle + at);
 
   switch (i.state) {
+    case "WORKING":
+      if (i.variant === "research" && each(READ.cycle, 0, READ.aha + 100)) {
+        emit({ kind: "sparkle", x: 0.3, y: 0.72 + p.lift, vx: 0.15, vy: 0.2, size: 0.06, life: 0.8, spin: 1.5 });
+      } else if (i.variant === "run" && each(RUN.cycle, RUN.first, RUN.press)) {
+        emit({ kind: "puff", x: BUTTON.x, y: 0.33, vx: 0.12, vy: 0.22, size: 0.05, life: 0.5 });
+      } else if (i.variant === "browse" && each(LOOK.cycle, 0, LOOK.oh + 80)) {
+        emit({ kind: "sparkle", x: -0.72, y: 0.78 + p.lift, vx: -0.1, vy: 0.15, size: 0.065, life: 0.9, spin: -1.5 });
+      } else if (i.variant === "wait" && each(CALL.cycle, CALL.from, 150)) {
+        emit({ kind: "puff", x: 0, y: top + 0.04, vx: 0, vy: 0.3, size: 0.06, life: 0.7 });
+      }
+      break;
     case "BOOTING":
       if (crossed(650)) emit({ kind: "puff", x: 0, y: 1.02, vx: 0, vy: 0.25, size: 0.06, life: 0.6 });
       break;
@@ -408,14 +640,23 @@ function draw(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Frame) {
     g.restore();
   }
 
+  // The run button stands on the ground beside the cup.
+  if (p.button > 0.01) drawButton(g, p, f);
+
   g.save();
   g.translate(baseX, oy - p.lift * U);
   g.rotate(p.bodyRot);
   g.scale(p.sx * U, p.sy * U);
-  drawArms(g, p);
+  drawArms(g, p, false);
   drawBody(g, f.detail);
   drawRim(g, p);
+  if (p.book > 0.01) drawBook(g, p);
   drawFace(g, p, eye, f.t);
+  if (p.lens > 0.01) drawLens(g, p);
+  if (p.sign > 0.01) drawSign(g, p);
+  drawArms(g, p, true);
+  // Held from underneath: in front of the nub.
+  if (p.spyglass > 0.01) drawSpyglass(g, p);
   g.restore();
 
   // Steam rises straight up from the chai, whatever the cup's tilt.
@@ -517,11 +758,13 @@ function drawRim(g: CanvasRenderingContext2D, p: Pose) {
   g.fill();
 }
 
-function drawArms(g: CanvasRenderingContext2D, p: Pose) {
+/** The nubs behind the cup (`front` false), or those held in front of it. */
+function drawArms(g: CanvasRenderingContext2D, p: Pose, front: boolean) {
   for (const side of [-1, 1] as const) {
+    if ((side < 0 ? p.armLfront : p.armRfront) > 0.5 !== front) continue;
     const a = side < 0 ? p.armL : p.armR;
     g.save();
-    g.translate(side * 0.385, -0.47);
+    g.translate(side * 0.385 + (side < 0 ? p.armLdx : p.armRdx), -0.47 + (side < 0 ? p.armLdy : p.armRdy));
     g.rotate(-side * a);
     const ag = g.createRadialGradient(side * 0.03, -0.035, 0, side * 0.05, 0, 0.09);
     ag.addColorStop(0, "#DB7E50");
@@ -530,6 +773,12 @@ function drawArms(g: CanvasRenderingContext2D, p: Pose) {
     g.beginPath();
     g.ellipse(side * 0.058, 0, 0.068, 0.078, 0, 0, TAU);
     g.fill();
+    if (front) {
+      // A soft rim so it reads against the cup behind it.
+      g.strokeStyle = "rgba(96,38,16,0.55)";
+      g.lineWidth = 0.012;
+      g.stroke();
+    }
     g.restore();
   }
 }
@@ -564,7 +813,8 @@ function drawEye(g: CanvasRenderingContext2D, cx: number, cy: number, side: -1 |
     case "half": {
       const w = shape === "wide" ? 1.2 : 1;
       const h = shape === "wide" ? 1.03 : shape === "half" ? 0.85 : 1;
-      const open = clamp(p.eyeOpen, 0.06, 1);
+      const squint = side < 0 ? p.eyeSquintL : p.eyeSquintR;
+      const open = clamp(p.eyeOpen * (1 - 0.92 * squint), 0.06, 1);
       const erx = rx * w, ery = ry * h * open;
 
       // Worried tilt and sleepy lids are a clip across the top of the eye.
@@ -640,6 +890,294 @@ function drawMouth(g: CanvasRenderingContext2D, cx: number, cy: number, p: Pose)
     g.quadraticCurveTo(0, 0.05 * p.mouthCurve, 0.042, 0);
     g.stroke();
   }
+  g.restore();
+}
+
+// ── Props (kinds of work) ─────────────────────────────────────────────────────
+
+const PROP = {
+  ink: "#3A2418", // outlines and print, a touch warmer than the eyes
+  paper: "#FBF4E6",
+  paperShade: "#E6D8BE",
+  cover: "#2F5D62",
+  coverDark: "#1F4246",
+  wood: "#8A5A33",
+  woodLight: "#B07A48",
+  brass: "#D9B45A",
+  brassMid: "#B08A35",
+  brassDark: "#6E4F1A",
+  glass: "rgba(214,236,246,0.32)",
+};
+
+/** Where the eyes sit, with the face's slide toward the gaze (see drawFace). */
+function eyeAt(p: Pose, side: -1 | 1) {
+  return { x: p.gazeX * 0.052 + side * 0.125, y: -0.56 + p.gazeY * 0.035 };
+}
+
+/** Reading: an open book in its lap, held by the left nub. */
+function drawBook(g: CanvasRenderingContext2D, p: Pose) {
+  g.save();
+  g.translate(0, -0.205);
+  g.scale(p.book, p.book);
+  g.lineJoin = "round";
+  g.lineCap = "round";
+
+  // Cover, peeking out round the pages.
+  g.fillStyle = PROP.cover;
+  g.beginPath();
+  g.moveTo(0, -0.08);
+  g.lineTo(-0.33, -0.1);
+  g.lineTo(-0.315, 0.115);
+  g.quadraticCurveTo(-0.15, 0.09, 0, 0.13);
+  g.quadraticCurveTo(0.15, 0.09, 0.315, 0.115);
+  g.lineTo(0.33, -0.1);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = PROP.coverDark;
+  g.lineWidth = 0.012;
+  g.stroke();
+
+  // The two pages, bowed up from the spine.
+  const page = (s: -1 | 1, x: number, rise: number) => {
+    g.beginPath();
+    g.moveTo(0, -0.095);
+    g.quadraticCurveTo(s * 0.15 * Math.abs(x / 0.3), -0.15 - rise, x, -0.11 - rise);
+    g.lineTo(x * 0.97, 0.09 - rise);
+    g.quadraticCurveTo(s * 0.15 * Math.abs(x / 0.3), 0.065 - rise, 0, 0.105);
+    g.closePath();
+  };
+  for (const s of [-1, 1] as const) {
+    const pg = g.createLinearGradient(0, 0, s * 0.3, 0);
+    pg.addColorStop(0, PROP.paperShade);
+    pg.addColorStop(0.25, PROP.paper);
+    pg.addColorStop(1, PROP.paper);
+    g.fillStyle = pg;
+    page(s, s * 0.3, 0);
+    g.fill();
+    // Lines of print, following the bow of the page.
+    g.strokeStyle = "rgba(58,36,24,0.5)";
+    g.lineWidth = 0.013;
+    for (let n = 0; n < 4; n++) {
+      const y = -0.065 + n * 0.042;
+      const len = 0.17 + 0.06 * hash01(n * 2 + (s > 0 ? 9 : 0));
+      g.beginPath();
+      g.moveTo(s * 0.045, y - 0.012);
+      g.quadraticCurveTo(s * (0.045 + len / 2), y - 0.03, s * (0.045 + len), y - 0.012);
+      g.stroke();
+    }
+  }
+  // A page turning over, right to left.
+  const k = p.pageTurn;
+  if (k > 0.02 && k < 0.98) {
+    const x = 0.3 * Math.cos(Math.PI * k);
+    const rise = 0.07 * Math.sin(Math.PI * k);
+    g.fillStyle = k < 0.5 ? PROP.paper : PROP.paperShade;
+    page(x < 0 ? -1 : 1, x, rise);
+    g.fill();
+    g.strokeStyle = "rgba(58,36,24,0.25)";
+    g.lineWidth = 0.008;
+    g.stroke();
+  }
+  g.strokeStyle = "rgba(58,36,24,0.3)";
+  g.lineWidth = 0.01;
+  g.beginPath();
+  g.moveTo(0, -0.095);
+  g.lineTo(0, 0.105);
+  g.stroke();
+  g.restore();
+}
+
+/** A magnifying glass over the right eye, its handle in the right nub. */
+function drawLens(g: CanvasRenderingContext2D, p: Pose) {
+  const e = eyeAt(p, 1);
+  const cx = e.x + 0.1 * p.lensLift;
+  const cy = e.y - 0.15 * p.lensLift;
+  const r = 0.105 * p.lens;
+  const hand = nubAt(p, 1);
+  const a = Math.atan2(hand.y - cy, hand.x - cx);
+  g.save();
+  g.lineCap = "round";
+  // Handle, rim to nub.
+  g.strokeStyle = PROP.wood;
+  g.lineWidth = 0.042 * p.lens;
+  g.beginPath();
+  g.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+  g.lineTo(hand.x, hand.y);
+  g.stroke();
+  g.strokeStyle = PROP.woodLight;
+  g.lineWidth = 0.012 * p.lens;
+  g.stroke();
+  // Glass, a glint, and the rim.
+  g.fillStyle = PROP.glass;
+  g.beginPath();
+  g.arc(cx, cy, r, 0, TAU);
+  g.fill();
+  g.strokeStyle = "rgba(255,255,255,0.6)";
+  g.lineWidth = 0.012;
+  g.beginPath();
+  g.arc(cx, cy, r * 0.72, Math.PI * 1.1, Math.PI * 1.45);
+  g.stroke();
+  g.strokeStyle = PROP.ink;
+  g.lineWidth = 0.026;
+  g.beginPath();
+  g.arc(cx, cy, r, 0, TAU);
+  g.stroke();
+  g.strokeStyle = "rgba(201,164,106,0.8)";
+  g.lineWidth = 0.008;
+  g.beginPath();
+  g.arc(cx, cy, r - 0.004, Math.PI * 0.95, Math.PI * 1.6);
+  g.stroke();
+  g.restore();
+}
+
+/** On the web: a brass spyglass at the left eye, pointing off to the left. */
+function drawSpyglass(g: CanvasRenderingContext2D, p: Pose) {
+  const e = eyeAt(p, -1);
+  const drop = p.spyDrop;
+  g.save();
+  g.translate(e.x - 0.06 * drop, e.y + 0.1 * drop);
+  g.rotate(-(p.spyAngle + 0.9 * drop));
+  g.scale(p.spyglass, p.spyglass);
+  // Sections along −x: eyepiece, two draws, the objective. [from, to, half-height]
+  const parts: [number, number, number][] = [[0.03, -0.08, 0.036], [-0.08, -0.24, 0.046], [-0.24, -0.4, 0.056], [-0.4, -0.56, 0.068]];
+  for (const [x0, x1, h] of parts) {
+    const tg = g.createLinearGradient(0, -h, 0, h);
+    tg.addColorStop(0, "#F2D88A");
+    tg.addColorStop(0.35, PROP.brass);
+    tg.addColorStop(1, PROP.brassDark);
+    g.fillStyle = tg;
+    g.beginPath();
+    g.roundRect(x1, -h, x0 - x1, 2 * h, 0.012);
+    g.fill();
+    g.strokeStyle = PROP.brassDark;
+    g.lineWidth = 0.01;
+    g.stroke();
+  }
+  // Collars where the draws meet.
+  g.fillStyle = PROP.brassMid;
+  for (const [x, h] of [[-0.08, 0.05], [-0.24, 0.06], [-0.4, 0.072]] as const) {
+    g.beginPath();
+    g.roundRect(x - 0.016, -h, 0.032, 2 * h, 0.008);
+    g.fill();
+  }
+  // The objective lens at the far end.
+  g.fillStyle = "#24343C";
+  g.beginPath();
+  g.ellipse(-0.56, 0, 0.022, 0.06, 0, 0, TAU);
+  g.fill();
+  g.fillStyle = "rgba(190,225,240,0.55)";
+  g.beginPath();
+  g.ellipse(-0.565, -0.022, 0.008, 0.018, 0, 0, TAU);
+  g.fill();
+  g.restore();
+}
+
+/** Waiting for your OK: a little "!" sign on a stick, held up in the left nub. */
+function drawSign(g: CanvasRenderingContext2D, p: Pose) {
+  const h = nubAt(p, -1);
+  g.save();
+  g.translate(h.x, h.y);
+  g.rotate(-0.22 + p.signWave);
+  g.scale(p.sign, p.sign);
+  g.lineCap = "round";
+  g.strokeStyle = PROP.wood;
+  g.lineWidth = 0.032;
+  g.beginPath();
+  g.moveTo(0, 0.02);
+  g.lineTo(0, -0.44);
+  g.stroke();
+  g.fillStyle = PROP.paper;
+  g.strokeStyle = "#A54B27";
+  g.lineWidth = 0.022;
+  g.beginPath();
+  g.roundRect(-0.185, -0.72, 0.37, 0.29, 0.045);
+  g.fill();
+  g.stroke();
+  g.strokeStyle = PROP.ink;
+  g.fillStyle = PROP.ink;
+  g.lineWidth = 0.056;
+  g.beginPath();
+  g.moveTo(0, -0.665);
+  g.lineTo(0, -0.565);
+  g.stroke();
+  g.beginPath();
+  g.arc(0, -0.49, 0.03, 0, TAU);
+  g.fill();
+  g.restore();
+}
+
+/** Running a command: a big red button on a little stand, with a ">_" screen that lights up. */
+function drawButton(g: CanvasRenderingContext2D, p: Pose, f: Frame) {
+  const { U, ox, oy } = f;
+  const k = p.button;
+  const W = 0.2, H = 0.17;
+  g.save();
+  g.translate(ox + BUTTON.x * U, oy);
+  g.scale(U * k * BUTTON.size, U * k * BUTTON.size);
+  // Contact shadow.
+  const sh = g.createRadialGradient(0, 0, 0, 0, 0, 0.16);
+  sh.addColorStop(0, "rgba(70,35,20,0.28)");
+  sh.addColorStop(1, "rgba(70,35,20,0)");
+  g.fillStyle = sh;
+  g.beginPath();
+  g.ellipse(0, 0, 0.16, 0.028, 0, 0, TAU);
+  g.fill();
+  // The stand.
+  const bg = g.createLinearGradient(-W / 2, 0, W / 2, 0);
+  bg.addColorStop(0, "#666C77");
+  bg.addColorStop(1, "#3C414A");
+  g.fillStyle = bg;
+  g.beginPath();
+  g.roundRect(-W / 2, -H, W, H, 0.026);
+  g.fill();
+  g.fillStyle = "rgba(255,255,255,0.14)";
+  g.fillRect(-W / 2 + 0.02, -H + 0.004, W - 0.04, 0.012);
+  // Its little screen: dark, then a green prompt once the command runs.
+  g.fillStyle = "#1C2026";
+  g.beginPath();
+  g.roundRect(-0.07, -0.128, 0.14, 0.076, 0.014);
+  g.fill();
+  if (p.buttonLit > 0.02) {
+    const on = `rgba(139,224,122,${clamp(p.buttonLit, 0, 1)})`;
+    g.save();
+    g.shadowColor = on;
+    g.shadowBlur = U * 0.03 * p.buttonLit;
+    g.strokeStyle = on;
+    g.lineWidth = 0.013;
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    g.beginPath();
+    g.moveTo(-0.045, -0.108);
+    g.lineTo(-0.024, -0.09);
+    g.lineTo(-0.045, -0.072);
+    g.stroke();
+    if (f.t % 0.8 < 0.5) {
+      g.beginPath();
+      g.moveTo(-0.008, -0.07);
+      g.lineTo(0.03, -0.07);
+      g.stroke();
+    }
+    g.restore();
+  }
+  // Collar and the red dome, squashed down when pressed.
+  g.fillStyle = "#2E3238";
+  g.beginPath();
+  g.ellipse(0, -H, 0.088, 0.022, 0, 0, TAU);
+  g.fill();
+  const dh = 0.062 - 0.032 * clamp(p.buttonDown, 0, 1);
+  const dg = g.createRadialGradient(-0.025, -H - dh * 0.8, 0, 0, -H - dh * 0.4, 0.09);
+  dg.addColorStop(0, "#FF8A78");
+  dg.addColorStop(0.5, "#DE4A3A");
+  dg.addColorStop(1, "#A3302A");
+  g.fillStyle = dg;
+  g.beginPath();
+  g.ellipse(0, -H - 0.004, 0.072, dh, 0, Math.PI, TAU);
+  g.closePath();
+  g.fill();
+  g.fillStyle = "rgba(255,255,255,0.55)";
+  g.beginPath();
+  g.ellipse(-0.026, -H - dh * 0.62, 0.016, 0.009, -0.4, 0, TAU);
+  g.fill();
   g.restore();
 }
 
@@ -789,7 +1327,7 @@ function drawSteam(g: CanvasRenderingContext2D, p: Pose, f: Frame, bx: number, b
   g.save();
   // A faint warm shadow keeps cream steam readable on light backgrounds.
   g.filter = `blur(${Math.max(0.5, U * 0.02)}px)`;
-  g.fillStyle = grad("120,92,76", 0.16 * alpha);
+  g.fillStyle = grad("120,92,76", (0.16 + 0.2 * clamp(p.steamShade, 0, 1)) * alpha);
   g.fill(ribbon(1.5));
   g.filter = `blur(${Math.max(0.3, U * 0.006)}px)`;
   g.fillStyle = grad(COLOR.steam, 0.85 * alpha);

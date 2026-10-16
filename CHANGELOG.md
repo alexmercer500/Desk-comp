@@ -9,6 +9,18 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.13.0 (16 October 2026, Android 0.4.4 carried over)
+
+- **Every character now shows what your agent is doing, in 2D too.** Kulhi, Hexo, Glim, Billu and Dogesh Bhai (2D) each have their own way to show it:
+  - **Reading or searching your code:** a magnifying glass over a book (Hexo scans a page with a beam from its eye, Glim's glowing orb becomes the magnifier), with a "found it!" now and then.
+  - **Running a command:** a big button (or Hexo's lever, or the console on Billu's saucer), pressed and then watched.
+  - **On the web:** binoculars or a spyglass, scanning, with a surprised "oh!" now and then.
+  - **Waiting for your OK:** they keep asking for your attention until you answer: Dogesh and Kulhi hold up a "!" sign, Hexo waves and flashes "!" on its screen, Glim and Billu flash their lights and bounce.
+  - **A question for you:** a thoughtful, head-tilted look with a "?".
+  - **Editing:** each character's usual working look, as before.
+
+  Before, they all looked the same whatever the agent was doing, and went back to work a few seconds after asking for your OK. With reduced motion turned on in Windows, these are calmer versions.
+
 ## 0.12.0 (16 October 2026, Android 0.4.4 carried over)
 
 - **Keyboard shortcuts**, wherever you are in Windows:
