@@ -62,6 +62,16 @@ const SEATED: Partial<Pose> = {
   fLx: -0.02, fLz: 0.4, fRx: 0.02, fRz: 0.4, knock: 0.1,
   hLx: -0.16, hLy: 0.05, hLz: 0.36, hRx: 0.16, hRy: 0.05, hRz: 0.36,
 };
+/** Walking: half a stride (how far a foot lands ahead of him), how high a foot lifts, and the share of each step a foot is down. */
+const STRIDE = 0.19;
+const STEP_LIFT = 0.22;
+const STANCE = 0.62;
+/** Where a walk is: the left foot's place in its cycle (0 = just landed), and how far into his stride he is (0 standing, 1 walking). */
+interface Gait {
+  phase: number;
+  k: number;
+}
+
 /** Which ear is his tell (shoots up when he's scared): 1 is the one on your right as he faces you. */
 const TELL = 1;
 
@@ -1010,6 +1020,65 @@ export class Dogesh {
     P.fRy += (lift + Math.cos(a + Math.PI) * 0.14) * amt;
   }
 
+  /**
+   * Walks him towards `to` along the floor, `speed` a second, for one frame.
+   * A real walk: a foot that's down stays put on the floor while his body goes
+   * over it, then lifts and swings forward to land ahead, while the other foot
+   * holds him (both are down for a moment at each change, so he never hops).
+   * Returns false once he's there.
+   */
+  private walkTo(g: Gait, to: number, speed: number, dt: number): boolean {
+    const P = this.target;
+    const dx = to - this.root.position.x;
+    if (Math.abs(dx) < 0.005 && g.k < 0.05) {
+      this.root.position.x = to;
+      return false;
+    }
+    const dir = Math.sign(dx) || 1;
+    // Gets going over the first step, and slows over the last bit.
+    g.k = Math.min(Math.sqrt(Math.min(1, Math.abs(dx) / 0.2)), g.k + dt / 0.35);
+    this.root.position.x += dir * Math.min(Math.abs(dx), speed * g.k * dt);
+    // One full cycle (a step with each foot) covers twice the stride.
+    const cycle = (2 * STRIDE) / (speed * STANCE);
+    g.phase = (g.phase + dt / cycle) % 1;
+
+    // Steady springs, and the feet a touch ahead of where they should be, so
+    // after the springs' lag a planted foot really stays put.
+    this.rate = 20;
+    this.bounce = 0.9;
+    const lead = (2 * this.bounce) / (this.rate * 1.3) / cycle;
+    // The floor going by, in his own (turned) space.
+    const gx = dir * Math.cos(this.pose.yaw);
+    const gz = dir * Math.sin(this.pose.yaw);
+    for (let i = 0; i < 2; i++) {
+      const f = (g.phase + lead + i * 0.5) % 1;
+      let u: number;
+      let lift = 0;
+      if (f < STANCE) {
+        u = STRIDE * (1 - (2 * f) / STANCE); // down: front to back, as fast as he goes
+      } else {
+        const p = (f - STANCE) / (1 - STANCE);
+        u = STRIDE * (-1 + 2 * (0.5 - 0.5 * Math.cos(Math.PI * p))); // up: back to front
+        lift = STEP_LIFT * Math.sin(Math.PI * p);
+      }
+      u *= g.k;
+      if (i) {
+        P.fRx = gx * u;
+        P.fRz = gz * u;
+        P.fRy = lift * g.k;
+      } else {
+        P.fLx = gx * u;
+        P.fLz = gz * u;
+        P.fLy = lift * g.k;
+      }
+    }
+    // Highest as he passes over a foot, lowest as the next one lands; leaning over the foot that's down.
+    const over = g.phase - STANCE / 2;
+    P.hipsY += g.k * (0.015 + 0.03 * (0.5 + 0.5 * Math.cos(4 * Math.PI * over)));
+    P.hipsRz = 0.045 * g.k * Math.cos(2 * Math.PI * over);
+    return true;
+  }
+
   /** Knees knocking together. */
   private kneesKnock(t: number, amt: number): void {
     const P = this.target;
@@ -1083,7 +1152,7 @@ export class Dogesh {
 
   /** A sneaky cartoon tiptoe: big slow high-kneed steps, hunched, paws up; a stroll freezes at a noise halfway. */
   private tiptoe(x: number, speed: number, stroll: boolean): Running {
-    let phase = 0;
+    const gait: Gait = { phase: 0, k: 0 };
     let arrived = false;
     let after = 0;
     let pause = stroll ? 0 : -1;
@@ -1096,7 +1165,6 @@ export class Dogesh {
       step: (t, dt) => {
         const P = this.target;
         this.expr = "worried";
-        const dx = x - this.root.position.x;
         const dir = Math.sign(x - startX) || 1;
         if (arrived) {
           after += dt;
@@ -1122,35 +1190,22 @@ export class Dogesh {
           if (pause > 2.1) {
             pause = -1;
             hurry = 1.5;
+            gait.k = 0; // off again from a standstill
           }
           return true;
         }
         P.yaw = dir * 1.15;
-        this.rate = 14;
-        this.bounce = 0.75;
-        if (t > 0.2) {
-          // He moves only while a foot is coming down: creep... creep...
-          const go = 0.35 + 0.65 * Math.abs(Math.sin(phase));
-          const move = Math.min(Math.abs(dx), speed * hurry * go * dt);
-          this.root.position.x += dir * move;
-          phase += dt * speed * hurry * 6;
-        }
-        const s = Math.sin(phase);
-        P.fLz = s * 0.24;
-        P.fRz = -s * 0.24;
-        P.fLy = Math.max(0, s) * 0.26;
-        P.fRy = Math.max(0, -s) * 0.26;
         P.knock = 0.1;
         P.hipsRx = 0.32;
-        P.hipsY += Math.abs(Math.cos(phase)) * 0.05 + 0.04;
-        P.hipsRz = s * 0.05;
-        // Paws dangling up in front, fingertips down: classic sneak.
+        // Creep... creep...: a hunched tiptoe, his body going over each planted foot.
+        if (t > 0.2 && !this.walkTo(gait, x, speed * 0.8 * hurry, dt)) arrived = true;
+        const s = Math.sin(2 * Math.PI * gait.phase) * gait.k;
+        // Paws dangling up in front, fingertips down: classic sneak, bobbing with his steps.
         this.paw(0, this.v4.set(-0.12, 0.42 + Math.max(0, -s) * 0.04, 0.32), 1);
         this.paw(1, this.v4.set(0.12, 0.42 + Math.max(0, s) * 0.04, 0.32), 1);
         P.headRy = -dir * 0.5 + Math.sin(t * 2.3) * 0.25;
         P.headRx = -0.15;
         P.tail = -0.2;
-        if (Math.abs(dx) < 0.005) arrived = true;
         return true;
       },
     };
@@ -1865,7 +1920,7 @@ export class Dogesh {
   private peekIn(): Running {
     const from = -Math.min(this.bounds, 0.9);
     const home = this.root.position.x;
-    let phase = 0;
+    const gait: Gait = { phase: 0, k: 0 };
     let arrived = -1;
     return {
       name: "boot",
@@ -1885,23 +1940,17 @@ export class Dogesh {
           P.earR = kf(t, [[0.5, 0], [0.6, 0.6], [1.0, 0]]);
           return true;
         }
-        if (arrived < 0 && Math.abs(this.root.position.x - home) > 0.01 && t < 4.5) {
-          const dir = Math.sign(home - this.root.position.x);
-          const go = 0.35 + 0.65 * Math.abs(Math.sin(phase));
-          this.root.position.x += dir * Math.min(Math.abs(home - this.root.position.x), 0.5 * go * dt);
-          phase += dt * 3.2;
-          const s = Math.sin(phase);
+        const dir = Math.sign(home - this.root.position.x) || 1;
+        if (arrived < 0 && t < 4.5) {
           P.yaw = dir * 1.1;
-          P.fLz = s * 0.22;
-          P.fRz = -s * 0.22;
-          P.fLy = Math.max(0, s) * 0.24;
-          P.fRy = Math.max(0, -s) * 0.24;
           P.hipsRx = 0.3;
-          this.paw(0, this.v4.set(-0.12, 0.42, 0.32), 1);
-          this.paw(1, this.v4.set(0.12, 0.42, 0.32), 1);
-          P.headRy = -dir * 0.6;
-          this.expr = "worried";
-          return true;
+          if (this.walkTo(gait, home, 0.45, dt)) {
+            this.paw(0, this.v4.set(-0.12, 0.42, 0.32), 1);
+            this.paw(1, this.v4.set(0.12, 0.42, 0.32), 1);
+            P.headRy = -dir * 0.6;
+            this.expr = "worried";
+            return true;
+          }
         }
         if (arrived < 0) {
           arrived = t;

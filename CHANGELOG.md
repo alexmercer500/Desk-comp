@@ -9,6 +9,10 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.10.4 (16 October 2026, Android 0.4.4 carried over)
+
+- **Dogesh Bhai walks on his own feet.** In 3D, his tiptoe looked like hopping: his feet slid along the floor the wrong way while his body lurched forward. Now each foot stays put on the floor while he steps over it, then lifts, knee up, and lands ahead of him, with one foot always down. He keeps his sneaky hunch, paws up in front and the freeze when he hears a noise halfway. The same goes for his strolls, walking back to his spot, and peeking in when he first appears.
+
 ## 0.10.3 (16 October 2026, Android 0.4.4 carried over)
 
 - **Command Code's chat in VS Code now shows up.** Replies there that didn't use any tools (a question, an explanation, a story) went unnoticed. Command Code's chat panel only says something when a reply is finished, and it doesn't pass on what you asked. Desk Companion now reads your question and the reply from Command Code's own record of the chat on your PC, so you get the usual "Done: …" with the start of the answer. Replies that did use tools also show what you asked now, not just "Done". The terminal version of Command Code worked already and hasn't changed.
