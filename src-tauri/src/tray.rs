@@ -114,6 +114,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         &[
             &items.ask,
             &item("activity", "Show activity")?,
+            &item("hide", "Hide / show the character (Ctrl+Alt+H)")?,
             &item("home", "Open Desk Companion…")?,
             &PredefinedMenuItem::separator(app)?,
             &place,
@@ -143,6 +144,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             match id {
                 "quit" => app.exit(0),
                 "reset" => desktop::reset(app),
+                "hide" => desktop::toggle_user_hidden(app),
                 "home" => {
                     let _ = desktop::open_home(app, None);
                 }

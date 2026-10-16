@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import type { BubbleMessage } from "../src/bubble/types";
-import { AgentTracker, describeStep, type AgentEvent, type CharacterSink } from "../src/desktop/agents";
+import { AgentTracker, activityOf, describeStep, type AgentEvent, type CharacterSink } from "../src/desktop/agents";
 
 let clock = 0;
 let calls: string[];
@@ -437,5 +437,18 @@ describe("live diffs", () => {
     t.handle(ev("Stop", { summary: "Done." }));
     expect(t.snapshot()[0].history[0].changes).toEqual([]);
     expect(shown.at(-1)?.meta).toBe("5s · 1 file edited");
+  });
+});
+
+describe("activityOf (the character's working pose)", () => {
+  it("sorts tools into reading, editing, running and the web", () => {
+    for (const t of ["Read", "Grep", "Glob", "read_file", "search_file_content"]) expect(activityOf(t)).toBe("research");
+    for (const t of ["Edit", "MultiEdit", "Write", "write_file", "replace"]) expect(activityOf(t)).toBe("edit");
+    for (const t of ["Bash", "PowerShell", "run_shell_command", "shell_command"]) expect(activityOf(t)).toBe("run");
+    for (const t of ["WebFetch", "WebSearch", "mcp__playwright__browser_navigate", "mcp__claude-in-chrome__navigate"]) expect(activityOf(t)).toBe("browse");
+  });
+
+  it("leaves the pose alone for anything else", () => {
+    for (const t of ["TodoWrite", "Task", "mcp__linear__create_issue", null, undefined, ""]) expect(activityOf(t)).toBeNull();
   });
 });

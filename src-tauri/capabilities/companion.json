@@ -18,6 +18,7 @@
     "allow-answer-question",
     "allow-permission-shown",
     "allow-phone-sessions",
-    "allow-focus-session"
+    "allow-focus-session",
+    "allow-answer-keys"
   ]
 }

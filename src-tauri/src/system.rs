@@ -57,6 +57,8 @@ pub struct Prefs {
     pub notify_waiting: bool,
     /// A few seconds of what an agent is working on when it starts (corner only).
     pub notify_working: bool,
+    /// Ctrl+Alt shortcuts (shortcuts.rs).
+    pub keyboard_shortcuts: bool,
     pub notify_errors: bool,
     /// Allow / Deny from the companion. Off: requests go straight to the terminal.
     pub answer_permissions: bool,
@@ -107,6 +109,7 @@ impl Default for Prefs {
             notify_permission: true,
             notify_waiting: true,
             notify_working: true,
+            keyboard_shortcuts: true,
             notify_errors: true,
             answer_permissions: true,
             ask_enabled: true,
@@ -227,6 +230,9 @@ pub fn update(app: &AppHandle, key: &str, value: &Value) -> Result<Prefs, String
     }
     if before.hide_fullscreen && !next.hide_fullscreen {
         desktop::set_hidden(app, false);
+    }
+    if next.keyboard_shortcuts != before.keyboard_shortcuts {
+        crate::shortcuts::sync(app);
     }
     if next.phone_link != before.phone_link {
         crate::phone::apply(app);

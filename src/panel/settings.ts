@@ -31,6 +31,7 @@ interface Prefs {
   notifyPermission: boolean;
   notifyWaiting: boolean;
   notifyWorking: boolean;
+  keyboardShortcuts: boolean;
   notifyErrors: boolean;
   answerPermissions: boolean;
   askEnabled: boolean;
@@ -437,7 +438,12 @@ function build() {
     switchRow("notifyWorking", "What agents are working on", "A few seconds when one starts. In the top island it's always on its status line."),
     switchRow("notifyDone", "When a task finishes"),
     switchRow("notifyPermission", "When an agent needs permission"),
-    switchRow("answerPermissions", "Allow / Deny from here", "Off: requests go straight to your terminal. Nothing is ever allowed without your click."),
+    switchRow("answerPermissions", "Allow / Deny from here", "Off: requests go straight to your terminal. Nothing is ever allowed unless you click Allow or press its shortcut."),
+    switchRow(
+      "keyboardShortcuts",
+      "Keyboard shortcuts",
+      "Ctrl+Alt+Y / Ctrl+Alt+N: Allow / Deny the request on screen. Ctrl+Alt+J: go to the agent that needs you. Ctrl+Alt+A: activity. Ctrl+Alt+M: pause notifications. Ctrl+Alt+H: hide or show the character.",
+    ),
     switchRow("notifyWaiting", "When an agent is waiting for you"),
     switchRow("notifyErrors", "When something fails"),
   );

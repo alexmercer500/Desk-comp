@@ -41,3 +41,4 @@ tokio-tungstenite = { version = "0.24", default-features = false, features = ["c
 # Windows' own certificate check for the relay, so antivirus HTTPS scanning doesn't break it.
 rustls-platform-verifier = "0.7"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tauri-plugin-global-shortcut = "2"

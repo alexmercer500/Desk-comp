@@ -11,6 +11,7 @@ mod phone;
 mod placement;
 mod secrets;
 mod setup;
+mod shortcuts;
 mod system;
 mod tray;
 mod updates;
@@ -28,12 +29,14 @@ pub fn run() {
             let _ = desktop::open_home(app, None);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(shortcuts::plugin())
         .manage(desktop::Desk::default())
         .manage(agents::Pending::default())
         .manage(agents::Shown::default())
         .manage(phone::PhoneLink::default())
         .invoke_handler(tauri::generate_handler![
             desktop::set_hit_rect,
+            shortcuts::answer_keys,
             desktop::drag_begin,
             desktop::drag_end,
             desktop::hop_by,
@@ -79,6 +82,7 @@ pub fn run() {
             setup::refresh_agents();
             desktop::create_window(handle)?;
             tray::create(handle)?;
+            shortcuts::sync(handle);
             desktop::spawn_poll(handle.clone());
             agents::spawn(handle.clone());
             system::spawn(handle.clone());

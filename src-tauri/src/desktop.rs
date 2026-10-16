@@ -644,13 +644,29 @@ pub fn set_place(app: &AppHandle, top: bool) {
 
 // ── Full-screen apps ──────────────────────────────────────────────────────────
 
-/// True while a full-screen app covers the character's display.
+/// True while the character has stepped aside, for either reason below.
 static HIDDEN: AtomicBool = AtomicBool::new(false);
+/// A full-screen app covers his display.
+static FOR_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+/// You hid him (Ctrl+Alt+H, or the tray).
+static BY_USER: AtomicBool = AtomicBool::new(false);
 
 /// Steps aside for a full-screen app (game, video, slideshow) and comes back
-/// to the same spot afterwards. Windows are parked off-screen, never hidden, so
-/// coming back never steals focus.
+/// to the same spot afterwards, unless you've hidden him yourself meanwhile.
 pub fn set_hidden(app: &AppHandle, hide: bool) {
+    FOR_FULLSCREEN.store(hide, Ordering::Relaxed);
+    apply_hidden(app);
+}
+
+/// Hides him until you bring him back (Ctrl+Alt+H again, or the tray).
+pub fn toggle_user_hidden(app: &AppHandle) {
+    BY_USER.fetch_xor(true, Ordering::Relaxed);
+    apply_hidden(app);
+}
+
+/// Windows are parked off-screen, never hidden, so coming back never steals focus.
+fn apply_hidden(app: &AppHandle) {
+    let hide = FOR_FULLSCREEN.load(Ordering::Relaxed) || BY_USER.load(Ordering::Relaxed);
     if HIDDEN.swap(hide, Ordering::Relaxed) == hide {
         return;
     }

@@ -432,19 +432,22 @@ void listen<boolean>("hover", ({ payload: on }) => {
 });
 
 // "Show window" (panel): bring that session's terminal or editor to the front.
-void listen<string>("session:focus", async ({ payload }) => {
-  const s = agents.snapshot().find((x) => x.id === payload);
+void listen<string>("session:focus", ({ payload }) => void focusSession(payload));
+
+async function focusSession(id: string) {
+  const s = agents.snapshot().find((x) => x.id === id);
   if (!s?.procs.length) return;
   closePanel();
   const found = await invoke<boolean>("focus_session", { procs: s.procs, project: s.project }).catch(() => false);
   if (!found) bubble.show({ id: "notice:window", category: "notice", title: s.project, text: "Couldn't find that session's window.", kind: "info" });
-});
+}
 void listen<AgentEvent>("agent", ({ payload }) => agents.handle(payload));
 window.setInterval(() => agents.sweep(), 5000);
 
-// Allow / Deny / In terminal, from the bubble or the panel. The decision goes
-// to the relay that is holding the request open; it is the only path by which
-// anything is ever allowed, and it always starts from a click.
+// Allow / Deny / In terminal, from the bubble or the panel (or Ctrl+Alt+Y / N,
+// below). The decision goes to the relay that is holding the request open; it
+// is the only path by which anything is ever allowed, and it always starts
+// from something you did.
 void listen<{ rid: string; decision: Decision }>("permission:answer", ({ payload }) =>
   void answerPermission(payload.rid, payload.decision),
 );
@@ -497,6 +500,7 @@ agents.onChange = () => {
   sendToPhone();
   syncWaiting();
   syncActivity();
+  syncAnswerKeys();
 };
 
 /** Rui and Dogesh's working pose follows what the busiest agent is doing now (stage.ts settles it). */
@@ -506,6 +510,41 @@ function syncActivity() {
   const step = latest?.current?.steps.at(-1);
   stage?.setActivity(activityOf(step?.tool));
 }
+
+// ── Keyboard shortcuts (src-tauri/src/shortcuts.rs) ──────────────────────────
+
+/** Like a click on a card's buttons: no answer by key until the card has been up this long. */
+const KEY_GUARD_MS = 600;
+
+/** The request Ctrl+Alt+Y / N answer: the newest one still holding an Allow / Deny card. */
+function keyTarget() {
+  return agents
+    .snapshot()
+    .filter((s) => s.status === "waiting" && s.permission?.rid && !s.permission.questions?.length)
+    .sort((a, b) => b.permission!.since - a.permission!.since)[0];
+}
+
+let answerKeys = false;
+/** Y / N exist only while there's something to answer, so they're other apps' keys the rest of the time. */
+function syncAnswerKeys() {
+  const on = Boolean(keyTarget());
+  if (on === answerKeys) return;
+  answerKeys = on;
+  void invoke("answer_keys", { on }).catch(() => {});
+}
+
+void listen<string>("shortcut", ({ payload }) => {
+  if (payload === "allow" || payload === "deny") {
+    const s = keyTarget();
+    if (!s || Date.now() - s.permission!.since < KEY_GUARD_MS) return;
+    void answerPermission(s.permission!.rid!, payload);
+  } else if (payload === "jump") {
+    // The agent that needs you, or else the one that was busy last.
+    const all = agents.snapshot();
+    const s = all.find((x) => x.status === "waiting") ?? [...all].sort((a, b) => b.lastEvent - a.lastEvent)[0];
+    if (s) void focusSession(s.id);
+  }
+});
 
 /** Rui and Dogesh keep calling you (or look at you, asking) for as long as an agent waits. */
 function syncWaiting() {
