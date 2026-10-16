@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-answer-keys"
+description = "Enables the answer_keys command without any pre-configured scope."
+commands.allow = ["answer_keys"]
+
+[[permission]]
+identifier = "deny-answer-keys"
+description = "Denies the answer_keys command without any pre-configured scope."
+commands.deny = ["answer_keys"]
