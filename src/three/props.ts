@@ -31,7 +31,7 @@ export function dispose(root: THREE.Object3D): void {
 export async function prewarm(renderer: THREE.WebGLRenderer, camera: THREE.Camera, scene: THREE.Scene): Promise<void> {
   // This repaints the whole scene in each look; the caller puts its look back after.
   const all = new THREE.Group();
-  const loose = [palette(), brush("#ffffff"), tablet("#ffffff")];
+  const loose = [palette(), brush("#ffffff"), tablet("#ffffff"), book("#ffffff").group, magnifier(), pushButton().group, binoculars()];
   all.add(theWardrobe().group, theMirror(), theTrunk().group, theGhosts().group, theQuestion(), ...loose);
   scene.add(all);
   // The mirror draws the scene into a texture, which needs its own shader
@@ -128,6 +128,179 @@ export function tablet(color: string): THREE.Group {
   const logo = tag(new THREE.Mesh(new THREE.CircleGeometry(0.035, 24)), "gloss", { tint: color });
   logo.position.z = 0.019;
   g.add(body, screen, logo);
+  return g;
+}
+
+// ── Working props: what he holds while an agent reads, runs commands, browses ─
+
+const PAPER = "#fbf5e6";
+
+export interface Book {
+  /** Lies open with its pages facing +y, the spine along z. */
+  group: THREE.Group;
+  /** A loose leaf hinged on the spine: turn it over by setting rotation.z (0 lying on the right … π on the left). */
+  leaf: THREE.Group;
+}
+
+/** An open storybook in `color`, a few lines of writing on each page. */
+export function book(color: string): Book {
+  const group = new THREE.Group();
+  const W = 0.24;
+  const L = 0.32;
+  const cover = tag(new THREE.Mesh(box(2 * W + 0.04, 0.025, L + 0.04, 0.012)), "vinyl", { ...solid, tint: color });
+  cover.position.y = -0.012;
+  group.add(cover);
+  const block = box(W, 0.045, L, 0.015);
+  const line = box(W * 0.62, 0.004, 0.016, 0.002);
+  for (const side of [-1, 1]) {
+    // Each half rises a little from the spine, so the book reads as open.
+    const half = new THREE.Group();
+    half.rotation.z = side * 0.1;
+    group.add(half);
+    const pages = tag(new THREE.Mesh(block), "cloth", { ...solid, tint: PAPER });
+    pages.position.set(side * (W / 2 + 0.008), 0.02, 0);
+    half.add(pages);
+    for (let i = 0; i < 5; i++) {
+      const l = tag(new THREE.Mesh(line), "ink", {});
+      l.position.set(side * (W / 2 + 0.008) - (i === 4 ? side * 0.03 : 0), 0.044, -L / 2 + 0.06 + i * 0.05);
+      if (i === 4) l.scale.x = 0.6;
+      half.add(l);
+    }
+  }
+  // The leaf that turns, hinged at the top of the spine, with writing on both sides.
+  const leaf = new THREE.Group();
+  leaf.position.y = 0.048;
+  const sheet = tag(new THREE.Mesh(box(W - 0.01, 0.008, L - 0.012, 0.004)), "cloth", { ...solid, tint: PAPER });
+  sheet.position.set(W / 2 + 0.01, 0.004, 0);
+  leaf.add(sheet);
+  for (const y of [0.0085, -0.0005]) {
+    for (let i = 0; i < 5; i++) {
+      const l = tag(new THREE.Mesh(line), "ink", {});
+      l.position.set(W / 2 + 0.01 - (i === 4 ? 0.03 : 0), y, -L / 2 + 0.06 + i * 0.05);
+      if (i === 4) l.scale.x = 0.6;
+      leaf.add(l);
+    }
+  }
+  group.add(leaf);
+  return { group, leaf };
+}
+
+/**
+ * A magnifying glass: the lens at the origin facing +z, the handle hanging
+ * down -y. `MAGNIFIER_GRIP` is where a mitten holds it.
+ */
+export function magnifier(): THREE.Group {
+  const g = new THREE.Group();
+  const R = 0.13;
+  g.add(tag(new THREE.Mesh(new THREE.TorusGeometry(R, 0.026, 14, 48)), "metal", solid));
+  const lens = tag(new THREE.Mesh(new THREE.SphereGeometry(R, 32, 16)), "lens", {});
+  lens.scale.z = 0.14;
+  g.add(lens);
+  // A glint, so the glass reads as glass in either look.
+  const glint = tag(new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10)), "gloss", { tint: "#ffffff" });
+  glint.scale.set(1.3, 0.55, 0.3);
+  glint.position.set(-0.055, 0.06, 0.02);
+  glint.rotation.z = 0.7;
+  g.add(glint);
+  const neck = tag(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.034, 0.06, 16)), "metal", { cast: true });
+  neck.position.y = -R - 0.04;
+  const handle = tag(new THREE.Mesh(new THREE.CapsuleGeometry(0.034, 0.17, 6, 16)), "wood", { ...solid, tint: "#9b5a3a" });
+  handle.position.y = -R - 0.17;
+  g.add(neck, handle);
+  return g;
+}
+/** Where the mitten holds the magnifying glass, in its own space. */
+export const MAGNIFIER_GRIP = new THREE.Vector3(0, -0.29, 0);
+
+export interface PushButton {
+  /** Stands on the floor, its origin under the middle of the stand. */
+  group: THREE.Group;
+  /** The big round cap: press it by squashing scale.y (1 up … ~0.45 down). */
+  cap: THREE.Group;
+  /** Top of the cap (unpressed), in the group's space. */
+  top: number;
+  /** A little lamp on the stand: show `on` while the command runs. */
+  on: THREE.Object3D;
+}
+
+/** A big red push button on a small pedestal, with a little lamp beside it. */
+export function pushButton(): PushButton {
+  const group = new THREE.Group();
+  const H = 0.38;
+  const R = 0.15;
+  const BODY = "#5f6f86";
+  const base = tag(new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.05, 32)), "gloss", { ...solid, tint: BODY });
+  base.position.y = 0.025;
+  const post = tag(new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, H, 24)), "gloss", { ...solid, tint: BODY });
+  post.position.y = H / 2;
+  const head = tag(new THREE.Mesh(box(0.44, 0.12, 0.36, 0.05)), "gloss", { ...solid, tint: "#f1efe9" });
+  head.position.y = H + 0.06;
+  const ring = tag(new THREE.Mesh(new THREE.TorusGeometry(R + 0.012, 0.022, 12, 40)), "metal", { cast: true });
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = H + 0.12;
+  group.add(base, post, head, ring);
+  const cap = new THREE.Group();
+  cap.position.y = H + 0.12;
+  const dome = new THREE.SphereGeometry(R, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+  const capMesh = tag(new THREE.Mesh(dome), "gloss", { ...solid, tint: "#e5484d" });
+  capMesh.scale.y = 0.7;
+  cap.add(capMesh);
+  group.add(cap);
+  // The lamp, on the front: dark when idle; a glowing green bead shows over it while running.
+  const bead = new THREE.SphereGeometry(0.04, 16, 12);
+  const off = tag(new THREE.Mesh(bead), "gloss", { outline: true, tint: "#2f5a3a" });
+  off.position.set(0.12, H + 0.06, 0.185);
+  const on = tag(new THREE.Mesh(bead), "glow", { tint: "#8cff9e" });
+  on.position.copy(off.position);
+  on.scale.setScalar(1.12);
+  on.visible = false;
+  group.add(off, on);
+  return { group, cap, top: H + 0.12 + R * 0.7, on };
+}
+
+/** Half the distance between the binoculars' barrels (his eyes are about this far either side). */
+export const BINOCULAR_EYE = 0.19;
+export const BINOCULAR_GRIPS = [new THREE.Vector3(-0.27, -0.09, 0.08), new THREE.Vector3(0.27, -0.09, 0.08)];
+
+/**
+ * Binoculars held to his eyes: the eyepieces at z = 0, the barrels along +z,
+ * centred between the eyes (`BINOCULAR_EYE` apart). `BINOCULAR_GRIPS` are
+ * where the mittens hold them (left, right).
+ */
+export function binoculars(): THREE.Group {
+  const g = new THREE.Group();
+  const BODY = "#3f4c63";
+  const tube = new THREE.CylinderGeometry(0.092, 0.092, 0.2, 28);
+  tube.rotateX(Math.PI / 2);
+  const front = new THREE.CylinderGeometry(0.112, 0.098, 0.09, 28);
+  front.rotateX(Math.PI / 2);
+  const cup = new THREE.CylinderGeometry(0.07, 0.07, 0.05, 24);
+  cup.rotateX(Math.PI / 2);
+  const rim = new THREE.TorusGeometry(0.1, 0.017, 10, 32);
+  const glass = new THREE.CircleGeometry(0.094, 28);
+  const glint = new THREE.SphereGeometry(0.022, 12, 8);
+  for (const side of [-1, 1]) {
+    const x = side * BINOCULAR_EYE;
+    const t = tag(new THREE.Mesh(tube), "gloss", { ...solid, tint: BODY });
+    t.position.set(x, 0, 0.13);
+    const f = tag(new THREE.Mesh(front), "gloss", { ...solid, tint: BODY });
+    f.position.set(x, 0, 0.27);
+    const c = tag(new THREE.Mesh(cup), "gloss", { ...solid, tint: "#2a2f3a" });
+    c.position.set(x, 0, 0.025);
+    const r = tag(new THREE.Mesh(rim), "metal", { cast: true });
+    r.position.set(x, 0, 0.312);
+    const lens = tag(new THREE.Mesh(glass), "gloss", { tint: "#8fd0ee" });
+    lens.position.set(x, 0, 0.311);
+    const shine = tag(new THREE.Mesh(glint), "gloss", { tint: "#ffffff" });
+    shine.scale.set(1.2, 0.7, 0.2);
+    shine.position.set(x - 0.035, 0.035, 0.313);
+    g.add(t, f, c, r, lens, shine);
+  }
+  const bridge = tag(new THREE.Mesh(box(0.2, 0.06, 0.16, 0.025)), "gloss", { ...solid, tint: BODY });
+  bridge.position.set(0, 0.02, 0.14);
+  const knob = tag(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 16)), "metal", { cast: true });
+  knob.position.set(0, 0.07, 0.12);
+  g.add(bridge, knob);
   return g;
 }
 

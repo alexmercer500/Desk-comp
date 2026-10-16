@@ -9,7 +9,8 @@ import {
   Look, ThemeName, finishTheme, incomingColor, magicShared, paint, paintShared, setTheme, startTheme, tag, themeColors,
 } from "./looks";
 import {
-  brush, dispose, palette, reachArm, tablet, theGhosts, theMirror, theQuestion, theTrunk, theWardrobe,
+  BINOCULAR_GRIPS, MAGNIFIER_GRIP, binoculars, book, brush, dispose, magnifier, palette, pushButton, reachArm, tablet,
+  theGhosts, theMirror, theQuestion, theTrunk, theWardrobe,
 } from "./props";
 import { Wobble, clamp, kf, lerp, limbGeometry, smooth, softShadow } from "./rig";
 
@@ -44,6 +45,19 @@ function blendInto(p: Pose, to: Partial<Pose>, u: number): void {
 }
 
 // ── Behaviours ────────────────────────────────────────────────────────────────
+
+/** The working poses: lasting, and playing one again while it's on carries on rather than restarting it. */
+const WORKING: ReadonlySet<string> = new Set(["work", "research", "run", "browse"]);
+
+/** Working props popping into his mittens, and back out. */
+const POP_IN: [number, number][] = [[0, 0.01], [0.25, 1.1], [0.4, 1]];
+const POP_OUT: [number, number][] = [[0, 1], [0.08, 1.1], [0.3, 0.01]];
+
+/** Sizes a prop for popping in or out, hiding it while it's a speck (its anime outline would show as a dot). */
+function popTo(o: THREE.Object3D, s: number): void {
+  o.scale.setScalar(s);
+  o.visible = s > 0.05;
+}
 
 export type ActionName = "walk" | "stroll" | "spin" | "wave" | "sit" | "exercise" | "eat" | "nap" | "poke";
 export const ACTIONS: ActionName[] = ["walk", "stroll", "spin", "wave", "sit", "exercise", "eat", "nap"];
@@ -231,6 +245,8 @@ export class Rui {
   private earWobble = [new Wobble(140, 5), new Wobble(140, 5)];
   private particles: Particle[] = [];
   private carry = new THREE.Vector2();
+  /** Scratch for aiming an arm. */
+  private aimTmp = new THREE.Vector3();
   private wiggleT = 99;
   /** Whether "doing his own thing" may include a nap (off on the desktop, where the app decides when he sleeps). */
   naps = true;
@@ -364,7 +380,7 @@ export class Rui {
 
   play(name: ActionName | Cue): void {
     if (this.action?.name === "nap" && (name === "nap" || name === "sleep")) return;
-    if (this.action?.name === "work" && name === "work") return;
+    if (this.action?.name === name && WORKING.has(name)) return;
     if (this.action?.name === "held" && name === "held") return;
     this.begin(this.stepsFor(name));
   }
@@ -411,11 +427,13 @@ export class Rui {
         return standFirst();
       case "work":
         return [...sitFirst(), () => this.working()];
-      // Placeholders until each has a pose of its own: the tablet.
+      // Working by kind of task: all seated like the tablet, so switching between them is just a change of prop.
       case "research":
+        return [...sitFirst(), () => this.researching()];
       case "run":
+        return [...sitFirst(), () => this.running()];
       case "browse":
-        return [...sitFirst(), () => this.working()];
+        return [...sitFirst(), () => this.browsing()];
       case "hooray":
         return [...standFirst(), () => (Math.random() < 0.4 ? this.spin() : this.hooray())];
       case "nod":
@@ -735,7 +753,7 @@ export class Rui {
 
   /** Shoulder angles that point an arm (0 left, 1 right) at a world position. */
   private aimArm(side: number, at: THREE.Vector3): { x: number; z: number } {
-    const d = this.hips.worldToLocal(at.clone()).sub(this.shoulders[side].position).normalize();
+    const d = this.hips.worldToLocal(this.aimTmp.copy(at)).sub(this.shoulders[side].position).normalize();
     // The arm hangs along -y; Rx(a)·Rz(z) takes it to (sin z, -cos z cos a, -cos z sin a).
     const z = Math.asin(clamp(d.x, -1, 1));
     const x = Math.atan2(-d.z, -d.y);
@@ -2057,16 +2075,6 @@ export class Rui {
       edge.set(side * 0.24, lift, 0.03);
       return this.aimArm(side < 0 ? 0 : 1, tab.localToWorld(edge));
     };
-    const away = (): Running => ({
-      name: "work-end",
-      t: 0,
-      step: (t) => {
-        blendInto(this.target, SEATED, 1);
-        tab.scale.setScalar(kf(t, [[0, 1], [0.08, 1.1], [0.3, 0.01]]));
-        return t < 0.3;
-      },
-      end: () => dispose(tab),
-    });
     return {
       name: "work",
       t: 0,
@@ -2074,7 +2082,7 @@ export class Rui {
         const P = this.target;
         blendInto(P, SEATED, 1);
         this.rate = 16;
-        tab.scale.setScalar(kf(t, [[0, 0.01], [0.25, 1.1], [0.4, 1]]));
+        popTo(tab, kf(t, POP_IN));
         P.hipsRx = -0.06;
         // Thumbs tapping, left and right in turn.
         taps = Math.floor(t / 0.14);
@@ -2097,8 +2105,275 @@ export class Rui {
         if (glance <= 0.5) this.faceMods.lookY = -0.7;
         return true;
       },
-      outro: away,
+      outro: () => this.putAway([tab]),
       end: () => dispose(tab),
+    };
+  }
+
+  /** Interrupted at work: the props shrink away while he stays sitting, then they're freed. */
+  private putAway(props: THREE.Object3D[]): Running {
+    // Arms and head stay put meanwhile, so the next pose's props come straight to hand.
+    const p = this.pose;
+    const hold: Partial<Pose> = {
+      armLx: p.armLx, armLz: p.armLz, armRx: p.armRx, armRz: p.armRz, headRx: p.headRx, headRy: p.headRy, headRz: p.headRz,
+    };
+    return {
+      name: "work-end",
+      t: 0,
+      step: (t) => {
+        blendInto(this.target, SEATED, 1);
+        blendInto(this.target, hold, 1);
+        const k = kf(t, POP_OUT);
+        for (const o of props) popTo(o, k);
+        return t < 0.3;
+      },
+      end: () => props.forEach(dispose),
+    };
+  }
+
+  /**
+   * Reading up on something: an open book on his lap, peering at it through a
+   * magnifying glass held to his eye, turning a page now and then, and every
+   * so often sitting up with a happy "found it!".
+   */
+  private researching(): Running {
+    const bk = book("#5a86d6");
+    const glass = magnifier();
+    const props = [bk.group, glass];
+    for (const o of props) {
+      paint(o, this.look);
+      o.scale.setScalar(0.01);
+      this.hips.add(o);
+    }
+    // On his lap, tipped up a little so the pages show.
+    bk.group.position.set(0, 0.17, 0.7);
+    bk.group.rotation.x = 0.5;
+    const LEAF_REST = 0.12;
+    bk.leaf.rotation.z = LEAF_REST;
+    const tmp = new THREE.Vector3();
+    const grip = new THREE.Vector3();
+    let nextTurn = 3 + Math.random() * 2;
+    let turning = -1;
+    let nextFind = 9 + Math.random() * 5;
+    let found = -1;
+    return {
+      name: "research",
+      t: 0,
+      step: (t) => {
+        const P = this.target;
+        blendInto(P, SEATED, 1);
+        this.rate = 12;
+        popTo(bk.group, kf(t, POP_IN));
+
+        // A page now and then, the left mitten giving it a flick.
+        if (turning < 0 && found < 0 && t > nextTurn) turning = t;
+        let flick = 0;
+        if (turning >= 0) {
+          const v = t - turning;
+          bk.leaf.rotation.z = kf(v, [[0, LEAF_REST], [0.2, LEAF_REST + 0.3], [0.9, Math.PI - LEAF_REST]]);
+          flick = kf(v, [[0, 0], [0.2, 1], [0.6, 0]]);
+          if (v > 1.0) {
+            // The turned leaf lies on the left page: put it back under the next one unseen.
+            turning = -1;
+            bk.leaf.rotation.z = LEAF_REST;
+            nextTurn = t + 4 + Math.random() * 3;
+          }
+        }
+        // Found it: sits up, glass raised, a happy bounce.
+        if (found < 0 && turning < 0 && t > nextFind) found = t;
+        let perk = 0;
+        if (found >= 0) {
+          const v = t - found;
+          perk = kf(v, [[0, 0], [0.3, 1], [1.6, 1], [2.0, 0]]);
+          P.squash += kf(v, [[0.12, 0], [0.26, 0.05], [0.42, -0.03], [0.6, 0]]);
+          if (v > 2.0) {
+            found = -1;
+            nextFind = t + 11 + Math.random() * 8;
+          }
+        }
+
+        // Head down over the page, moving slowly along the lines.
+        const scan = Math.sin(t * 0.8) * 0.13;
+        P.hipsRx = -0.06 - 0.06 * perk;
+        P.headRx = lerp(0.42, -0.04, perk);
+        P.headRy = lerp(scan, 0.06, perk);
+        P.headRz = lerp(-scan * 0.3, 0.12, perk);
+
+        // The glass to his right eye (raised beside his face when he finds it).
+        tmp.set(lerp(0.2, 0.36, perk), lerp(-0.06, 0.1, perk), lerp(0.74, 0.68, perk)).add(MAGNIFIER_GRIP);
+        const r = this.aimArm(1, this.head.localToWorld(tmp));
+        P.armRx = r.x;
+        P.armRz = r.z;
+        // The left mitten keeps the book open.
+        tmp.set(-0.15, 0.05 + 0.08 * flick, 0.02 - 0.04 * flick);
+        const l = this.aimArm(0, bk.group.localToWorld(tmp));
+        P.armLx = l.x;
+        P.armLz = l.z;
+
+        if (perk > 0.3) this.expr = "joy";
+        else if (turning >= 0) this.expr = "happy";
+        else {
+          this.expr = "neutral";
+          this.faceMods.lookY = -0.6;
+          this.faceMods.eyeScale = 1.15;
+          this.faceMods.mouthCurve = 0.45;
+          this.faceMods.mouthWidth = 0.75;
+        }
+        return true;
+      },
+      after: (t) => {
+        // In his right mitten, facing the way he looks.
+        const s = kf(t, POP_IN);
+        popTo(glass, s);
+        glass.quaternion.copy(this.neck.quaternion);
+        this.hips.worldToLocal(this.hand.getWorldPosition(tmp));
+        glass.position.copy(tmp).sub(grip.copy(MAGNIFIER_GRIP).multiplyScalar(s).applyQuaternion(glass.quaternion));
+      },
+      outro: () => this.putAway(props),
+      end: () => props.forEach(dispose),
+    };
+  }
+
+  /**
+   * Running a command: a big red button on a stand by his side. He presses it
+   * (squash!), then watches expectantly while its lamp blinks, swaying and
+   * drumming his mittens on his knees, and presses it again after a while.
+   */
+  private running(): Running {
+    const btn = pushButton();
+    paint(btn.group, this.look);
+    btn.group.scale.setScalar(0.01);
+    btn.group.position.set(0.6, 0, 0.62);
+    btn.group.rotation.y = -0.35;
+    this.root.add(btn.group);
+    const tmp = new THREE.Vector3();
+    let start = 0.6;
+    let wait = 4 + Math.random() * 2;
+    // Mittens on his tummy, drumming.
+    const tummy = (side: number, lift: number) => {
+      tmp.set(side * 0.2, 0.2 + lift * 0.4, 0.62 + lift);
+      return this.aimArm(side < 0 ? 0 : 1, this.hips.localToWorld(tmp));
+    };
+    return {
+      name: "run",
+      t: 0,
+      step: (t) => {
+        const P = this.target;
+        blendInto(P, SEATED, 1);
+        this.rate = 14;
+        popTo(btn.group, kf(t, POP_IN));
+        P.hipsRx = -0.06;
+        if (t > start + 1.5 + wait) {
+          start = t;
+          wait = 3.5 + Math.random() * 3;
+        }
+        // Time since this press began (negative before the first).
+        const u = t - start;
+        const reach = kf(u, [[0, 0], [0.5, 1], [1.05, 1], [1.5, 0]]);
+        const lift = kf(u, [[0, 0.3], [0.45, 0.22], [0.6, -0.04], [0.78, -0.04], [0.95, 0.16]]);
+        btn.cap.scale.y = kf(u, [[0.56, 1], [0.64, 0.45], [0.78, 0.45], [0.88, 1.15], [1.0, 0.95], [1.1, 1]]);
+        btn.on.visible = u > 0.64 && Math.floor((u - 0.64) / 0.45) % 2 === 0;
+
+        // Drumming on his tummy in little bursts while he waits.
+        const drum = (1 - reach) * clamp((Math.sin(t * 1.1) + 0.2) * 3, 0, 1);
+        const tap = Math.floor(t / 0.24) % 2;
+        const l = tummy(-1, drum * (tap === 0 ? 0.13 : 0));
+        const k = tummy(1, drum * (tap === 1 ? 0.13 : 0));
+        const a = this.aimArm(1, btn.group.localToWorld(tmp.set(0, btn.top + lift, 0)));
+        P.armLx = l.x;
+        P.armLz = l.z;
+        P.armRx = lerp(k.x, a.x, reach);
+        P.armRz = lerp(k.z, a.z, reach);
+
+        // Leaning over to it and back; swaying while he waits.
+        const sway = Math.sin(t * 2) * (1 - reach);
+        P.hipsRz = -0.1 * reach + sway * 0.05;
+        P.hipsRx += 0.08 * reach;
+        P.squash += kf(u, [[0.56, 0], [0.64, -0.08], [0.8, 0.04], [0.95, 0]]);
+        P.headRy = 0.4 * reach + 0.12 * (1 - reach);
+        P.headRx = lerp(-0.06, 0.24, reach);
+        P.headRz = Math.sin(t * 2 + 0.6) * 0.06 * (1 - reach) - 0.05 * reach;
+        if (u >= 0 && u < 0.62) {
+          this.expr = "determined";
+          this.faceMods.lookX = 0.5;
+          this.faceMods.lookY = -0.5;
+        } else if (u >= 0.62 && u < 1.3) {
+          this.expr = "joy";
+        } else {
+          // Watching the lamp: will it work?
+          this.expr = "happy";
+          this.faceMods.lookX = 0.45;
+          this.faceMods.lookY = -0.15;
+        }
+        return true;
+      },
+      outro: () => this.putAway([btn.group]),
+      end: () => dispose(btn.group),
+    };
+  }
+
+  /**
+   * On the web: binoculars to his eyes, scanning slowly left and right; when
+   * he spots something, a curious tilt and a peek over the top, then back to it.
+   */
+  private browsing(): Running {
+    const bino = binoculars();
+    paint(bino, this.look);
+    bino.scale.setScalar(0.01);
+    this.head.add(bino);
+    const tmp = new THREE.Vector3();
+    let phase = 0;
+    let nextSpot = 5 + Math.random() * 3;
+    let spot = -1;
+    return {
+      name: "browse",
+      t: 0,
+      step: (t, dt) => {
+        const P = this.target;
+        blendInto(P, SEATED, 1);
+        this.rate = 12;
+        popTo(bino, kf(t, POP_IN));
+        if (spot < 0 && t > nextSpot) spot = t;
+        let lean = 0;
+        let tilt = 0;
+        let peek = 0;
+        if (spot >= 0) {
+          const v = t - spot;
+          lean = kf(v, [[0, 0], [0.35, 1], [2.7, 1], [3.1, 0]]);
+          tilt = kf(v, [[0.1, 0], [0.45, 1], [2.5, 1], [3.0, 0]]);
+          peek = kf(v, [[0.9, 0], [1.3, 1], [2.3, 1], [2.7, 0]]);
+          if (v > 3.1) {
+            spot = -1;
+            nextSpot = t + 6 + Math.random() * 4;
+          }
+        } else {
+          phase += dt * 0.5;
+        }
+        const sweep = Math.sin(phase);
+        P.hipsRx = -0.06 + 0.08 * lean;
+        P.yaw = sweep * 0.12;
+        P.headRy = sweep * 0.42;
+        P.headRx = -0.05;
+        P.headRz = 0.2 * tilt - sweep * 0.04;
+
+        // Lowered for a peek over the top.
+        bino.position.set(0, -0.02 - 0.2 * peek, 0.585 + 0.05 * peek);
+        bino.rotation.x = 0.6 * peek;
+        const l = this.aimArm(0, bino.localToWorld(tmp.copy(BINOCULAR_GRIPS[0])));
+        const r = this.aimArm(1, bino.localToWorld(tmp.copy(BINOCULAR_GRIPS[1])));
+        P.armLx = l.x;
+        P.armLz = l.z;
+        P.armRx = r.x;
+        P.armRz = r.z;
+
+        if (peek > 0.5) {
+          this.expr = "ooh";
+          this.faceMods.eyeScale = 1.3;
+        } else this.expr = "happy";
+        return true;
+      },
+      outro: () => this.putAway([bino]),
+      end: () => dispose(bino),
     };
   }
 

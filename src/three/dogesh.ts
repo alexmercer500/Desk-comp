@@ -15,7 +15,7 @@ import { DogExpression, DogFace, DogFaceState, DOG_HEAD, dogExpression } from ".
 import { Look, knitShared, paint, setDogOutfit, tag } from "./looks";
 import { biscuit, dispose, glyph, tablet, theExclaim, theQuestion } from "./props";
 import { Clothes, type DogRig, dress } from "./dog-clothes";
-import { magnifier, shirt, sock, thePuff, theScreen } from "./dog-props";
+import { LEAF_REST, binoculars, book, magnifier, pushButton, shirt, sock, thePuff, theScreen } from "./dog-props";
 import { type OutfitName, isOutfit } from "../skins/dogesh-outfits";
 import { clamp, kf, lerp, smooth, softShadow } from "./rig";
 import { Chain, Noodle, TORSO_DEPTH, TORSO_PROFILE, bow, headShape, hunch, quad, roundEnds } from "./dog-rig";
@@ -99,6 +99,9 @@ export type DogCue =
   | "call" | "doze" | "sleep" | "wake" | "held" | "land" | "dizzy" | "hopLeft" | "hopRight"
   /** Working, by what the agent is doing: reading or searching, running a command, on the web ("work" is editing). */
   | "research" | "run" | "browse";
+
+/** The working poses (by what the agent's doing): lasting, sat down, the scarf knitting up as he goes. */
+const WORKING: ReadonlySet<string> = new Set(["work", "research", "run", "browse"]);
 
 interface Running {
   name: string;
@@ -199,6 +202,12 @@ export class Dogesh {
   private knit = 0;
   /** Eased 0..1 while he sits working (the clothes drape over his lap). */
   private lap = 0;
+  /**
+   * How long he's been at it (any of the working poses, which the app switches
+   * between as the agent's work goes on): the scarf knits up with it when
+   * nobody knows the progress.
+   */
+  private workedFor = 0;
 
   /** Tips him over as a whole (fainting, lying down), about a point up his middle. */
   private tilt = new THREE.Group();
@@ -465,6 +474,8 @@ export class Dogesh {
    */
   async prewarm(renderer: THREE.WebGLRenderer, camera: THREE.Camera, scene: THREE.Scene): Promise<void> {
     const loose = [tablet("#2f8f8a"), biscuit(), theExclaim(), theQuestion(), magnifier(), shirt("#ffffff")];
+    const kit = [book().group, pushButton().group, binoculars(0.26)];
+    for (const k of kit) k.traverse((o) => (o.visible = true));
     // Every cloth finish (each outfit's colours are just numbers on the same shaders).
     const ball = new THREE.SphereGeometry(1, 8, 6);
     const finishes = (["cloth", "vinyl", "brass", "lens", "iron", "stripes", "check", "argyle", "puff", "wood", "knitEnd"] as const).map((s) =>
@@ -473,7 +484,7 @@ export class Dogesh {
     for (const b of thePuff().balls) b.mesh.visible = true;
     const spark = new THREE.Mesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true }));
     const group = new THREE.Group();
-    group.add(...loose, ...finishes, ...shared, spark);
+    group.add(...loose, ...kit, ...finishes, ...shared, spark);
     group.position.set(this.root.position.x, 1, 0);
     group.scale.setScalar(0.01);
     scene.add(group);
@@ -499,6 +510,7 @@ export class Dogesh {
     dispose(loose[5]);
     dispose(loose[0]);
     dispose(loose[1]);
+    for (const k of kit) dispose(k);
     loose[2].removeFromParent();
     loose[3].removeFromParent();
     spark.geometry.dispose();
@@ -524,7 +536,7 @@ export class Dogesh {
   play(name: DogAction | DogCue): void {
     if (this.action?.name === "nap" && (name === "nap" || name === "sleep" || name === "rest")) return;
     if (this.action?.name === "rest" && (name === "rest" || name === "sleep")) return;
-    if (this.action?.name === name && (name === "work" || name === "held" || name === "call" || name === "droop")) return;
+    if (this.action?.name === name && (WORKING.has(name) || name === "held" || name === "call" || name === "droop")) return;
     this.begin(this.stepsFor(name));
   }
 
@@ -566,13 +578,15 @@ export class Dogesh {
       case "stand":
       case "wake":
         return standFirst();
+      // Working, by what the agent's doing: all sitting down, so switching between them never stands him up.
       case "work":
         return [...sitFirst(), () => this.working()];
-      // Placeholders until each has a pose of its own: the tablet.
       case "research":
+        return [...sitFirst(), () => this.research()];
       case "run":
+        return [...sitFirst(), () => this.pressing()];
       case "browse":
-        return [...sitFirst(), () => this.working()];
+        return [...sitFirst(), () => this.lookout()];
       case "hooray":
         return [...standFirst(), () => this.jig()];
       case "nod":
@@ -667,6 +681,9 @@ export class Dogesh {
 
     this.idleLayer(dt);
     this.knit = 0;
+    const doing = this.action?.name;
+    if (doing && WORKING.has(doing)) this.workedFor += dt;
+    else if (doing && doing !== "sit" && !doing.endsWith("-end")) this.workedFor = 0;
 
     if (!this.action && this.queue.length) this.action = this.queue.shift()!();
     if (this.action) {
@@ -953,7 +970,7 @@ export class Dogesh {
     this.tuft.quaternion.setFromUnitVectors(Y_AXIS, this.tailMesh.end.t);
 
     this.hips.updateWorldMatrix(true, true);
-    const working = this.action?.name === "work" ? 1 : 0;
+    const working = this.action && WORKING.has(this.action.name) ? 1 : 0;
     this.lap += (working - this.lap) * (1 - Math.exp(-dt * 3));
     this.clothes.update({ dt, t, hide: p.scarf, blanket: p.blanket, poof: clamp(p.poof, 0, 1), pop: clamp(p.pop, 0, 1), lap: this.lap });
   }
@@ -1471,7 +1488,7 @@ export class Dogesh {
         this.rate = 18;
         tab.scale.setScalar(kf(t, [[0, 0.01], [0.25, 1.1], [0.4, 1]]));
         // His scarf knits up as the work goes on (four stripes, from the knot out).
-        this.knit = 4 * clamp(this.progress ?? t / 48, 0, 1);
+        this.knitUp();
         P.hipsRx = 0.18;
         P.headRx = 0.32;
         P.headRy = 0;
@@ -1549,6 +1566,352 @@ export class Dogesh {
         for (const n of this.notes) n.visible = false;
         this.sweat.visible = false;
       },
+    };
+  }
+
+  /** The scarf's stripes knit up gold as the work goes on (four stripes, from the knot out). */
+  private knitUp(): void {
+    this.knit = 4 * clamp(this.progress ?? this.workedFor / 48, 0, 1);
+  }
+
+  /**
+   * Reading / searching: sat with a fat old book open on his knees and the
+   * magnifying glass up at his eye (huge through it), mouthing the words as
+   * his eyes run along the lines. Every few seconds he turns a page; now and
+   * then he's found it: "Oh!", his head and ears shoot up, a little wag... and
+   * back to it.
+   */
+  private research(): Running {
+    const calm = this.calm;
+    const b = book();
+    const BOOK = 1.2;
+    paint(b.group, this.look);
+    b.group.scale.setScalar(0.01);
+    b.group.position.set(0.25, 0.27, 0.38);
+    b.group.rotation.set(-0.45, -0.3, 0.1);
+    this.hips.add(b.group);
+    const corner = new THREE.Object3D();
+    corner.position.copy(b.corner);
+    b.leaf.add(corner);
+    const edge = new THREE.Object3D();
+    edge.position.copy(b.edge);
+    b.group.add(edge);
+    const g = this.glass();
+    const mark = theExclaim();
+    let flipAt = 2.2 + Math.random() * 1.5;
+    let ahaAt = 6.5 + Math.random() * 4;
+    const tidy = () => {
+      dispose(b.group);
+      g.end();
+      mark.removeFromParent();
+    };
+    const away = (): Running => ({
+      name: "research-end",
+      t: 0,
+      step: (t) => {
+        blendInto(this.target, SEATED, 1);
+        b.group.scale.setScalar(BOOK * kf(t, [[0, 1], [0.08, 1.1], [0.3, 0.01]]));
+        g.show(kf(t, [[0, 1], [0.2, 0]]));
+        this.pawToHead(0, g.handle, kf(t, [[0, 1], [0.3, 0]]));
+        mark.visible = false;
+        return t < 0.3;
+      },
+      end: tidy,
+    });
+    return {
+      name: "research",
+      t: 0,
+      step: (t) => {
+        const P = this.target;
+        blendInto(P, SEATED, 1);
+        this.rate = 16;
+        this.knitUp();
+        b.group.scale.setScalar(BOOK * kf(t, [[0, 0.01], [0.25, 1.1], [0.4, 1]]));
+        g.show(kf(t, [[0.1, 0], [0.35, 1.1], [0.45, 1]]));
+        const up = kf(t, [[0.05, 0], [0.4, 1]]);
+        P.hipsRx = 0.2;
+        P.headRx = 0.32;
+        P.headRy = 0.32;
+        // His eyes run along a line, and flick back for the next; his head goes with them a little.
+        const line = (t % 1.3) / 1.3;
+        const along = line < 0.82 ? lerp(-0.75, 0.75, line / 0.82) : lerp(0.75, -0.75, smooth((line - 0.82) / 0.18));
+        P.headRy += along * 0.06;
+        P.headRz = -along * 0.04;
+        // The glass up at his eye; the other paw holds the book open...
+        this.pawToHead(0, g.handle, up);
+        // ...and turns a page: takes its corner, over it goes.
+        const f = t - flipAt;
+        const reach = kf(f, [[0, 0], [0.3, 1], [0.95, 1], [1.25, 0]]);
+        const turn = smooth(clamp((f - 0.3) / 0.55, 0, 1));
+        b.leaf.rotation.y = f > 0 && f < 1.3 ? LEAF_REST + (-Math.PI - 2 * LEAF_REST) * turn : LEAF_REST;
+        if (f > 1.4) flipAt = t + 3.5 + Math.random() * 3.5;
+        const hold = this.hips.worldToLocal(edge.getWorldPosition(this.v1));
+        const take = this.hips.worldToLocal(corner.getWorldPosition(this.v2));
+        this.paw(1, hold.lerp(take, reach), up);
+        // "Oh!": found it. Up comes his head, ears up, eyes wide... a wag... and back to reading.
+        const a = t - ahaAt;
+        const big = calm ? 0.45 : 1;
+        const aha = kf(a, [[0, 0], [0.12, 1], [1.2, 1], [1.6, 0]]);
+        if (a > 1.8) {
+          ahaAt = t + 7 + Math.random() * 6;
+          if (Math.abs(ahaAt - flipAt) < 2) ahaAt = flipAt + 2.2;
+        }
+        P.headRx -= 0.36 * aha * big;
+        P.hipsRx -= 0.08 * aha * big;
+        P.hipsY += 0.03 * aha * big;
+        P.earL = 0.9 * aha * big;
+        P.earR = 0.9 * aha * big;
+        P.pop = Math.max(P.pop, (calm ? 0 : 0.6) * kf(a, [[0, 0], [0.1, 1], [0.5, 0.3], [1.2, 0]]));
+        P.wag = aha > 0.3 ? 0.9 : 0;
+        P.tail = lerp(-0.3, 0.4, aha);
+        P.shiver = calm ? 0 : 0.12;
+        P.knock = 0.45;
+        this.floatBy(mark, 0.75 * kf(a, [[0.05, 0], [0.18, 1.15], [0.28, 1], [1.2, 1], [1.45, 0]]), t, 1);
+        if (aha > 0.3) {
+          this.expr = a < 0.5 ? "ooh" : "happy";
+          this.faceMods.lookY = 0.1;
+        } else {
+          this.expr = "worried";
+          this.faceMods.eyeOpen = 0.95;
+          this.faceMods.lookY = -0.85;
+          this.faceMods.lookX = reach > 0.2 ? lerp(0.6, -0.6, turn) : along * 0.7;
+          // Mouthing the words under his breath.
+          this.faceMods.jaw = 0.03 + 0.05 * Math.max(0, Math.sin(t * 13)) * Math.max(0, Math.sin(t * 2.1));
+        }
+        return true;
+      },
+      outro: away,
+      end: tidy,
+    };
+  }
+
+  /**
+   * Running a command: the big red button on its stand in front of him. He
+   * winds up, trembling, turns his face away, screws his eyes shut and...
+   * *press*. A squinting peek; then he waits, clutching his scarf, ears
+   * twitching, watching the lamp blink, until he dares press it again.
+   */
+  private pressing(): Running {
+    const calm = this.calm;
+    // Off to his right, where his paw can reach it and you can see it past his snout.
+    const btn = pushButton(0.56);
+    const SIZE = 1.3;
+    paint(btn.group, this.look);
+    btn.group.scale.setScalar(0.01);
+    btn.group.position.set(0.4, 0, 0.38);
+    btn.group.rotation.y = -0.35;
+    this.body.add(btn.group);
+    const top = new THREE.Object3D();
+    top.position.copy(btn.top);
+    btn.group.add(top);
+    const capY = btn.cap.position.y;
+    let pressAt = 0.5;
+    let gap = 6;
+    let nextFlick = 2.5;
+    let clicked = false;
+    const away = (): Running => ({
+      name: "run-end",
+      t: 0,
+      step: (t) => {
+        blendInto(this.target, SEATED, 1);
+        btn.group.scale.setScalar(SIZE * kf(t, [[0, 1], [0.08, 1.1], [0.3, 0.01]]));
+        return t < 0.3;
+      },
+      end: () => dispose(btn.group),
+    });
+    return {
+      name: "run",
+      t: 0,
+      step: (t) => {
+        const P = this.target;
+        blendInto(P, SEATED, 1);
+        this.rate = 18;
+        this.bounce = 0.55;
+        this.knitUp();
+        btn.group.scale.setScalar(SIZE * kf(t, [[0, 0.01], [0.25, 1.1], [0.4, 1]]));
+        let u = t - pressAt;
+        if (u > gap) {
+          pressAt = t;
+          u = 0;
+          gap = 5.5 + Math.random() * 3;
+          clicked = false;
+        }
+        const big = calm ? 0.5 : 1;
+        // Up goes the paw (shaking), his face turns away, eyes screwed shut... press! Hold it... and a peek.
+        const wind = kf(u, [[0, 0], [0.4, 1], [0.8, 1], [0.9, 0]]);
+        const press = kf(u, [[0.78, 0], [0.88, 1], [1.6, 1], [1.9, 0]]);
+        const down = kf(u, [[0.8, 0], [0.86, 1], [1.65, 1], [1.8, 0]]);
+        const shut = kf(u, [[0.2, 0], [0.45, 1], [1.7, 1], [1.95, 0]]);
+        const peek = kf(u, [[1.7, 0], [1.95, 1], [2.5, 1], [2.8, 0]]);
+        const waiting = u > 0 ? kf(u, [[2.4, 0], [2.8, 1]]) : 1;
+        btn.cap.position.y = capY - btn.travel * down;
+        if (!clicked && u > 0.86) {
+          // Click! A little spark off the button.
+          clicked = true;
+          if (!calm) this.burst(top.getWorldPosition(this.v1), 6, "#ffd36b", 0.016, 1.4, 3);
+        }
+        btn.lit.visible = u > 0.86 && u < gap - 0.5 && t % 0.7 < 0.35;
+
+        // The paw: clutching his scarf, or up over the button, or on it.
+        const rest = this.v3.set(0.07, 0.45, 0.3);
+        const at = this.hips.worldToLocal(top.getWorldPosition(this.v1));
+        at.y += 0.26 * big * wind + (calm ? 0 : Math.sin(t * 38) * 0.012 * wind) - btn.travel * down;
+        at.z -= 0.03 * wind;
+        this.paw(1, rest, 1);
+        this.paw(1, at, Math.max(wind, press));
+        this.paw(0, this.v4.set(-0.07, 0.46 + Math.sin(t * 9) * 0.008, 0.3), 1);
+
+        // Leaning back from it, face turned away; then in, with the press.
+        const turnAway = shut * big;
+        P.hipsRx = 0.16 - 0.1 * wind * big + 0.1 * press;
+        P.hipsRz = -0.05 * wind * big;
+        P.headRx = 0.3 - 0.12 * turnAway - 0.08 * peek;
+        P.headRy = -0.6 * turnAway + 0.3 * (1 - turnAway);
+        P.headRz = 0.2 * turnAway;
+        if (!calm) {
+          P.squash *= kf(u, [[0.84, 1], [0.9, 0.92], [1.05, 1.03], [1.2, 1]]);
+          P.earOut = kf(u, [[0.84, 0], [0.9, 0.8], [1.3, 0]]);
+          this.kneesKnock(t, 0.7 * wind);
+        }
+        P.earBack = 0.9 * shut;
+        P.shiver = calm ? 0 : lerp(0.15, 0.5, Math.max(wind, shut));
+        P.tail = lerp(-0.4, -0.9, shut);
+        P.wag = 0;
+        // Waiting: watching the button, an ear flicking at every little noise.
+        if (t > nextFlick) {
+          nextFlick = t + 0.9 + Math.random() * 1.4;
+          if (waiting > 0.5) this.twitch(Math.random() < 0.6 ? TELL : 1 - TELL);
+        }
+        if (waiting > 0.5) this.sweatAt(((u - 2.8) * 0.4) % 1, -1);
+        else this.sweat.visible = false;
+
+        if (shut > 0.5) {
+          this.expr = "scared";
+          this.faceMods.eyeOpen = 0;
+          this.faceMods.eyeArc = 0.8;
+          this.faceMods.teeth = 1;
+          this.faceMods.jaw = 0;
+          this.faceMods.shake = 0;
+        } else if (peek > 0.3) {
+          this.expr = "worried";
+          this.faceMods.eyeOpen = 0.45;
+          this.faceMods.lookY = -0.7;
+          this.faceMods.lookX = 0.8;
+        } else {
+          this.expr = wind > 0.2 ? "scared" : "worried";
+          this.faceMods.eyeOpen = 1;
+          this.faceMods.lookY = -0.7;
+          // Eyes on the button, with a quick dart away now and then.
+          this.faceMods.lookX = t % 2.3 < 0.35 ? -0.8 : 0.45;
+        }
+        return true;
+      },
+      outro: away,
+      end: () => {
+        dispose(btn.group);
+        this.sweat.visible = false;
+      },
+    };
+  }
+
+  /**
+   * On the web: binoculars up, slowly scanning the far distance from side to
+   * side... then a double-take: he whips back, drops the binoculars, eyes on
+   * stalks, ears out... gulp... and up they go again.
+   */
+  private lookout(): Running {
+    const calm = this.calm;
+    const e0 = this.face.eye(0).base;
+    const e1 = this.face.eye(1).base;
+    const apart = Math.abs(e1.x - e0.x);
+    /** Big enough to cover his big eyes. */
+    const BINO = 1.45;
+    const bino = binoculars(apart / BINO);
+    paint(bino, this.look);
+    const holder = new THREE.Group();
+    const rest = new THREE.Vector3((e0.x + e1.x) / 2, (e0.y + e1.y) / 2, Math.max(e0.z, e1.z) + 0.05);
+    holder.position.copy(rest);
+    holder.scale.setScalar(0.01);
+    holder.add(bino);
+    this.head.add(holder);
+    // Where his paws hold them (holder space): round the barrels' outer sides.
+    const grip = [-1, 1].map((side) => new THREE.Vector3(side * (apart / BINO / 2 + 0.06), -0.03, 0.12));
+    let scan = 0;
+    let dir = 1;
+    let takeAt = 6 + Math.random() * 4;
+    const tidy = () => {
+      dispose(holder);
+      this.face.zoom[0] = this.face.zoom[1] = 1;
+    };
+    const hold = (k: number, lower: number) => {
+      holder.position.copy(rest).add(this.v3.set(0, -0.3 * lower, 0.06 * lower));
+      holder.rotation.x = 0.6 * lower;
+      for (let i = 0; i < 2; i++) {
+        const at = this.v3.copy(grip[i]).multiplyScalar(holder.scale.x).applyEuler(holder.rotation).add(holder.position);
+        this.pawToHead(i, at, k);
+      }
+    };
+    const away = (): Running => ({
+      name: "browse-end",
+      t: 0,
+      step: (t) => {
+        blendInto(this.target, SEATED, 1);
+        holder.scale.setScalar(BINO * kf(t, [[0, 1], [0.08, 1.1], [0.3, 0.01]]));
+        hold(kf(t, [[0, 1], [0.3, 0]]), 0);
+        this.face.zoom[0] = this.face.zoom[1] = kf(t, [[0, 0.7], [0.3, 1]]);
+        return t < 0.3;
+      },
+      end: tidy,
+    });
+    return {
+      name: "browse",
+      t: 0,
+      step: (t, dt) => {
+        const P = this.target;
+        blendInto(P, SEATED, 1);
+        this.rate = 12;
+        this.knitUp();
+        // A double-take: back he whips, and down come the binoculars.
+        const a = t - takeAt;
+        const whip = kf(a, [[0, 0], [0.12, 1], [2.1, 1], [2.5, 0]]);
+        const lower = kf(a, [[0.2, 0], [0.34, 1], [1.3, 1], [1.6, 0]]);
+        const fright = calm ? 0 : kf(a, [[0.25, 0], [0.36, 1], [1.0, 0.7], [1.4, 0]]);
+        if (a > 2.6) takeAt = t + 7 + Math.random() * 5;
+        // Scanning: a slow sweep from side to side (it waits while he looks at something).
+        scan += dt * (calm ? 0.5 : 0.7) * (1 - whip);
+        const sweep = Math.sin(scan);
+        if (whip === 0) dir = Math.cos(scan) >= 0 ? 1 : -1;
+        P.headRy = sweep * 0.5 - dir * (calm ? 0.2 : 0.4) * whip;
+        P.yaw = SEATED.yaw! + sweep * 0.15;
+        P.hipsRz += -sweep * 0.03;
+        P.headRx = -0.06 + 0.14 * lower;
+        P.hipsRx = 0.06;
+        holder.scale.setScalar(BINO * kf(t, [[0, 0.01], [0.3, 1.1], [0.42, 1]]));
+        const up = kf(t, [[0, 0], [0.4, 1]]);
+        hold(up, lower);
+        // His big eyes squashed in behind the eyepieces (so they don't bulge out round them).
+        this.face.zoom[0] = this.face.zoom[1] = 1 - 0.3 * up * (1 - lower);
+        P.pop = Math.max(P.pop, fright);
+        P.earOut = fright;
+        P.poof = 0.6 * fright;
+        P.hipsY += 0.05 * fright;
+        P.earL = 0.25 + (calm ? 0.5 * lower : 0);
+        P.earR = 0.25 + (calm ? 0.5 * lower : 0);
+        P.shiver = calm ? 0 : 0.1 + 0.5 * fright;
+        P.tail = lerp(-0.2, -0.9, lower);
+        P.wag = 0;
+        if (lower > 0.3) {
+          this.expr = calm ? "ooh" : "surprised";
+          this.faceMods.lookX = -dir * 0.5;
+          this.faceMods.eyeOpen = 1;
+        } else {
+          this.expr = "worried";
+          this.faceMods.eyeOpen = 1;
+        }
+        return true;
+      },
+      outro: away,
+      end: tidy,
     };
   }
 
