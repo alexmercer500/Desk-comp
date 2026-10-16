@@ -9,6 +9,11 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.11.1 (16 October 2026, Android 0.4.4 carried over)
+
+- **The corner card holds still.** It used to follow every bob and arm-wave of Rui or Dogesh, so it shook. Now it stays exactly where it opened, and only moves if he really goes somewhere (you drag him, or he was mid-step).
+- **Wide cards aren’t cut off.** A card with long lines (several agents working) ran past the edge of its window on the side facing the character, losing its corner and its pointer. It now fits.
+
 ## 0.11.0 (16 October 2026, Android 0.4.4 carried over)
 
 **The character in the corner tells you what's going on**, the way the island at the top already did.

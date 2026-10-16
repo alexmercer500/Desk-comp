@@ -216,6 +216,8 @@ struct Inner {
     card_clickable: bool,
     /// The cursor is on the character or his card (sent to the page as "hover").
     hovering: bool,
+    /// Where the bubble's card was last put, and for what (see bubble_place).
+    bubble_at: Option<BubbleAt>,
     /// Where the character was before stepping aside for a full-screen app.
     parked_from: Option<(f64, f64)>,
 }
@@ -909,6 +911,17 @@ pub struct CardSize {
 
 /// Where the bubble page draws its card's tail: the card's edge ("left",
 /// "right", "top", "bottom", or "none" under the island) and how far along it, logical px.
+/// The last placement: the card's size and the body's centre it was placed for (physical px), and the answer given.
+#[derive(Clone, Copy)]
+struct BubbleAt {
+    size: (f64, f64),
+    center: (f64, f64),
+    spot: BubbleSpot,
+}
+
+/// He has to move this far (a fraction of his size) before a card that's up moves with him.
+const BUBBLE_FOLLOW: f64 = 0.22;
+
 #[derive(Clone, Copy, Serialize)]
 pub struct BubbleSpot {
     tail: &'static str,
@@ -917,6 +930,10 @@ pub struct BubbleSpot {
 
 /// Moves the bubble window so its card sits beside the character, never over
 /// him (placement.rs), or just below the island in top mode.
+///
+/// While a card is up the page asks again now and then (`keep` set): the card
+/// stays exactly where it is unless he has really moved (dragged, or a step he
+/// was taking), so it doesn't jiggle with every bob and wave of his arms.
 #[tauri::command]
 pub async fn bubble_place(app: AppHandle, card: CardSize) -> Result<BubbleSpot, String> {
     let win = window(&app).ok_or("no window")?;
@@ -940,9 +957,23 @@ pub async fn bubble_place(app: AppHandle, card: CardSize) -> Result<BubbleSpot, 
     let body = Rect { x: pos.0 + hit.x0 * side, y: pos.1 + hit.y0 * side, w: (hit.x1 - hit.x0) * side, h: (hit.y1 - hit.y0) * side };
     let screen = Rect { x: area.x, y: area.y, w: area.w, h: area.h };
     let keep = card.keep.as_deref().and_then(Tail::from_name);
+    // Across, where he stands (a stroll moves him); down, where his window is (a drag
+    // moves it). His own bobbing, crouching and jumping don't count.
+    let center = (body.x + body.w / 2.0, pos.1);
+    if keep.is_some() {
+        let last = app.state::<Desk>().with(|s| s.bubble_at);
+        if let Some(last) = last {
+            let moved = (center.0 - last.center.0).hypot(center.1 - last.center.1);
+            if last.size == (w, h) && moved < BUBBLE_FOLLOW * side {
+                return Ok(last.spot);
+            }
+        }
+    }
     let placed = place_card(body, w, h, screen, CARD_GAP * scale, TAIL_INSET * scale, keep);
     put_card(placed.card.x, placed.card.y)?;
-    Ok(BubbleSpot { tail: placed.tail.name(), at: placed.tail_at / scale })
+    let spot = BubbleSpot { tail: placed.tail.name(), at: placed.tail_at / scale };
+    app.state::<Desk>().with(|s| s.bubble_at = Some(BubbleAt { size: (w, h), center, spot }));
+    Ok(spot)
 }
 
 /// The card's rectangle inside the bubble window, so only it takes clicks.

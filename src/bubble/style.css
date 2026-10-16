@@ -39,8 +39,11 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  box-sizing: border-box;
   width: max-content;
-  max-width: 310px;
+  /* Padding and border included: the window is 340 wide, the card sits 14 in,
+     and the tail needs room on whichever side it's on. */
+  max-width: 312px;
   padding: 9px 12px 10px;
   border: 1px solid var(--border);
   border-radius: 14px;

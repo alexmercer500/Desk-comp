@@ -25,7 +25,7 @@ const rows = document.getElementById("rows")!;
 const actions = document.getElementById("actions")!;
 const questionsBox = document.getElementById("questions")!;
 
-/** While a card is up it's re-placed this often, so it stays beside the character if he moves. */
+/** While a card is up it checks this often whether he has moved away from it (Rust decides; see bubble_place). */
 const FOLLOW_MS = 250;
 
 let hideTimer = 0;
