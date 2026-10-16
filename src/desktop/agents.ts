@@ -357,8 +357,16 @@ export class AgentTracker {
         return;
 
       case "Stop": {
+        let wasBusy = s.status === "working" || s.status === "waiting";
+        // Command Code's chat panel has no prompt hook, so a reply with no tools
+        // arrives as a Stop alone; the prompt read from its transcript makes it a turn.
+        if (!s.current && e.prompt && !wasBusy) {
+          s.current = newTurn(e.prompt, now);
+          wasBusy = true;
+        } else if (s.current && !s.current.prompt && e.prompt) {
+          s.current.prompt = e.prompt;
+        }
         const turn = s.current;
-        const wasBusy = s.status === "working" || s.status === "waiting";
         this.clearPermission(id, s);
         s.status = "idle";
         s.finishedAt = now;

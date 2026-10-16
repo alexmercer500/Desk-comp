@@ -76,6 +76,23 @@ describe("a finished task", () => {
     expect(shown).toEqual([]);
   });
 
+  it("Command Code's chat panel: a Stop that brings its prompt is a whole turn", () => {
+    const cc = { agent: "commandcode" };
+    t.handle(ev("Stop", { ...cc, prompt: "write a story", summary: "Once upon a time…" }));
+    expect(calls).toEqual(["finish:1"]);
+    expect(shown.at(-1)).toMatchObject({ kind: "success", text: "Done: write a story", detail: "Once upon a time…" });
+    expect(t.snapshot()[0].history[0]).toMatchObject({ prompt: "write a story", outcome: "done" });
+
+    // With tools, the turn starts at the first one and the Stop names it.
+    t.handle(ev("PreToolUse", { ...cc, tool: "Read", detail: `${CWD}\\a.ts` }));
+    t.handle(ev("Stop", { ...cc, prompt: "read a.ts" }));
+    expect(shown.at(-1)).toMatchObject({ text: "Done: read a.ts" });
+    // The same Stop again (nothing under way) doesn't announce twice.
+    const count = shown.length;
+    t.handle(ev("Stop", { ...cc }));
+    expect(shown.length).toBe(count);
+  });
+
   it("keeps the last five finished tasks", () => {
     for (let i = 0; i < 7; i++) {
       t.handle(ev("UserPromptSubmit", { prompt: `task ${i}` }));

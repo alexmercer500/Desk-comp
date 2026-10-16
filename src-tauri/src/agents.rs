@@ -299,7 +299,10 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
             }
         }
         if let Some(path) = ev.transcript.take() {
-            ev.summary = summary_from(&path).await;
+            let (summary, prompt) = summary_from(&path).await;
+            ev.summary = summary;
+            // Command Code's chat panel has no prompt hook: its Stop is all we hear of the turn.
+            ev.prompt = ev.prompt.take().or(prompt);
         }
         if let Some((rid, session)) = held {
             let next = AgentEvent { agent: ev.agent.clone(), session: ev.session.clone(), cwd: ev.cwd.clone(), procs: ev.procs.clone(), ..Default::default() };
@@ -401,53 +404,70 @@ where
     let _ = app.emit_to(desktop::LABEL, "agent", next);
 }
 
-/// The last reply in a transcript. The file may still be flushing when Stop
-/// fires, so look twice before giving up.
-async fn summary_from(path: &str) -> Option<String> {
+/// The last reply in a transcript, and (Command Code's only) the prompt it
+/// answered. The file may still be flushing when Stop fires, so look twice
+/// before giving up.
+async fn summary_from(path: &str) -> (Option<String>, Option<String>) {
+    let mut found = (None, None);
     for attempt in 0..2 {
         if attempt > 0 {
             tokio::time::sleep(Duration::from_millis(400)).await;
         }
         let p = path.to_string();
-        let found = tauri::async_runtime::spawn_blocking(move || last_reply(Path::new(&p))).await.ok().flatten();
-        if found.is_some() {
-            return found;
+        found = tauri::async_runtime::spawn_blocking(move || last_reply(Path::new(&p))).await.unwrap_or_default();
+        if found.0.is_some() {
+            break;
         }
     }
-    None
+    found
 }
 
-/// Reads the end of a JSONL transcript and returns the text of the last
-/// assistant message that has any.
-fn last_reply(path: &Path) -> Option<String> {
+/// Reads the end of a JSONL transcript: the text of the last assistant message
+/// that has any, and for Command Code's transcripts the prompt before it.
+///
+/// Claude Code writes `{"type":"assistant","message":{...}}`; Command Code
+/// writes `{"type":"message","message":{"role":"assistant"|"user",...}}`, with
+/// what you typed marked `"meta":{"source":"user"}`.
+fn last_reply(path: &Path) -> (Option<String>, Option<String>) {
     if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-        return None;
+        return (None, None);
     }
+    let Some(text) = transcript_tail(path) else { return (None, None) };
+    let mut reply = None;
+    for line in text.lines().rev() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue }; // first line may be cut
+        let kind = v.get("type").and_then(Value::as_str);
+        let role = v.pointer("/message/role").and_then(Value::as_str);
+        let said = || {
+            let content = v.pointer("/message/content").and_then(Value::as_array)?;
+            let parts: Vec<&str> = content
+                .iter()
+                .filter(|c| c.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|c| c.get("text").and_then(Value::as_str))
+                .collect();
+            Some(parts.join("\n").trim().to_string()).filter(|s| !s.is_empty())
+        };
+        let assistant = kind == Some("assistant") || (kind == Some("message") && role == Some("assistant"));
+        if assistant && reply.is_none() {
+            reply = said().map(|r| clip(&r, MAX_SUMMARY));
+            if reply.is_some() && kind == Some("assistant") {
+                return (reply, None); // Claude Code: its prompt came with UserPromptSubmit
+            }
+        } else if kind == Some("message") && role == Some("user") && v.pointer("/message/meta/source").and_then(Value::as_str) == Some("user") {
+            return (reply, said().map(|p| clip(&p, 300)));
+        }
+    }
+    (reply, None)
+}
+
+fn transcript_tail(path: &Path) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;
     let len = file.metadata().ok()?.len();
     let start = len.saturating_sub(TRANSCRIPT_TAIL);
     file.seek(SeekFrom::Start(start)).ok()?;
     let mut bytes = Vec::new();
     file.take(TRANSCRIPT_TAIL).read_to_end(&mut bytes).ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-
-    for line in text.lines().rev() {
-        let Ok(v) = serde_json::from_str::<Value>(line) else { continue }; // first line may be cut
-        if v.get("type").and_then(Value::as_str) != Some("assistant") {
-            continue;
-        }
-        let Some(content) = v.pointer("/message/content").and_then(Value::as_array) else { continue };
-        let reply: Vec<&str> = content
-            .iter()
-            .filter(|c| c.get("type").and_then(Value::as_str) == Some("text"))
-            .filter_map(|c| c.get("text").and_then(Value::as_str))
-            .collect();
-        let reply = reply.join("\n").trim().to_string();
-        if !reply.is_empty() {
-            return Some(clip(&reply, MAX_SUMMARY));
-        }
-    }
-    None
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn clip(s: &str, max: usize) -> String {
@@ -457,4 +477,39 @@ fn clip(s: &str, max: usize) -> String {
     let mut out: String = s.chars().take(max - 1).collect();
     out.push('…');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn transcript(name: &str, lines: &[&str]) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("desk-companion-{name}-{}.jsonl", std::process::id()));
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        path
+    }
+
+    #[test]
+    fn command_codes_transcript_gives_the_reply_and_the_prompt() {
+        let path = transcript("cc", &[
+            r#"{"type":"session","version":3,"id":"s"}"#,
+            r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"old prompt"}],"meta":{"source":"user"}}}"#,
+            r#"{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"old reply"}]}}"#,
+            r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"give me a story"}],"meta":{"source":"user"}}}"#,
+            r#"{"type":"message","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"The lighthouse keeper…"}]}}"#,
+            r#"{"type":"effort_change","effort":"off"}"#,
+        ]);
+        assert_eq!(last_reply(&path), (Some("The lighthouse keeper…".into()), Some("give me a story".into())));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn claude_codes_transcript_gives_the_reply_only() {
+        let path = transcript("claude", &[
+            r#"{"type":"user","message":{"role":"user","content":"fix it"}}"#,
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fixed."}]}}"#,
+        ]);
+        assert_eq!(last_reply(&path), (Some("Fixed.".into()), None));
+        let _ = std::fs::remove_file(path);
+    }
 }

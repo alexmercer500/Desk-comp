@@ -627,7 +627,8 @@ fn summarize(hook: &Map<String, Value>, agent: &str, event: Option<&str>, tool: 
         Some("AgentResponse") => text(&["text"], MAX_SUMMARY),
         _ => None,
     };
-    let transcript = (stop && summary.is_none() && matches!(agent, "claude-code" | "cursor"))
+    // Command Code's plain hooks (its VS Code chat panel) send a transcript too; its mod sends the reply.
+    let transcript = (stop && summary.is_none() && matches!(agent, "claude-code" | "cursor" | "commandcode"))
         .then(|| text(&["transcript_path"], 1024))
         .flatten();
     // Gemini's permission notification, in Claude Code's words.
@@ -884,6 +885,8 @@ line two"}}"#,
 
         let claude = obj(r#"{"hook_event_name":"Stop","session_id":"x","transcript_path":"C:/t.jsonl"}"#);
         assert_eq!(summarize(&claude, "claude-code", Some("Stop"), None)["transcript"], "C:/t.jsonl");
+        // Command Code's chat panel: the transcript is where its prompt and reply are.
+        assert_eq!(summarize(&claude, "commandcode", Some("Stop"), None)["transcript"], "C:/t.jsonl");
     }
 
     #[test]

@@ -9,6 +9,10 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.10.3 (16 October 2026, Android 0.4.4 carried over)
+
+- **Command Code's chat in VS Code now shows up.** Replies there that didn't use any tools (a question, an explanation, a story) went unnoticed. Command Code's chat panel only says something when a reply is finished, and it doesn't pass on what you asked. Desk Companion now reads your question and the reply from Command Code's own record of the chat on your PC, so you get the usual "Done: …" with the start of the answer. Replies that did use tools also show what you asked now, not just "Done". The terminal version of Command Code worked already and hasn't changed.
+
 ## 0.10.2 (15 October 2026, Android 0.4.4 carried over)
 
 - **The phone link over the internet works with antivirus HTTPS scanning.** Avast, AVG, ESET and other antivirus programs check secure connections by putting their own certificate in front of the website's. Desk Companion only accepted certificates from its own built-in list, so on those PCs the link to the relay was slow to connect, kept retrying, or failed. It now checks certificates the way Windows and your browser do, so anything your browser trusts, it trusts too. Ask (AI) also accepts the certificates Windows trusts now.

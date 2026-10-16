@@ -11,3 +11,4 @@ release/
 
 # Local build settings (each person who builds the app keeps their own; see .env.example)
 .env
+.commandcode
