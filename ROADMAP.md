@@ -104,6 +104,16 @@ Asked for 16 October 2026: in corner mode, show what's running for a few seconds
 - [x] **Working poses by what the agent is doing** (0.12.0, 3D only): `activityOf` → `stage.setActivity` (settles after 2.5 s, holds 5 s) → cues research / run / browse; Rui and Dogesh each have a magnifier + book, a push button, binoculars. Checked live with Dogesh in the corner.
 - [x] **The same reactions for 2D characters** (0.13.0): WORKING carries a `WorkVariant` (research / run / browse / wait / ask) set by `controller.setWork`, which also does the settling (one source for 2D and 3D; the stage maps variants to cues). Each 2D skin draws all five; checked live with 2D Dogesh in the corner and the island, and 3D Dogesh again.
 
+## Next character: the inventor and his big sister
+
+Proposed 16 October 2026: a two-figure character with a genius-little-brother / meddling-big-sister dynamic (our own design, nothing copied from Dexter's Laboratory), the same look in 2D and 3D. Full proposal, open questions and concept-art prompts: [docs/NEW_CHARACTER_SIBLINGS.md](docs/NEW_CHARACTER_SIBLINGS.md).
+
+- [ ] Decide the open questions (names, style reading, her hobby, how often she drops in)
+- [ ] Design sheet approved
+- [ ] 2D version
+- [ ] 3D version
+- [ ] Into the app (Settings, island, phone pictures, Android build)
+
 ## Android companion
 
 For when you give an agent a prompt and walk away: notifications, Allow / Deny, and a reply when a task is done. Native Kotlin app in `android/` (see its README). Decisions of 13 October 2026: direct link from the phone to the PC first (works on a phone hotspot with a subnet sweep), relay later; "further prompts" means a reply when a Claude Code turn ends (the Stop hook returns `decision: block` and the reply as the reason, so the same terminal session carries on).
