@@ -286,3 +286,58 @@ describe("interlude (one task done while others carry on)", () => {
     expect(state()).toBe("NOTIFY");
   });
 });
+
+describe("setWork (what kind of work WORKING shows)", () => {
+  const variant = () => c.getVariant();
+
+  it("waiting for you shows at once, and goes when answered", async () => {
+    await booted();
+    c.startWork({ timeoutMs: null });
+    c.setWork({ waiting: "permission" });
+    expect([state(), variant()]).toEqual(["WORKING", "wait"]);
+    c.setWork({ waiting: "question" });
+    expect(variant()).toBe("ask");
+    c.setWork({ waiting: null });
+    expect(variant()).toBeNull();
+  });
+
+  it("a new kind of task shows once it has gone on a while, and holds", async () => {
+    await booted();
+    c.startWork({ timeoutMs: null });
+    c.setWork({ kind: "research" });
+    expect(variant()).toBeNull();
+    advance(2600);
+    expect(variant()).toBe("research");
+    // Straight on to a command: not before the reading has had its 5 s.
+    c.setWork({ kind: "run" });
+    advance(2600);
+    expect(variant()).toBe("research");
+    advance(2600);
+    expect(variant()).toBe("run");
+    // Nothing said (planning, delegating): stays as it is.
+    c.setWork({ kind: null });
+    advance(10_000);
+    expect(variant()).toBe("run");
+  });
+
+  it("flickering between kinds never settles", async () => {
+    await booted();
+    c.startWork({ timeoutMs: null });
+    for (let i = 0; i < 10; i++) {
+      c.setWork({ kind: i % 2 ? "research" : "run" });
+      advance(1000);
+    }
+    expect(variant()).toBeNull();
+  });
+
+  it("work comes back with its kind after an interruption", async () => {
+    await booted();
+    c.startWork({ timeoutMs: null });
+    c.setWork({ kind: "browse" });
+    advance(2600);
+    c.notify();
+    expect(state()).toBe("NOTIFY");
+    advance(5100);
+    expect([state(), variant()]).toEqual(["WORKING", "browse"]);
+  });
+});

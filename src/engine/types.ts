@@ -11,9 +11,18 @@ export type StateName =
 
 /**
  * Variations of a state: TOUCHED "dizzy", SUCCESS "short" (after a suggestion
- * pick), NOTIFY "ack" (the happy beat after the user acknowledges).
+ * pick), NOTIFY "ack" (the happy beat after the user acknowledges), and
+ * WORKING's kinds of work (see WorkVariant).
  */
-export type Variant = "dizzy" | "short" | "ack" | null;
+export type Variant = "dizzy" | "short" | "ack" | WorkVariant | null;
+
+/**
+ * WORKING, by what the coding agent is doing: reading or searching
+ * ("research"), running a command ("run"), on the web ("browse"), or waiting
+ * for you: an OK ("wait") or an answer to its question ("ask"). Plain WORKING
+ * (variant null) is editing, or anything else.
+ */
+export type WorkVariant = "research" | "run" | "browse" | "wait" | "ask";
 
 /**
  * A pose is a flat bag of numeric channels so any two poses can be crossfaded.

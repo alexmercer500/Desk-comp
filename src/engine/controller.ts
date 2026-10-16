@@ -2,7 +2,18 @@
 // Turns app events into states; the engine turns states into motion.
 
 import { Engine } from "./engine";
-import type { CharacterId, Skin, StateName, Variant } from "./types";
+import type { CharacterId, Skin, StateName, Variant, WorkVariant } from "./types";
+
+/** What kind of task an agent is on, for WORKING's variant ("edit" is plain WORKING). */
+export type WorkKind = "edit" | "research" | "run" | "browse";
+
+/**
+ * Agents switch tools every second or two: a kind of task has to go on this
+ * long before the character changes pose for it, and a pose stays at least
+ * this long. Waiting for you changes it at once.
+ */
+const WORK_SETTLE_MS = 2500;
+const WORK_HOLD_MS = 5000;
 
 export interface ControllerConfig {
   /** Confidence at or above this → SUCCESS. Same value the search backend uses. */
@@ -85,6 +96,10 @@ export class CharacterController {
 
   private listeners = new Set<Listener>();
   private bootDone: (() => void) | null = null;
+
+  /** The kind of task asked for (since when) and the one shown (since when); an agent waiting for you. */
+  private work = { want: "edit" as WorkKind, since: 0, shown: "edit" as WorkKind, shownAt: -Infinity };
+  private waiting: "permission" | "question" | null = null;
 
   constructor(
     private skins: Partial<Record<CharacterId, Skin>>,
@@ -189,6 +204,39 @@ export class CharacterController {
       : result.confidence >= low ? "SUGGESTING"
       : "CONFUSED";
     this.request({ state, variant: null });
+  }
+
+  /**
+   * What the busy agent is doing (`kind`; null: nothing it says, keep the
+   * current one) and whether one waits for you. WORKING shows it as its
+   * variant: waiting at once, a new kind of task once it has settled.
+   */
+  setWork(o: { kind?: WorkKind | null; waiting?: "permission" | "question" | null; now?: boolean }) {
+    if (o.kind && o.kind !== this.work.want) {
+      this.work.want = o.kind;
+      this.work.since = this.engine.now();
+    }
+    // Previews: no settling.
+    if (o.now && o.kind) Object.assign(this.work, { since: -Infinity, shownAt: -Infinity });
+    if (o.waiting !== undefined) this.waiting = o.waiting;
+    this.showWork();
+  }
+
+  /** WORKING's variant now. */
+  private workVariant(): WorkVariant | null {
+    if (this.waiting) return this.waiting === "question" ? "ask" : "wait";
+    return this.work.shown === "edit" ? null : this.work.shown;
+  }
+
+  /** Moves the shown kind of task on once it has settled, and redraws WORKING if its variant changed. */
+  private showWork() {
+    const now = this.engine.now();
+    const w = this.work;
+    if (w.want !== w.shown && now - w.since >= WORK_SETTLE_MS && now - w.shownAt >= WORK_HOLD_MS) {
+      w.shown = w.want;
+      w.shownAt = now;
+    }
+    if (this.state === "WORKING" && this.variant !== this.workVariant()) this.go("WORKING");
   }
 
   /**
@@ -325,6 +373,8 @@ export class CharacterController {
       }
     }
 
+    this.showWork();
+
     if (this.state === "ATTENTIVE" && this.blurAt !== null && now >= this.blurAt) {
       this.blurAt = null;
       this.go("IDLE");
@@ -389,6 +439,8 @@ export class CharacterController {
   }
 
   private go(state: StateName, variant: Variant = null) {
+    // Working shows what kind of work it is (setWork).
+    if (state === "WORKING" && variant === null) variant = this.workVariant();
     const from = this.state;
     const now = this.engine.now();
     this.state = state;

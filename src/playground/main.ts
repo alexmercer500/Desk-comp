@@ -98,6 +98,14 @@ const actions: Record<string, () => void> = {
   pick: () => c.suggestionPicked(),
   notify: () => c.notify(),
   ack: () => c.acknowledge(),
+  // What kind of work WORKING shows (straight away here; the app lets it settle).
+  "kind-edit": () => c.setWork({ kind: "edit", now: true }),
+  "kind-research": () => c.setWork({ kind: "research", now: true }),
+  "kind-run": () => c.setWork({ kind: "run", now: true }),
+  "kind-browse": () => c.setWork({ kind: "browse", now: true }),
+  "wait-permission": () => c.setWork({ waiting: "permission" }),
+  "wait-question": () => c.setWork({ waiting: "question" }),
+  "wait-none": () => c.setWork({ waiting: null }),
 };
 
 document.querySelectorAll<HTMLButtonElement>("[data-act]").forEach((b) => {

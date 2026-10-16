@@ -52,15 +52,6 @@ const PREWARM_AFTER_MS = 4000;
 /** Behaviours that last until the state changes; leaving the state stops them. */
 const LASTING: ReadonlySet<string> = new Set(["work", "research", "run", "browse", "ponder", "shrug", "droop", "call", "doze", "nap", "rest", "held"]);
 
-/** What an agent is busy with, for his working pose. */
-export type Activity = "edit" | "research" | "run" | "browse";
-const ACTIVITY_CUE: Record<Activity, Cue> = { edit: "work", research: "research", run: "run", browse: "browse" };
-/**
- * Agents switch tools every second or two: a kind of task has to go on this
- * long before he changes pose for it, and a pose stays at least this long.
- */
-const ACTIVITY_SETTLE_MS = 2500;
-const POSE_MIN_MS = 5000;
 /** Quick moves get every frame; slow, still ones get fewer. */
 const QUICK: ReadonlySet<string> = new Set([
   "hooray", "spin", "hop", "dizzy", "poke", "held", "land", "nod", "boot", "wave", "twirl", "paint", "wardrobe",
@@ -79,7 +70,15 @@ export function cueFor(state: StateName, variant: Variant): Cue | null {
     case "OFF": return "rest";
     case "BOOTING": return "boot";
     case "TOUCHED": return variant === "dizzy" ? "dizzy" : null;
-    case "WORKING": return "work";
+    // What kind of work (the controller's setWork): an agent waiting for you
+    // keeps him calling you, a question gets a thoughtful look.
+    case "WORKING":
+      switch (variant) {
+        case "wait": return "call";
+        case "ask": return "ponder";
+        case "research": case "run": case "browse": return variant;
+        default: return "work";
+      }
     case "SUCCESS": return variant === "short" ? "nod" : "hooray";
     case "SUGGESTING": return "ponder";
     case "CONFUSED": return "shrug";
@@ -137,9 +136,7 @@ export class RuiStage {
   onSlow: (() => void) | null = null;
   private reduced = false;
   private still = false;
-  private waiting: "permission" | "question" | null = null;
-  /** The kind of task he's been asked to show (`want`, since when) and the one he shows. */
-  private activity = { want: "edit" as Activity, since: 0, shown: "edit" as Activity, shownAt: 0 };
+  private variant: Variant = null;
   private running = false;
   private hidden = false;
   private raf = 0;
@@ -275,6 +272,7 @@ export class RuiStage {
   /** The controller's state changed. */
   setState(state: StateName, variant: Variant): void {
     this.state = state;
+    this.variant = variant;
     // Dogesh finishes changing his clothes first (unless he's picked up): the state is played after.
     if (this.changing && this.actor instanceof Dogesh && state !== "HELD") {
       this.held = true;
@@ -287,7 +285,7 @@ export class RuiStage {
     this.changing = null;
     this.actor.mood = state === "ATTENTIVE" ? "happy" : "neutral";
     this.actor.autoLife = this.lively();
-    let cue = this.cueNow(state, variant);
+    let cue = cueFor(state, variant);
     if (cue && this.reduced) cue = CALMER[cue] ?? cue;
     if (cue) {
       this.actor.play(cue);
@@ -300,43 +298,6 @@ export class RuiStage {
     // Back to rest: stop whatever lasting thing he was doing (a scene he's in
     // the middle of, like eating or a twirl, finishes by itself).
     if (LASTING.has(this.actor.current)) this.actor.play("stand");
-  }
-
-  /**
-   * An agent is waiting for you: for an OK ("permission") or an answer
-   * ("question"). While it waits he keeps at it (calling you, or a
-   * questioning look), instead of going back to work after the first nudge.
-   */
-  setWaiting(kind: "permission" | "question" | null): void {
-    if (this.waiting === kind) return;
-    this.waiting = kind;
-    if (this.state !== "WORKING" || this.changing || this.held) return;
-    const cue = this.cueNow(this.state, null);
-    if (cue) this.actor.play(cue);
-  }
-
-  /** The cue for a state: an agent waiting for you takes over from work, and work shows what kind of task it is. */
-  private cueNow(state: StateName, variant: Variant): Cue | null {
-    if (state === "WORKING" && this.waiting) return this.waiting === "question" ? "ponder" : "call";
-    if (state === "WORKING") return ACTIVITY_CUE[this.activity.shown];
-    return cueFor(state, variant);
-  }
-
-  /** What the busy agent is doing now (null: nothing it says). He changes pose once it has settled. */
-  setActivity(kind: Activity | null): void {
-    const k = kind ?? this.activity.want;
-    if (k === this.activity.want) return;
-    this.activity.want = k;
-    this.activity.since = performance.now();
-  }
-
-  /** Every frame: change pose once a new kind of task has gone on long enough. */
-  private settleActivity(now: number): void {
-    const a = this.activity;
-    if (a.want === a.shown || now - a.since < ACTIVITY_SETTLE_MS || now - a.shownAt < POSE_MIN_MS) return;
-    a.shown = a.want;
-    a.shownAt = now;
-    if (this.state === "WORKING" && !this.waiting && !this.changing && !this.held) this.actor.play(ACTIVITY_CUE[a.shown]);
   }
 
   /** One-shot extras the app plays over any state. */
@@ -437,7 +398,6 @@ export class RuiStage {
       const t0 = performance.now();
       this.actor.update(dt);
       this.afterChange();
-      this.settleActivity(now);
       this.useRoom();
       this.frameCamera(dt);
       this.draw();
@@ -496,10 +456,10 @@ export class RuiStage {
     if (this.held) {
       // What came in while he was changing.
       this.held = false;
-      this.setState(this.state, null);
+      this.setState(this.state, this.variant);
       return;
     }
-    const cue = this.cueNow(this.state, null);
+    const cue = cueFor(this.state, this.variant);
     if (cue && LASTING.has(cue)) this.actor.play(cue);
   }
 

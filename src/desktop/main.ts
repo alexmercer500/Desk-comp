@@ -516,12 +516,12 @@ agents.onChange = () => {
   syncAnswerKeys();
 };
 
-/** Rui and Dogesh's working pose follows what the busiest agent is doing now (stage.ts settles it). */
+/** The character's working pose follows what the busiest agent is doing now (the controller settles it). */
 function syncActivity() {
   const working = agents.snapshot().filter((s) => s.status === "working");
   const latest = working.sort((a, b) => b.lastEvent - a.lastEvent)[0];
   const step = latest?.current?.steps.at(-1);
-  stage?.setActivity(activityOf(step?.tool));
+  c.setWork({ kind: activityOf(step?.tool) });
 }
 
 // ── Keyboard shortcuts (src-tauri/src/shortcuts.rs) ──────────────────────────
@@ -559,10 +559,10 @@ void listen<string>("shortcut", ({ payload }) => {
   }
 });
 
-/** Rui and Dogesh keep calling you (or look at you, asking) for as long as an agent waits. */
+/** The character keeps calling you (or looks at you, asking) for as long as an agent waits. */
 function syncWaiting() {
   const waiting = agents.snapshot().filter((s) => s.status === "waiting");
-  stage?.setWaiting(!waiting.length ? null : waiting.some((s) => !s.permission?.questions?.length) ? "permission" : "question");
+  c.setWork({ waiting: !waiting.length ? null : waiting.some((s) => !s.permission?.questions?.length) ? "permission" : "question" });
 }
 
 // ── Phone link (src-tauri/src/phone) ─────────────────────────────────────────
