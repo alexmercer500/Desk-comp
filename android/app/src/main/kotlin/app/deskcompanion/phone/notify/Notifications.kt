@@ -124,10 +124,12 @@ object Notifications {
             val wanted = when (s.status) {
                 Status.Done -> settings.notifyDone
                 Status.Error -> settings.notifyErrors
+                // Its turn ended asking something at the PC (Command Code's plan review).
+                Status.Waiting -> s.ask != null && settings.notifyNeedsYou
                 else -> false
             }
             val was = before.firstOrNull { it.id == s.id }?.status
-            val justEnded = was == Status.Working || was == Status.Waiting
+            val justEnded = if (s.status == Status.Waiting) was != Status.Waiting else was == Status.Working || was == Status.Waiting
             // The hold can arrive a moment after the task ends: then the same notification gains Reply.
             val newHold = s.reply != null && synchronized(replying) { s.reply.rid !in replying }
             if ((justEnded || newHold) && wanted && !quiet) {
@@ -242,16 +244,28 @@ object Notifications {
     }
 
     /**
-     * A task that finished or failed. While the PC holds it for a reply, Reply
-     * right in the notification (the phone must be unlocked to send it).
+     * A task that finished or failed, or ended asking something at the PC.
+     * While the PC holds it for a reply, Reply right in the notification (the
+     * phone must be unlocked to send it).
      */
     private fun ended(ctx: Context, s: Session): Notification {
-        val ok = s.status == Status.Done
+        val ask = s.ask?.takeIf { s.status == Status.Waiting }
+        val title = when {
+            ask != null -> "${s.project} is waiting for you"
+            s.status == Status.Done -> "${s.project} is done"
+            else -> "${s.project} stopped"
+        }
+        val text = if (ask != null) {
+            val choices = ask.items.joinToString("\n\n") { q -> (listOf(q.question) + q.options.map { "• ${it.label}" }).joinToString("\n") }
+            "$choices\n\nPick one in ${ask.where} on your PC."
+        } else {
+            s.summary ?: s.line
+        }
         val b = NotificationCompat.Builder(ctx, CHANNEL_UPDATES)
             .setSmallIcon(R.drawable.ic_stat_notify)
-            .setContentTitle(if (ok) "${s.project} is done" else "${s.project} stopped")
+            .setContentTitle(title)
             .setContentText(s.line)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(s.summary ?: s.line))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text.take(1000)))
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setColor(0xFF9FB6FA.toInt())
             .setAutoCancel(true)

@@ -119,6 +119,26 @@ class LinkTest {
         assertEquals(1760000000000, s.updatedAt)
         assertEquals(Status.Done, m.sessions[1].status)
         assertNull(m.sessions[1].approval)
+        assertNull(m.sessions[1].ask)
+    }
+
+    @Test
+    fun whatItAsksAtThePcComesWithItsChoices() {
+        val line = """{"t":"sessions","sessions":[
+            {"id":"c1","agent":"Command Code","project":"shop","status":"waiting","line":"Plan ready for review","question":null,
+             "ask":{"headline":"Plan ready for review","where":"Command Code","questions":[{"question":"Begin implementation?","header":"Plan Review",
+               "multiSelect":false,"options":[{"label":"Yes, auto-accept edits","description":"No permission prompts"},{"label":"Cancel","description":null}]}]},
+             "reply":{"rid":"h2","until":1760000300000}},
+            {"id":"c2","agent":"Command Code","project":"blog","status":"waiting","line":"Has a question","ask":{"headline":null,"where":"","questions":[]}}
+        ]}"""
+        val m = Protocol.parse(line) as Protocol.FromPc.Sessions
+        val ask = m.sessions[0].ask!!
+        assertEquals("Plan ready for review", ask.headline)
+        assertEquals("Command Code", ask.where)
+        assertEquals(listOf("Yes, auto-accept edits", "Cancel"), ask.items[0].options.map { it.label })
+        assertNull(m.sessions[0].question)
+        assertEquals("h2", m.sessions[0].reply!!.rid)
+        assertNull("nothing asked: no section", m.sessions[1].ask)
     }
 
     @Test

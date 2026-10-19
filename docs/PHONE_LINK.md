@@ -70,11 +70,12 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
   "approval": { "rid": "…", "tool": "Bash", "action": "run", "detail": "npm test", "canAlways": true },
   "question": { "rid": "…", "questions": [{ "question": "Which one?", "header": "Pick", "multiSelect": false,
                 "options": [{ "label": "A", "description": "…" }] }] },
+  "ask": { "headline": "Plan ready for review", "where": "Command Code", "questions": [ …as in question… ] },
   "reply": { "rid": "…", "until": 1760352300000 }
 }
 ```
 
-`approval` and `question` are present only while an agent is waiting for an answer that can be given from here; `reply` only while a finished turn is held for one (until `until`, ms since 1970). A question's text is sent whole: an answer must repeat it exactly. Steps are the last 20, files at most 50, strings shortened.
+`approval` and `question` are present only while an agent is waiting for an answer that can be given from here; `ask` while it waits for one that can only be given at the PC (`where`), such as Command Code's plan review, shown with its choices (phones from Android 0.4.5); `reply` only while a finished turn is held for one (until `until`, ms since 1970). A question's text is sent whole: an answer must repeat it exactly. Steps are the last 20, files at most 50, strings shortened.
 
 ## Answering
 

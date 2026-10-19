@@ -10,7 +10,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ClickGuard } from "../bubble/guard";
 import { renderQuestions } from "../bubble/question";
-import { AGENT_NAMES, describeStep, lineTotals, turnMeta, type DayStats, type Permission, type SessionView, type Turn } from "../desktop/agents";
+import { AGENT_NAMES, describeStep, elsewhere, lineTotals, turnMeta, type DayStats, type Permission, type SessionView, type Turn } from "../desktop/agents";
 import type { Change } from "../desktop/diff";
 import { ago, elapsed, firstLine, plural } from "../desktop/format";
 import { Engine } from "../engine/engine";
@@ -191,7 +191,7 @@ function renderPerm(p: Permission): HTMLElement {
   const box = el("div", "perm");
   if (p.questions) {
     // Claude Code's question: answered with its options, here or in the terminal.
-    box.append(el("div", "perm-label", p.questions.length > 1 ? "Has a few questions:" : "Has a question:"));
+    box.append(el("div", "perm-label", p.headline ? `${p.headline}:` : p.questions.length > 1 ? "Has a few questions:" : "Has a question:"));
     if (p.rid) {
       const rid = p.rid;
       guard.armOnce(rid);
@@ -199,7 +199,7 @@ function renderPerm(p: Permission): HTMLElement {
       renderQuestions(qs, p.questions, (answers) => void emitTo("companion", "question:answer", { rid, answers }), { armed: () => guard.ready(rid) });
       qs.addEventListener("click", (e) => e.stopPropagation());
       const row = el("div", "perm-actions");
-      const terminal = el("button", "act terminal", "In terminal");
+      const terminal = el("button", "act terminal", elsewhere(p.where ?? "your terminal"));
       terminal.type = "button";
       terminal.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -209,8 +209,12 @@ function renderPerm(p: Permission): HTMLElement {
       row.append(terminal);
       box.append(qs, row);
     } else {
-      for (const q of p.questions) box.append(el("p", "perm-question", q.question));
-      box.append(el("div", "perm-hint", "Answer in your terminal"));
+      // Its choices too, so you know what you'll be picking from there.
+      for (const q of p.questions) {
+        box.append(el("p", "perm-question", q.question));
+        for (const o of q.options) box.append(el("div", "perm-option", `• ${o.label}`));
+      }
+      box.append(el("div", "perm-hint", `Answer in ${p.where ?? "your terminal"}`));
     }
     return box;
   }
@@ -220,7 +224,7 @@ function renderPerm(p: Permission): HTMLElement {
     const rid = p.rid;
     guard.armOnce(rid);
     const row = el("div", "perm-actions");
-    const choices: [string, string][] = [["deny", "Deny"], ["terminal", "In terminal"]];
+    const choices: [string, string][] = [["deny", "Deny"], ["terminal", elsewhere(p.where ?? "your terminal")]];
     if (p.canAlways) choices.push(["always", "Always"]);
     choices.push(["allow", "Allow"]);
     for (const [decision, label] of choices) {
@@ -236,7 +240,7 @@ function renderPerm(p: Permission): HTMLElement {
     }
     box.append(row);
   } else {
-    box.append(el("div", "perm-hint", "Answer in your terminal"));
+    box.append(el("div", "perm-hint", `Answer in ${p.where ?? "your terminal"}`));
   }
   return box;
 }

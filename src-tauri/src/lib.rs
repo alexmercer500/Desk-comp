@@ -33,6 +33,7 @@ pub fn run() {
         .manage(desktop::Desk::default())
         .manage(agents::Pending::default())
         .manage(agents::Shown::default())
+        .manage(agents::Replies::default())
         .manage(phone::PhoneLink::default())
         .invoke_handler(tauri::generate_handler![
             desktop::set_hit_rect,

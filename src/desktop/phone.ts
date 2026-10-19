@@ -24,6 +24,11 @@ export interface PhoneSession {
   approval: { rid: string; tool: string; action: string; detail: string; canAlways: boolean } | null;
   /** Claude's question card, while it can be answered from here. */
   question: { rid: string; questions: PhoneQuestion[] } | null;
+  /**
+   * What it's asking where it was asked (Command Code's plan review, a question
+   * left to its own card): shown with its choices, answered there.
+   */
+  ask: { headline: string | null; questions: PhoneQuestion[]; where: string } | null;
 }
 
 export interface PhoneQuestion {
@@ -51,6 +56,7 @@ function statusOf(s: SessionView): PhoneStatus {
 function lineOf(s: SessionView, status: PhoneStatus, turn: Turn | null): string {
   switch (status) {
     case "waiting":
+      if (s.permission?.headline) return s.permission.headline;
       return s.permission?.questions ? "Has a question for you" : `Wants to ${s.permission?.action ?? "do something"}`;
     case "working": {
       const step = turn?.steps[turn.steps.length - 1];
@@ -71,6 +77,12 @@ export function phoneView(sessions: SessionView[]): PhoneSession[] {
     // What's going on now, else the task that just ended.
     const turn = s.current ?? s.history[0] ?? null;
     const p = s.permission;
+    const asked = (questions: NonNullable<typeof p>["questions"] & object) => questions.map((q) => ({
+      question: q.question,
+      header: q.header ?? null,
+      multiSelect: Boolean(q.multiSelect),
+      options: q.options.map((o) => ({ label: o.label, description: o.description ?? null })),
+    }));
     return {
       id: s.id,
       agent: AGENT_NAMES[s.agent] ?? s.agent,
@@ -89,17 +101,8 @@ export function phoneView(sessions: SessionView[]): PhoneSession[] {
         ? { rid: p.rid, tool: p.tool, action: p.action, detail: clip(p.detail ?? "", 2000), canAlways: p.canAlways }
         : null,
       // Not clipped: an answer must repeat the question exactly (the relay checks it).
-      question: p && p.rid && p.questions
-        ? {
-            rid: p.rid,
-            questions: p.questions.map((q) => ({
-              question: q.question,
-              header: q.header ?? null,
-              multiSelect: Boolean(q.multiSelect),
-              options: q.options.map((o) => ({ label: o.label, description: o.description ?? null })),
-            })),
-          }
-        : null,
+      question: p && p.rid && p.questions ? { rid: p.rid, questions: asked(p.questions) } : null,
+      ask: p && !p.rid && p.questions ? { headline: p.headline, questions: asked(p.questions), where: p.where } : null,
     };
   });
 }

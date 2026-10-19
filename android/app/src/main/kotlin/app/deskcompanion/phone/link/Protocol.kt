@@ -1,6 +1,7 @@
 package app.deskcompanion.phone.link
 
 import app.deskcompanion.phone.model.Approval
+import app.deskcompanion.phone.model.Ask
 import app.deskcompanion.phone.model.Choice
 import app.deskcompanion.phone.model.Question
 import app.deskcompanion.phone.model.QuestionItem
@@ -102,20 +103,12 @@ object Protocol {
         }
         val question = o.optJSONObject("question")?.let { q ->
             val rid = q.optString("rid").ifEmpty { return@let null }
-            val arr = q.optJSONArray("questions") ?: return@let null
-            val items = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.mapNotNull { item ->
-                val text = item.optString("question").ifEmpty { return@mapNotNull null }
-                val opts = item.optJSONArray("options") ?: JSONArray()
-                QuestionItem(
-                    question = text,
-                    header = item.optStringOrNull("header"),
-                    multiSelect = item.optBoolean("multiSelect"),
-                    options = (0 until opts.length()).mapNotNull { opts.optJSONObject(it) }.mapNotNull { c ->
-                        Choice(c.optString("label").ifEmpty { return@mapNotNull null }, c.optStringOrNull("description"))
-                    },
-                )
-            }
-            if (items.isEmpty()) null else Question(rid, items)
+            val items = questionItems(q) ?: return@let null
+            Question(rid, items)
+        }
+        val ask = o.optJSONObject("ask")?.let { a ->
+            val items = questionItems(a) ?: return@let null
+            Ask(headline = a.optStringOrNull("headline"), items = items, where = a.optString("where").ifEmpty { "your PC" })
         }
         val reply = o.optJSONObject("reply")?.let { r ->
             val rid = r.optString("rid").ifEmpty { return@let null }
@@ -133,9 +126,28 @@ object Protocol {
             files = files,
             approval = approval,
             question = question,
+            ask = ask,
             reply = reply,
             updatedAt = o.optLong("updatedAt"),
         )
+    }
+
+    /** The `questions` list of a question card, or null when there are none. */
+    private fun questionItems(o: JSONObject): List<QuestionItem>? {
+        val arr = o.optJSONArray("questions") ?: return null
+        val items = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.mapNotNull { item ->
+            val text = item.optString("question").ifEmpty { return@mapNotNull null }
+            val opts = item.optJSONArray("options") ?: JSONArray()
+            QuestionItem(
+                question = text,
+                header = item.optStringOrNull("header"),
+                multiSelect = item.optBoolean("multiSelect"),
+                options = (0 until opts.length()).mapNotNull { opts.optJSONObject(it) }.mapNotNull { c ->
+                    Choice(c.optString("label").ifEmpty { return@mapNotNull null }, c.optStringOrNull("description"))
+                },
+            )
+        }
+        return items.ifEmpty { null }
     }
 
     private fun JSONObject.optStringOrNull(key: String): String? = if (isNull(key) || !has(key)) null else optString(key).ifEmpty { null }

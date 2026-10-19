@@ -20,7 +20,7 @@
 // is let go at once and the agent asks in its terminal, instead of sitting
 // there for two minutes waiting on a card nobody saw.
 //
-// A finished Claude Code turn (`hold`) asks whether to wait for a reply from
+// A finished Claude Code or Command Code turn (`hold`) asks whether to wait for a reply from
 // the phone (phone::should_hold). We answer "hold" or not straight away. A
 // held turn waits up to HOLD_WAIT for a reply, and is let go at once when
 // someone uses this PC or no phone is left to reply from. A reply goes back
@@ -82,6 +82,30 @@ impl Pending {
             return None;
         }
         map.remove(rid).map(|(tx, _)| tx)
+    }
+}
+
+/// Command Code carries on after a Stop hook's reply at most this many times
+/// in a row; after that it ignores the next one, so a reply then would be lost.
+const COMMANDCODE_REPLIES_IN_A_ROW: u8 = 3;
+
+/// Replies from the phone each session carried on with, in a row (a turn that
+/// ends without one starts the count again, as Command Code's own count does).
+#[derive(Default)]
+pub struct Replies(Mutex<HashMap<String, u8>>);
+
+impl Replies {
+    fn in_a_row(&self, session: &str) -> u8 {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).get(session).copied().unwrap_or(0)
+    }
+    /// A held turn ended: with a reply (one more in a row) or without (back to none).
+    fn set(&self, session: &str, replied: bool) {
+        let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if replied {
+            *map.entry(session.to_string()).or_insert(0) += 1;
+        } else {
+            map.remove(session);
+        }
     }
 }
 
@@ -197,6 +221,9 @@ pub struct AgentEvent {
     message: Option<String>,
     error: Option<String>,
     kind: Option<String>,
+    /// The agent's permission mode ("default", "plan", "auto-accept" …), where it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mode: Option<String>,
     /// Input only: read here, never forwarded.
     #[serde(default, skip_serializing)]
     transcript: Option<String>,
@@ -284,6 +311,11 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
         }
         crate::connections::heard(&app, &ev.agent);
         if crate::connections::duplicate(&app, &ev.agent, ev.session.as_deref(), ev.via.as_deref() == Some("hooks")) {
+            // A copy that waits (a question, a finished turn): let it go at once, the mod has it.
+            if ev.hold || ev.rid.is_some() {
+                let _ = write.write_all(b"\n").await;
+                let _ = write.flush().await;
+            }
             continue;
         }
         // A finished turn: say at once whether it's held, before anything slow.
@@ -291,7 +323,16 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
         if ev.hold {
             let rid = ev.rid.take();
             let session = ev.session.clone().filter(|s| !s.is_empty());
-            let hold = rid.is_some() && session.is_some() && crate::phone::should_hold(&app);
+            let in_a_row = session.as_deref().map_or(0, |s| app.state::<Replies>().in_a_row(s));
+            let hold = rid.is_some()
+                && session.is_some()
+                && (ev.agent != "commandcode" || in_a_row < COMMANDCODE_REPLIES_IN_A_ROW)
+                && crate::phone::should_hold(&app);
+            if !hold {
+                if let Some(s) = &session {
+                    app.state::<Replies>().set(s, false);
+                }
+            }
             let _ = write.write_all(if hold { b"hold\n" as &[u8] } else { b"\n" }).await;
             let _ = write.flush().await;
             if hold {
@@ -394,10 +435,15 @@ where
     hangup.abort();
     app.state::<Pending>().remove(&rid);
     crate::phone::hold_ended(app, &session, &rid);
-    let Some(line) = reply else { return };
+    let Some(line) = reply else {
+        app.state::<Replies>().set(&session, false);
+        return;
+    };
     if write.write_all(format!("{line}\n").as_bytes()).await.is_err() || write.flush().await.is_err() {
+        app.state::<Replies>().set(&session, false);
         return;
     }
+    app.state::<Replies>().set(&session, true);
     let text = serde_json::from_str::<Value>(&line).ok().and_then(|v| v.get("reply")?.as_str().map(str::to_string));
     next.event = Some("UserPromptSubmit".into());
     next.prompt = text.map(|t| clip(&t, 300));

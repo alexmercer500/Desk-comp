@@ -146,7 +146,8 @@ private fun HeroCard(s: Session, state: AppState, onOpen: (String) -> Unit, onRe
             Spacer(Modifier.height(4.dp))
             Text("${s.agent} · ${s.line}", style = DeskType.body, color = c.onCardFor(s.status).copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(20.dp))
-            val review = s.status == Status.Waiting
+            // Review what can be answered from here; anything else (asked at the PC) opens.
+            val review = s.status == Status.Waiting && (s.approval != null || s.question != null)
             PillButton(
                 text = if (review) "Review" else "Open",
                 onClick = { if (review) onReview(s.id) else onOpen(s.id) },

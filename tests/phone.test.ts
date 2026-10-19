@@ -55,7 +55,20 @@ describe("phoneView", () => {
       questions: [{ question: "Which?", header: null, multiSelect: false, options: [{ label: "A", description: null }, { label: "B", description: null }] }],
     });
     t.permissionClosed("q1");
-    expect(phoneView(t.snapshot()).find((x) => x.id === "s2")!.question).toBeNull();
+    const left = phoneView(t.snapshot()).find((x) => x.id === "s2")!;
+    expect(left.question).toBeNull();
+    // Still shown, with its choices, to answer at the PC.
+    expect(left.ask).toEqual({ headline: null, questions: q.question!.questions, where: "your terminal" });
+  });
+
+  it("shows Command Code's plan review with its choices, and the plan it finished with", () => {
+    const cc = (event: string, extra: Partial<AgentEvent> = {}) => ev(event, { agent: "commandcode", mode: "default", ...extra });
+    t.handle(cc("PostToolUse", { tool: "Write", detail: "C:/Users/me/.commandcode/plans/cart.md" }));
+    t.handle(cc("Stop", { prompt: "Plan the cart fix", summary: "The plan: 1. Round once." }));
+    const [s] = phoneView(t.snapshot());
+    expect(s).toMatchObject({ status: "waiting", line: "Plan ready for review", prompt: "Plan the cart fix", summary: "The plan: 1. Round once.", question: null });
+    expect(s.ask?.where).toBe("Command Code");
+    expect(s.ask?.questions[0].options.map((o) => o.label)).toEqual(["Yes, auto-accept edits", "Cancel"]);
   });
 
   it("shows a finished task with its summary and changed files", () => {

@@ -22,6 +22,8 @@ export interface AgentEvent {
   detail: string | null;
   message: string | null;
   kind: string | null;
+  /** The agent's permission mode ("default", "plan", "auto-accept" …), where it says. */
+  mode?: string | null;
   prompt?: string | null;
   error?: string | null;
   /** The agent's last reply, read by the app from the local transcript on Stop. */
@@ -91,6 +93,10 @@ export interface Permission {
   canAlways: boolean;
   /** A question rather than a permission: answered by picking options. */
   questions: Question[] | null;
+  /** What it's waiting for, when that's more than a question or a permission ("Plan ready for review"). */
+  headline: string | null;
+  /** Where to answer when it can't be answered from here: "your terminal", "Command Code". */
+  where: string;
 }
 
 /** What the panel shows for one session. */
@@ -165,10 +171,61 @@ const EDIT_TOOLS = /^(Edit|MultiEdit|Write|NotebookEdit)$/;
 // ToolUsed: a step reported once it's done (Antigravity), failed if it carries an error.
 const WORK_EVENTS = new Set(["UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "ToolUsed"]);
 
+/** Command Code's plan files (it reviews a plan written there at the end of the turn). */
+const PLAN_FILE = /[\\/]\.commandcode[\\/]plans[\\/][^\\/]+\.md$/i;
+
+const PLAN_REVIEW: Question = {
+  question: "Plan ready for review. Begin implementation?",
+  header: "Plan Review",
+  multiSelect: false,
+  options: [
+    { label: "Yes, auto-accept edits", description: "Implement with accept edits (no permission prompts)" },
+    { label: "Cancel", description: "Keep refining the plan" },
+  ],
+};
+
+/**
+ * Command Code's own choice cards, which no hook can answer (they aren't
+ * questions it asks through ask_user_question): shown here with their options
+ * so you know what it's waiting for, and answered in Command Code. By tool,
+ * with the headline the card goes under.
+ */
+const COMMAND_CODE_CHOICES: Record<string, { headline: string; question: Question }> = {
+  plan_review: { headline: "Plan ready for review", question: PLAN_REVIEW },
+  exit_plan_mode: {
+    headline: "Plan ready for review",
+    question: {
+      question: "Exit plan mode and begin implementation?",
+      header: "Exit Plan",
+      multiSelect: false,
+      options: [{ label: "Execute with auto-accept mode" }, { label: "Continue planning" }],
+    },
+  },
+  enter_plan_mode: {
+    headline: "Wants to switch to plan mode",
+    question: {
+      question: "Enter plan mode for read-only exploration and planning?",
+      header: "Plan mode",
+      multiSelect: false,
+      options: [{ label: "Yes" }, { label: "No, stay in current mode" }],
+    },
+  },
+};
+
+/** Where to answer what can't be answered from the companion. */
+export function answerIn(agent: string): string {
+  return agent === "commandcode" ? "Command Code" : "your terminal";
+}
+
 interface Session extends SessionView {
   finishedAt: number;
   nudgedAt: number;
   nudges: number;
+  /**
+   * Command Code wrote a plan file this turn ("written") or showed it for
+   * review already ("reviewed"): a written plan is reviewed when the turn ends.
+   */
+  plan: "written" | "reviewed" | null;
 }
 
 export class AgentTracker {
@@ -299,7 +356,7 @@ export class AgentTracker {
     const rank: Record<Status, number> = { waiting: 0, working: 1, idle: 2, ended: 3 };
     return [...this.sessions.values()]
       .sort((a, b) => rank[a.status] - rank[b.status] || b.lastEvent - a.lastEvent)
-      .map(({ finishedAt: _f, nudgedAt: _n, nudges: _c, ...view }) => structuredClone(view));
+      .map(({ finishedAt: _f, nudgedAt: _n, nudges: _c, plan: _p, ...view }) => structuredClone(view));
   }
 
   // ── Events ─────────────────────────────────────────────────────────────────
@@ -313,6 +370,16 @@ export class AgentTracker {
     const now = this.now();
     s.lastEvent = now;
     if (e.procs?.length) s.procs = e.procs;
+
+    // Command Code showing one of its own choice cards: a step, and a wait for you there.
+    const choice = e.agent === "commandcode" && name === "PreToolUse" && e.tool ? COMMAND_CODE_CHOICES[e.tool] : undefined;
+    if (choice) {
+      const turn = (s.current ??= newTurn(null, now));
+      this.recordStep(s, turn, e, now);
+      if (e.tool !== "enter_plan_mode") s.plan = "reviewed";
+      this.askPermission(id, s, { ...e, rid: null, questions: [choice.question] }, choice.headline);
+      return;
+    }
 
     // Claude Code asking a question: a step, and the user's turn to answer.
     if (name === "PreToolUse" && e.tool === "AskUserQuestion" && e.questions?.length) {
@@ -329,11 +396,15 @@ export class AgentTracker {
       if (name === "UserPromptSubmit" && !continues) {
         if (s.current) this.endTurn(s, "cancelled");
         s.current = newTurn(e.prompt ?? null, now);
+        s.plan = null;
       }
       const turn = (s.current ??= newTurn(null, now));
       if ((name === "PreToolUse" || name === "ToolUsed") && e.tool) this.recordStep(s, turn, e, now);
       if (name === "ToolUsed" && e.tool && e.error) turn.steps[turn.steps.length - 1].failed = true;
       if (name === "PostToolUse" && e.edits?.length && e.detail) this.recordChange(s, turn, e.edits, relativeTo(s.cwd, e.detail));
+      if (name === "PostToolUse" && e.agent === "commandcode" && EDIT_TOOLS.test(e.tool ?? "") && PLAN_FILE.test(e.detail ?? "")) {
+        s.plan ??= "written";
+      }
       if (name === "PostToolUseFailure") {
         const last = [...turn.steps].reverse().find((st) => st.tool === e.tool);
         if (last) last.failed = true;
@@ -379,12 +450,21 @@ export class AgentTracker {
           s.current.prompt = e.prompt;
         }
         const turn = s.current;
+        // A plan written this turn and not reviewed yet: Command Code shows it for
+        // review now (in its default mode; plan mode reviews with exit_plan_mode).
+        const reviewNext = s.plan === "written" && (e.mode === "default" || e.mode === "plan");
+        s.plan = null;
         this.clearPermission(id, s);
         s.status = "idle";
         s.finishedAt = now;
         if (!turn) return;
         if (e.summary) turn.summary = plainText(e.summary);
         this.endTurn(s, "done");
+        if (reviewNext) {
+          // Not done yet as far as you're concerned: it's waiting for your go-ahead.
+          this.askPermission(id, s, { ...e, tool: "plan_review", rid: null, questions: [PLAN_REVIEW] }, "Plan ready for review", false);
+          return;
+        }
         if (!wasBusy) return;
         this.say(id, s, {
           kind: "success",
@@ -472,7 +552,13 @@ export class AgentTracker {
     if (!turn.files.includes(path)) turn.files.push(path);
   }
 
-  private askPermission(id: string, s: Session, e: AgentEvent) {
+  /**
+   * The session waits for you: a permission, or questions (`e.questions`).
+   * `headline` says what it's waiting for when that's more than either.
+   * `inTurn` false: the turn has ended already (a plan waiting for review),
+   * so no new one is started for the wait.
+   */
+  private askPermission(id: string, s: Session, e: AgentEvent, headline: string | null = null, inTurn = true) {
     const wasAnyBusy = this.anyBusy();
     const tool = e.tool ?? "a tool";
     const detail = e.detail ? (tool !== "Bash" ? relativeTo(s.cwd, e.detail) : e.detail) : null;
@@ -481,8 +567,11 @@ export class AgentTracker {
     const questions = e.questions?.length ? e.questions : null;
     const canAlways = Boolean(e.canAlways ?? (s.permission?.tool === tool && s.permission.canAlways));
     if (s.status !== "waiting") this.count((d) => d.asks++);
-    s.permission = { tool, action: permissionAction(tool), detail: questions ? null : detail, since: this.now(), rid, canAlways, questions };
-    s.current ??= newTurn(null, this.now());
+    s.permission = {
+      tool, action: permissionAction(tool), detail: questions ? null : detail, since: this.now(), rid, canAlways, questions,
+      headline, where: answerIn(s.agent),
+    };
+    if (inTurn) s.current ??= newTurn(null, this.now());
     s.status = "waiting";
     s.nudges = 0;
     s.nudgedAt = this.now();
@@ -502,11 +591,13 @@ export class AgentTracker {
         title: this.titleFor(s),
         kind: "attention",
         sticky: true,
-        text: p.questions.length > 1 ? "Has a few questions for you:" : "Has a question for you:",
+        text: p.headline ? `${p.headline}:` : p.questions.length > 1 ? "Has a few questions for you:" : "Has a question for you:",
         questions: p.rid ? p.questions : undefined,
-        detail: p.rid ? undefined : p.questions.map((q) => q.question).join("\n"),
-        meta: p.rid ? undefined : "Answer in your terminal",
+        // Can't be answered here: what it's asking and its choices, to answer there.
+        detail: p.rid ? undefined : questionsText(p.questions),
+        meta: p.rid ? undefined : `Answer in ${p.where}`,
         request: p.rid ?? undefined,
+        elsewhere: elsewhere(p.where),
       });
       return;
     }
@@ -520,9 +611,10 @@ export class AgentTracker {
       text: p.detail ? `Needs your OK to ${p.action}:` : (message || `Needs your OK to ${p.action}`),
       detail: p.detail ?? undefined,
       mono: !!p.detail,
-      meta: p.rid ? undefined : "Answer in your terminal",
+      meta: p.rid ? undefined : `Answer in ${p.where}`,
       request: p.rid ?? undefined,
       always: p.rid ? p.canAlways : undefined,
+      elsewhere: elsewhere(p.where),
     });
   }
 
@@ -569,6 +661,7 @@ export class AgentTracker {
         finishedAt: -Infinity,
         nudgedAt: 0,
         nudges: 0,
+        plan: null,
       };
       this.sessions.set(id, s);
     } else if (e.cwd) {
@@ -607,6 +700,14 @@ export class AgentTracker {
 }
 
 const permissionId = (session: string) => `permission:${session}`;
+
+/** The button that leaves the answer to the agent: "In terminal", "In Command Code". */
+export const elsewhere = (where: string) => (where === "your terminal" ? "In terminal" : `In ${where}`);
+
+/** Questions with their choices, one per line: "Which one?\n• Blue\n• Green". */
+export function questionsText(questions: Question[]): string {
+  return questions.map((q) => [q.question, ...q.options.map((o) => `• ${o.label}`)].join("\n")).join("\n\n");
+}
 
 const newTurn = (prompt: string | null, now: number): Turn => ({
   prompt, startedAt: now, endedAt: null, steps: [], files: [], changes: [], commands: 0, summary: null, outcome: "working",

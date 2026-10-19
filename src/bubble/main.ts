@@ -95,6 +95,8 @@ async function display(msg: BubbleMessage | null) {
   detail.textContent = msg.detail ?? "";
   detail.hidden = !msg.detail;
   detail.classList.toggle("mono", !!msg.mono);
+  // What it's asking and its choices, one per line (answered where it was asked).
+  detail.classList.toggle("choices", msg.category === "agent-permission" && !msg.mono);
   meta.textContent = msg.meta ?? "";
   meta.hidden = !msg.meta;
   actions.hidden = !msg.request;
@@ -123,6 +125,7 @@ async function display(msg: BubbleMessage | null) {
   for (const b of actions.querySelectorAll<HTMLButtonElement>("[data-decision]")) {
     const d = b.dataset.decision;
     b.hidden = asking ? d !== "terminal" : d === "always" && !msg.always;
+    if (d === "terminal") b.textContent = msg.elsewhere ?? "In terminal";
   }
   card.dataset.kind = msg.kind;
   // Buttons that just appeared under the cursor don't take clicks for a moment.

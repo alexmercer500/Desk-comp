@@ -355,6 +355,8 @@ export class Island {
     p.cardDetail.textContent = msg?.detail ?? "";
     p.cardDetail.hidden = !msg?.detail;
     p.cardDetail.classList.toggle("mono", !!msg?.mono);
+    // What it's asking and its choices, one per line (answered where it was asked).
+    p.cardDetail.classList.toggle("choices", msg?.category === "agent-permission" && !msg.mono);
     p.cardMeta.textContent = msg?.meta ?? "";
     p.cardMeta.hidden = !msg?.meta;
     p.actions.hidden = !msg?.request;
@@ -374,6 +376,7 @@ export class Island {
     for (const b of p.actions.querySelectorAll<HTMLButtonElement>("[data-decision]")) {
       const d = b.dataset.decision;
       b.hidden = asking ? d !== "terminal" : d === "always" && !msg?.always;
+      if (d === "terminal") b.textContent = msg?.elsewhere ?? "In terminal";
     }
     p.cardBody.title = msg?.session ? "Show this session" : "";
   }

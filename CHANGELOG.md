@@ -9,6 +9,22 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.14.0 (19 October 2026, Android 0.4.5)
+
+Command Code's chat in VS Code, on the PC and on your phone:
+
+- **Its questions show up, with their options, and you can answer them here or on your phone.** One question or several at once, single or multiple choice, or an answer of your own. Before, they only appeared as a step ("ask_user_question") and you had to go back to VS Code. Answer in VS Code instead with "In Command Code", and if nobody answers within about two minutes the question appears in VS Code as usual.
+- **A plan waiting for your review says so, with its choices** ("Yes, auto-accept edits" / "Cancel"), instead of looking finished. The same goes for Command Code asking to switch to plan mode. You pick the option in VS Code: Command Code doesn't let other apps answer these. On the phone the task shows "Plan ready for review" with the plan and its choices, and a notification tells you it's waiting.
+- **Replies from your phone now work for Command Code.** With Away mode on, a finished Command Code task waits a few minutes for your reply, and the Send button works. Before, the box was there but Send never lit up, because only Claude Code tasks could wait for a reply. Command Code accepts three replies in a row; after that the next task ends normally and the count starts again.
+- Phone: a task waiting for something you can only answer at the PC opens normally instead of offering a "Review" button that did nothing.
+
+Known limits in Command Code's VS Code chat (Command Code doesn't tell other apps about these, so no app can show or answer them):
+
+- Its permission prompts (Allow once / Allow for this session / Deny) stay in VS Code.
+- In plan mode it runs no hooks at all, so nothing about a plan-mode turn reaches the companion until you leave plan mode.
+
+After updating, start a new Command Code chat in VS Code (or reload the window) so it picks up the new hooks.
+
 ## 0.13.0 (16 October 2026, Android 0.4.4 carried over)
 
 - **Every character now shows what your agent is doing, in 2D too.** Kulhi, Hexo, Glim, Billu and Dogesh Bhai (2D) each have their own way to show it:

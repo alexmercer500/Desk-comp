@@ -189,6 +189,7 @@ html, body {
   overflow-wrap: anywhere;
   color: var(--muted);
 }
+.detail.choices { -webkit-line-clamp: 10; white-space: pre-line; }
 .detail.mono {
   -webkit-line-clamp: 4;
   margin-top: 2px;

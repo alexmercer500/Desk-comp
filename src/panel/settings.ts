@@ -92,7 +92,7 @@ const AGENT_HINTS: Record<string, string> = {
   cursor: "Adds my hooks to Cursor's hooks.json. Shows what its agent is doing, when it's done, stopped or failed. Permissions stay in Cursor.",
   antigravity: "Adds a hook group to Antigravity's hooks.json: the Antigravity app and CLI. Shows each step once it's done, and when a task ends. It never answers its permission prompts. The older standalone IDE doesn't run hooks yet.",
   gemini: "Shows what Gemini CLI is doing and when it's done. Permissions stay in the terminal.",
-  commandcode: "Adds a small mod and hooks to Command Code: the CLI, the desktop app and the VS Code chat panel. Shows each step and when it's done; in the CLI and app also when it's stopped or waiting for your OK, and its questions can be answered here.",
+  commandcode: "Adds a small mod and hooks to Command Code: the CLI, the desktop app and the VS Code chat panel. Shows each step and when it's done, its questions (answer them here or on your phone) and plans waiting for review. In the CLI and app also when it's stopped or waiting for your OK; the VS Code chat panel doesn't tell other apps about its permission prompts, so those stay in VS Code.",
 };
 
 interface AskStatus {

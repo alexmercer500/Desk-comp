@@ -23,7 +23,8 @@
 //! in the payload (Copilot CLI) or name it their own way (Gemini CLI); it wins
 //! over the payload's. `--wait` marks the hook entry that answers questions
 //! (Claude Code's AskUserQuestion, and Command Code's through our mod).
-//! `--via hooks` marks Command Code's plain hooks, which run next to our mod.
+//! `--via hooks` marks Command Code's plain hooks, which run next to our mod
+//! and are all its VS Code chat panel runs.
 //! The app also runs this relay itself (`--agent ping`) to test that agents
 //! can reach it (connections.rs).
 //!
@@ -33,7 +34,9 @@
 //! phone then comes back as Claude Code's documented Stop output (`decision:
 //! block` with the reply as the reason), and Claude carries on with it. The app
 //! says within HOLD_ACK whether to hold at all; anything else, or no reply in
-//! time, prints nothing and the turn simply ends.
+//! time, prints nothing and the turn simply ends. Command Code's Stop hook
+//! (`--via hooks`) is held the same way; its reply goes back as the text on
+//! stderr with exit code 2, which Command Code passes on as the next message.
 //!
 //! IDEs too: Cursor (`--agent cursor`, its own hooks.json), Antigravity
 //! (`--agent antigravity`) and VS Code's agent (`--agent vscode`, sharing
@@ -79,6 +82,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut agent = arg_value(&args, "--agent").unwrap_or("claude-code").to_string();
     let wait_entry = args.iter().any(|a| a == "--wait");
+    let via_hooks = arg_value(&args, "--via") == Some("hooks");
     let debug = std::env::var_os("COMPANION_HOOK_DEBUG").is_some();
 
     let mut input = String::new();
@@ -122,7 +126,7 @@ fn main() {
         return;
     }
     let permission = waits_for_decision(&agent, event.as_deref(), tool.as_deref());
-    let holdable = can_hold(&agent, event.as_deref());
+    let holdable = can_hold(&agent, event.as_deref(), via_hooks);
     let waits = permission || question;
 
     let mut summary = summarize(&hook, &agent, event.as_deref(), tool.as_deref());
@@ -143,7 +147,7 @@ fn main() {
         // Cursor's own transcript isn't Claude Code's; its reply came with AgentResponse.
         summary["transcript"] = Value::Null;
     }
-    if arg_value(&args, "--via") == Some("hooks") {
+    if via_hooks {
         // Command Code's plain hooks, next to our mod: the app keeps these only
         // where the mod doesn't run (its VS Code chat panel).
         summary["via"] = Value::String("hooks".into());
@@ -171,17 +175,27 @@ fn main() {
         Ok(Ok(Some(d))) => d.as_str(),
         _ => "",
     };
+    // Command Code's plain hooks can't hand over answers the way Claude Code's
+    // can: a question is answered by declining it with the answers as the
+    // reason, and a reply is a Stop hook's exit code 2 with the reply on stderr.
+    let command_code = agent == "commandcode" && via_hooks;
     let out = if question {
-        reply_question(answer, &hook)
+        if command_code { reply_question_as_reason(answer, &hook) } else { reply_question(answer, &hook) }.map(Out::Print)
     } else if holdable {
-        reply_stop(answer)
+        if command_code { reply_text(answer).map(Out::Continue) } else { reply_stop(answer).map(Out::Print) }
     } else if permission {
-        reply_permission(answer, &hook)
+        reply_permission(answer, &hook).map(Out::Print)
     } else {
-        no_opinion(&agent)
+        no_opinion(&agent).map(Out::Print)
     };
-    if let Some(out) = out {
-        println!("{out}");
+    match out {
+        Some(Out::Print(out)) => println!("{out}"),
+        // Nothing else may go to stderr: the agent reads all of it as the reply.
+        Some(Out::Continue(reply)) => {
+            eprint!("{reply}");
+            std::process::exit(2);
+        }
+        None => {}
     }
     // Silent by design; set COMPANION_HOOK_DEBUG=1 to see what happened (stderr only).
     if debug {
@@ -267,6 +281,8 @@ fn tool_name(hook: &Map<String, Value>) -> Option<String> {
         "grep" | "search_file_content" | "grep_search" | "Grep" => "Grep",
         "web_fetch" | "fetch_webpage" | "read_url_content" => "WebFetch",
         "google_web_search" | "web_search" | "search_web" => "WebSearch",
+        // Command Code's questions (its VS Code chat panel reports them through plain hooks).
+        "ask_user_question" => "AskUserQuestion",
         other => other,
     };
     Some(short(canonical, 128))
@@ -302,8 +318,9 @@ fn waits_for_decision(agent: &str, event: Option<&str>, tool: Option<&str>) -> b
 }
 
 /// The agent asking the user a multiple-choice question: Claude Code's
-/// AskUserQuestion, or Command Code's ask_user_question as our mod reports it
-/// (in Claude Code's shape; the mod reads the same answer back).
+/// AskUserQuestion, or Command Code's ask_user_question, from our mod (in
+/// Claude Code's shape; the mod reads the same answer back) or from its plain
+/// hooks (`--via hooks`, answered with reply_question_as_reason).
 fn is_question(agent: &str, event: Option<&str>, tool: Option<&str>) -> bool {
     matches!(agent, "claude-code" | "commandcode") && event == Some("PreToolUse") && tool == Some("AskUserQuestion")
 }
@@ -366,25 +383,38 @@ fn reply_permission(decision: &str, hook: &Map<String, Value>) -> Option<String>
     Some(json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision } }).to_string())
 }
 
-/// Claude Code's turn ending: held for a reply from the phone when the app says so.
-/// Not Cursor running Claude Code's hooks (the agent is renamed by then).
-fn can_hold(agent: &str, event: Option<&str>) -> bool {
-    agent == "claude-code" && event == Some("Stop")
+/// What the relay hands back to the agent.
+enum Out {
+    /// A line on stdout (the agent's JSON hook output).
+    Print(String),
+    /// Command Code's "carry on with this": the text on stderr and exit code 2.
+    Continue(String),
 }
 
-/// A reply from the phone, from the app as `{"reply": text}`: Claude Code's
-/// documented Stop output that makes it carry on, with the reply as the
-/// reason. Text only: not empty, at most MAX_REPLY characters, no control
-/// characters but line breaks and tabs. Anything else prints nothing and the
+/// A turn ending, held for a reply from the phone when the app says so:
+/// Claude Code's (not Cursor running Claude Code's hooks: the agent is renamed
+/// by then), and Command Code's from its plain hooks (where its Stop hook
+/// waits for us; our mod's Stop is only a report).
+fn can_hold(agent: &str, event: Option<&str>, via_hooks: bool) -> bool {
+    event == Some("Stop") && (agent == "claude-code" || (agent == "commandcode" && via_hooks))
+}
+
+/// A reply from the phone, from the app as `{"reply": text}`, as the agent
+/// should read it. Text only: not empty, at most MAX_REPLY characters, no
+/// control characters but line breaks and tabs. Anything else is None and the
 /// turn ends as usual.
-fn reply_stop(answer: &str) -> Option<String> {
+fn reply_text(answer: &str) -> Option<String> {
     let given = serde_json::from_str::<Value>(answer.trim()).ok()?;
     let text = given.get("reply")?.as_str()?.trim();
     if text.is_empty() || text.chars().count() > MAX_REPLY || text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
         return None;
     }
-    let reason = format!("The user replied from their phone:\n\n{text}");
-    Some(json!({ "decision": "block", "reason": reason }).to_string())
+    Some(format!("The user replied from their phone:\n\n{text}"))
+}
+
+/// Claude Code's documented Stop output that makes it carry on, with the reply as the reason.
+fn reply_stop(answer: &str) -> Option<String> {
+    Some(json!({ "decision": "block", "reason": reply_text(answer)? }).to_string())
 }
 
 /// Longest answer typed by hand ("Other…").
@@ -397,25 +427,57 @@ const MAX_OTHER: usize = 500;
 /// text up to MAX_OTHER characters with no control characters. Anything else
 /// prints nothing and the question stays in the terminal.
 fn reply_question(answer: &str, hook: &Map<String, Value>) -> Option<String> {
+    let (mut input, given) = checked_answers(answer, hook)?;
+    input.insert("answers".into(), Value::Object(given));
+    Some(
+        json!({ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": input } })
+            .to_string(),
+    )
+}
+
+/// The same answers for Command Code's plain hooks, which can't change a
+/// tool's input: its question is declined (so its own card never shows) with
+/// the answers as the reason, which is what the model reads instead.
+fn reply_question_as_reason(answer: &str, hook: &Map<String, Value>) -> Option<String> {
+    let (input, given) = checked_answers(answer, hook)?;
+    // In the order they were asked, as Command Code's own answer lists them.
+    let lines: Vec<String> = input
+        .get("questions")?
+        .as_array()?
+        .iter()
+        .filter_map(|q| {
+            let question = q.get("question")?.as_str()?;
+            Some(format!("{question} → {}", given.get(question)?.as_str()?))
+        })
+        .collect();
+    let reason = format!(
+        "The user already answered these questions in the Desk Companion app, so Command Code's own question card wasn't shown:\n\n{}\n\nThat is their answer: continue with it in mind and don't ask these questions again.",
+        lines.join("\n")
+    );
+    Some(
+        json!({ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason } })
+            .to_string(),
+    )
+}
+
+/// The question's input and the app's answers to it, if every answer is for a
+/// question that was asked and is an acceptable answer (see reply_question).
+fn checked_answers(answer: &str, hook: &Map<String, Value>) -> Option<(Map<String, Value>, Map<String, Value>)> {
     let given = serde_json::from_str::<Value>(answer.trim()).ok()?;
-    let given = given.get("answers")?.as_object()?;
-    let mut input = tool_input(hook)?;
-    let asked = input.get("questions")?.as_array()?.clone();
+    let given = given.get("answers")?.as_object()?.clone();
+    let input = tool_input(hook)?;
+    let asked = input.get("questions")?.as_array()?;
     if given.is_empty() {
         return None;
     }
-    for (question, value) in given {
+    for (question, value) in &given {
         asked.iter().find(|q| q.get("question").and_then(Value::as_str) == Some(question.as_str()))?;
         let text = value.as_str()?;
         if text.trim().is_empty() || text.chars().count() > MAX_OTHER || text.chars().any(char::is_control) {
             return None;
         }
     }
-    input.insert("answers".into(), Value::Object(given.clone()));
-    Some(
-        json!({ "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": input } })
-            .to_string(),
-    )
+    Some((input, given))
 }
 
 // ── The pipe ──────────────────────────────────────────────────────────────────
@@ -648,6 +710,8 @@ fn summarize(hook: &Map<String, Value>, agent: &str, event: Option<&str>, tool: 
         "message": text(&["message"], MAX_TEXT),
         "error": text(&["error", "error_message", "stopReason"], MAX_TEXT),
         "kind": kind,
+        // The agent's permission mode ("default", "plan", "auto-accept" …), where it says.
+        "mode": text(&["permission_mode"], 32).filter(|m| !m.is_empty()),
         "summary": summary,
         "transcript": transcript,
         "edits": edits,
@@ -727,17 +791,46 @@ mod tests {
     }
 
     #[test]
-    fn only_claude_codes_turn_end_is_held_and_only_a_real_reply_continues_it() {
-        assert!(can_hold("claude-code", Some("Stop")));
-        assert!(!can_hold("cursor", Some("Stop")));
-        assert!(!can_hold("codex", Some("Stop")));
-        assert!(!can_hold("claude-code", Some("StopFailure")));
+    fn only_held_turn_ends_wait_and_only_a_real_reply_continues_them() {
+        assert!(can_hold("claude-code", Some("Stop"), false));
+        assert!(can_hold("commandcode", Some("Stop"), true), "Command Code's plain Stop hook");
+        assert!(!can_hold("commandcode", Some("Stop"), false), "our mod's Stop is only a report");
+        assert!(!can_hold("cursor", Some("Stop"), false));
+        assert!(!can_hold("codex", Some("Stop"), false));
+        assert!(!can_hold("claude-code", Some("StopFailure"), false));
         let out: Value = serde_json::from_str(&reply_stop(r#"{"reply":"  Now add a test\nfor it  "}"#).unwrap()).unwrap();
         assert_eq!(out["decision"], "block");
         assert!(out["reason"].as_str().unwrap().ends_with("Now add a test\nfor it"));
+        assert_eq!(reply_text(r#"{"reply":"Ship it"}"#).as_deref(), Some("The user replied from their phone:\n\nShip it"));
         let long = format!(r#"{{"reply":"{}"}}"#, "a".repeat(MAX_REPLY + 1));
         for no in ["", "hold", "allow", r#"{"reply":""}"#, r#"{"reply":"   "}"#, r#"{"reply":"a\u0007b"}"#, r#"{"reply":3}"#, r#"{"answers":{}}"#, long.as_str()] {
             assert_eq!(reply_stop(no), None, "{no:?}");
+            assert_eq!(reply_text(no), None, "{no:?}");
+        }
+    }
+
+    #[test]
+    fn command_codes_questions_are_answered_by_declining_them_with_the_answers() {
+        // As Command Code's VS Code chat panel sends it.
+        let hook = obj(
+            r#"{"hook_event_name":"PreToolUse","session_id":"s","permission_mode":"default","tool_name":"ask_user_question","tool_display_name":"QUESTION","tool_input":{"questions":[
+                {"question":"Which part?","header":"Part","options":[{"label":"Hooks","description":"the relay"},{"label":"UI"}]},
+                {"question":"Extras?","multiSelect":true,"options":[{"label":"Tests"},{"label":"Docs"}]}]}}"#,
+        );
+        assert_eq!(tool_name(&hook).as_deref(), Some("AskUserQuestion"));
+        assert!(is_question("commandcode", Some("PreToolUse"), Some("AskUserQuestion")));
+        assert_eq!(questions(&hook)[0]["options"][0]["description"], "the relay");
+        assert_eq!(summarize(&hook, "commandcode", Some("PreToolUse"), Some("AskUserQuestion"))["mode"], "default");
+        let out: Value =
+            serde_json::from_str(&reply_question_as_reason(r#"{"answers":{"Extras?":"Tests, Docs","Which part?":"UI"}}"#, &hook).unwrap()).unwrap();
+        let hso = &out["hookSpecificOutput"];
+        assert_eq!(hso["hookEventName"], "PreToolUse");
+        assert_eq!(hso["permissionDecision"], "deny", "the only decision Command Code's hooks honour");
+        let reason = hso["permissionDecisionReason"].as_str().unwrap();
+        assert!(reason.contains("Which part? → UI\nExtras? → Tests, Docs"), "{reason}");
+        // The same checks as Claude Code's answers: nothing unasked, nothing empty.
+        for bad in ["", "allow", r#"{"answers":{}}"#, r#"{"answers":{"Other?":"UI"}}"#, r#"{"answers":{"Which part?":" "}}"#] {
+            assert_eq!(reply_question_as_reason(bad, &hook), None, "{bad:?}");
         }
     }
 

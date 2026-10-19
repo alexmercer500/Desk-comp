@@ -182,6 +182,7 @@ h2 {
 .perm-label { font-weight: 600; color: var(--attention); font-size: 12px; }
 .perm-hint { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
 .perm-question { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.perm-option { margin: 2px 0 0 4px; overflow-wrap: anywhere; color: var(--muted); }
 .act.always { color: var(--allow); }
 
 /* Today's totals, above the sessions. */

@@ -359,16 +359,28 @@ fn agent_hooks(agent: &str, relay: &str) -> Vec<(&'static str, Value)> {
             .collect()
         }
         "commandcode" => {
-            // Alongside the mod (see write_agent_hooks): Claude Code's shape, every entry
-            // async (status only), marked so the app can drop them where the mod runs.
+            // Alongside the mod (see write_agent_hooks): Claude Code's shape, marked so
+            // the app can drop them where the mod runs (and lets those go at once).
+            // Status entries are async. Two wait, as Claude Code's do: Stop (while
+            // you're away a finished turn may be held for a reply from the phone, up
+            // to 300 s; otherwise done within milliseconds) and questions (matched
+            // by Command Code's display name for ask_user_question), answered from
+            // the companion for up to 110 s before its own card shows.
             let c = relay_cmd(relay, Shell::Any, "--agent commandcode --via hooks");
-            ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]
+            let mut out: Vec<(&'static str, Value)> = ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]
                 .iter()
                 .map(|event| {
-                    let hook = json!({ "type": "command", "command": c, "timeout": 10, "async": true });
+                    let hook = if *event == "Stop" {
+                        json!({ "type": "command", "command": c, "timeout": 330 })
+                    } else {
+                        json!({ "type": "command", "command": c, "timeout": 10, "async": true })
+                    };
                     (*event, group(event.contains("ToolUse").then_some("*"), hook))
                 })
-                .collect()
+                .collect();
+            let ask = relay_cmd(relay, Shell::Any, "--agent commandcode --via hooks --wait");
+            out.push(("PreToolUse", group(Some("^QUESTION$"), json!({ "type": "command", "command": ask, "timeout": 120 }))));
+            out
         }
         "copilot" => {
             // camelCase events; Copilot doesn't say which event in the payload, so
@@ -956,16 +968,28 @@ mod tests {
     }
 
     #[test]
-    fn command_code_also_gets_marked_async_hooks_for_its_vs_code_panel() {
+    fn command_code_also_gets_marked_hooks_for_its_vs_code_panel() {
         let hooks = agent_hooks("commandcode", "C:/x/companion-hook.exe");
         let events: Vec<&str> = hooks.iter().map(|(e, _)| *e).collect();
-        assert_eq!(events, ["SessionStart", "PreToolUse", "PostToolUse", "Stop"]);
-        for (event, group) in &hooks {
+        assert_eq!(events, ["SessionStart", "PreToolUse", "PostToolUse", "Stop", "PreToolUse"]);
+        let (status, ask) = hooks.split_at(4);
+        for (event, group) in status {
             let h = &group["hooks"][0];
             assert_eq!(h["command"], "C:/x/companion-hook.exe --agent commandcode --via hooks");
-            assert_eq!(h["async"], true, "status only: never holds Command Code up");
+            if *event == "Stop" {
+                assert!(h.get("async").is_none(), "a finished turn may wait for a reply from the phone");
+                assert_eq!(h["timeout"], 330);
+            } else {
+                assert_eq!(h["async"], true, "status only: never holds Command Code up");
+            }
             assert_eq!(group.get("matcher").is_some(), event.contains("ToolUse"));
         }
+        // Questions only (Command Code matches the display name, ignoring case).
+        assert_eq!(ask[0].1["matcher"], "^QUESTION$");
+        let h = &ask[0].1["hooks"][0];
+        assert_eq!(h["command"], "C:/x/companion-hook.exe --agent commandcode --via hooks --wait");
+        assert!(h.get("async").is_none(), "it waits for the answer");
+        assert_eq!(h["timeout"], 120);
         // They merge into its settings.json like Claude Code's, and come out cleanly.
         let mut s = settings();
         let before = s.clone();

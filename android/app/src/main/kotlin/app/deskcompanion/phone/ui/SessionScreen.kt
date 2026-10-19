@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.deskcompanion.phone.model.AppState
+import app.deskcompanion.phone.model.Ask
 import app.deskcompanion.phone.model.FileChange
 import app.deskcompanion.phone.model.Session
 import app.deskcompanion.phone.model.Status
@@ -81,6 +82,9 @@ fun SessionScreen(
                 }
             }
             item { StatusCard(s, onReview) }
+            if (s.ask != null) {
+                item { AskSection(s.ask, canReply = state.canReply(s)) }
+            }
             if (s.prompt != null) {
                 item { Section("You asked") { Text(s.prompt, style = DeskType.body, color = c.ink) } }
             }
@@ -140,7 +144,8 @@ private fun StatusCard(s: Session, onReview: (String) -> Unit) {
             Text(s.line, style = DeskType.heading, color = c.onCardFor(s.status))
             Spacer(Modifier.height(4.dp))
             Text("${s.agent} · ${agoOf(s)}", style = DeskType.small, color = c.onCardFor(s.status).copy(alpha = 0.7f))
-            if (s.status == Status.Waiting) {
+            // Only something that can be answered from here gets a button.
+            if (s.status == Status.Waiting && (s.approval != null || s.question != null)) {
                 Spacer(Modifier.height(16.dp))
                 PillButton("Review", onClick = { onReview(s.id) }, modifier = Modifier.width(120.dp), container = c.cardButton, contentColor = c.onCardButton)
             }
@@ -157,6 +162,27 @@ private fun Section(title: String, content: @Composable () -> Unit) {
         Text(title, style = DeskType.label, color = c.inkSoft)
         Spacer(Modifier.height(8.dp))
         content()
+    }
+}
+
+/** What it's asking on the PC, with its choices: answered there (or with a reply from here, when one gets through). */
+@Composable
+private fun AskSection(ask: Ask, canReply: Boolean) {
+    val c = Desk.colors
+    Section(ask.headline ?: "It's asking") {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            for (q in ask.items) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(q.question, style = DeskType.bodyMedium, color = c.ink)
+                    for (o in q.options) {
+                        Text("• ${o.label}", style = DeskType.body, color = c.ink)
+                        if (o.description != null) Text(o.description, style = DeskType.small, color = c.inkSoft, modifier = Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+            val hint = if (canReply) "Pick one in ${ask.where} on your PC, or tell it what you want below." else "Pick one in ${ask.where} on your PC."
+            Text(hint, style = DeskType.small, color = c.inkSoft)
+        }
     }
 }
 
@@ -200,7 +226,7 @@ private fun replyHint(state: AppState, s: Session): String {
             if (left >= 1) "Your PC is waiting for your reply for about $left more min." else "Your PC is waiting for your reply for a moment longer."
         }
         !state.awayMode -> "Away mode is off: turn it on in Settings to reply from here."
-        else -> "This one finished before it could wait. With Away mode on, the next Claude Code task waits for your reply."
+        else -> "This one finished before it could wait. With Away mode on, the next Claude Code or Command Code task waits for your reply."
     }
 }
 

@@ -42,6 +42,8 @@ export interface BubbleMessage {
   mono?: boolean;
   /** Agent session this is about; clicking the bubble opens the panel on it. */
   session?: string;
+  /** The label of the button that leaves the answer to the agent itself ("In Command Code"); "In terminal" if not given. */
+  elsewhere?: string;
   /** A permission request id: the bubble shows Allow / Deny for it. */
   request?: string;
   /** Stays until clicked or closed by id, instead of fading after a few seconds. */

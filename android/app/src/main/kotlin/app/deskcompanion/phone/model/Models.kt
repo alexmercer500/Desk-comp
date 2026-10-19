@@ -33,6 +33,18 @@ data class Choice(val label: String, val description: String? = null)
 /** Claude's question card, waiting for answers. */
 data class Question(val rid: String, val items: List<QuestionItem>)
 
+/**
+ * What a session is asking where it asked it (Command Code's plan review, a
+ * question left to its own card): its choices, shown here, answered at the PC.
+ */
+data class Ask(
+    /** "Plan ready for review"; null for a plain question. */
+    val headline: String?,
+    val items: List<QuestionItem>,
+    /** Where to answer: "Command Code", "your terminal". */
+    val where: String,
+)
+
 /** A finished turn the PC is holding for a reply from here, until [until] (ms since 1970). */
 data class ReplyHold(val rid: String, val until: Long)
 
@@ -51,6 +63,8 @@ data class Session(
     val minutesAgo: Int = 0,
     val approval: Approval? = null,
     val question: Question? = null,
+    /** What it's asking at the PC, when it can't be answered from here. */
+    val ask: Ask? = null,
     /** Set while a reply from here continues this session (away mode, PC idle). */
     val reply: ReplyHold? = null,
     /** When the PC last heard from this session (ms since 1970); 0 in the demo. */

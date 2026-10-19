@@ -275,6 +275,64 @@ describe("stopped by the user", () => {
   });
 });
 
+describe("Command Code's VS Code chat panel (plain hooks only)", () => {
+  const cc = (event: string, extra: Partial<AgentEvent> = {}) => ev(event, { agent: "commandcode", mode: "default", ...extra });
+  const PLAN = "C:\\Users\\me\\.commandcode\\plans\\cart-fix.md";
+
+  it("asks its questions here, several at once, and says to answer in Command Code once they're let go", () => {
+    const questions = [
+      { question: "Which part?", header: "Part", multiSelect: false, options: [{ label: "Hooks" }, { label: "UI" }] },
+      { question: "Extras?", header: "Extras", multiSelect: true, options: [{ label: "Tests" }, { label: "Docs" }] },
+    ];
+    t.handle(cc("PreToolUse", { tool: "AskUserQuestion", rid: "q1", questions }));
+    expect(shown.at(-1)).toMatchObject({ request: "q1", text: "Has a few questions for you:", elsewhere: "In Command Code" });
+    expect(shown.at(-1)?.questions).toHaveLength(2);
+    t.permissionClosed("q1");
+    expect(shown.at(-1)).toMatchObject({ meta: "Answer in Command Code", detail: "Which part?\n• Hooks\n• UI\n\nExtras?\n• Tests\n• Docs" });
+    // Answered in its own card: its PostToolUse clears ours.
+    t.handle(cc("PostToolUse", { tool: "AskUserQuestion" }));
+    expect(t.snapshot()[0]).toMatchObject({ status: "working", permission: null });
+  });
+
+  it("a plan written this turn waits for its review when the turn ends, with the choices shown", () => {
+    t.handle(cc("PreToolUse", { tool: "Write", detail: PLAN }));
+    t.handle(cc("PostToolUse", { tool: "Write", detail: PLAN }));
+    t.handle(cc("Stop", { prompt: "Plan the cart fix", summary: "Here's the plan: 1. …" }));
+    const s = t.snapshot()[0];
+    expect(s.status).toBe("waiting");
+    expect(s.permission).toMatchObject({ headline: "Plan ready for review", rid: null, where: "Command Code" });
+    expect(s.current).toBeNull();
+    expect(s.history[0]).toMatchObject({ outcome: "done", summary: "Here's the plan: 1. …" });
+    const card = shown.at(-1)!;
+    expect(card).toMatchObject({ category: "agent-permission", text: "Plan ready for review:", meta: "Answer in Command Code" });
+    expect(card.detail).toContain("• Yes, auto-accept edits\n• Cancel");
+    expect(shown.some((m) => m.category === "agent-done")).toBe(false);
+    // Approved there: it gets going again.
+    t.handle(cc("PreToolUse", { tool: "Edit", detail: "C:\\code\\shop\\cart.ts" }));
+    expect(t.snapshot()[0]).toMatchObject({ status: "working", permission: null });
+    expect(hidden).toContain("permission:s1");
+  });
+
+  it("no end-of-turn review once the plan was reviewed with its tool, or outside the default mode", () => {
+    t.handle(cc("PostToolUse", { tool: "Write", detail: PLAN }));
+    t.handle(cc("PreToolUse", { tool: "plan_review" }));
+    expect(t.snapshot()[0].permission).toMatchObject({ headline: "Plan ready for review", tool: "plan_review" });
+    t.handle(cc("PostToolUse", { tool: "plan_review" }));
+    t.handle(cc("Stop", { summary: "Implemented." }));
+    expect(t.snapshot()[0].status).toBe("idle");
+
+    t.handle(cc("PostToolUse", { session: "s2", tool: "Write", detail: PLAN }));
+    t.handle(cc("Stop", { session: "s2", mode: "auto-accept", summary: "Planned." }));
+    expect(t.snapshot().find((x) => x.id === "s2")?.status).toBe("idle");
+  });
+
+  it("shows the switch to plan mode it's asking for", () => {
+    t.handle(cc("PreToolUse", { tool: "enter_plan_mode" }));
+    expect(shown.at(-1)).toMatchObject({ text: "Wants to switch to plan mode:", meta: "Answer in Command Code" });
+    expect(shown.at(-1)?.detail).toContain("• No, stay in current mode");
+  });
+});
+
 describe("several sessions", () => {
   it("only the last one to finish makes the character celebrate; waiting ones sort first", () => {
     t.handle(ev("UserPromptSubmit", { session: "a" }));
@@ -331,7 +389,7 @@ describe("0.4: questions, Always, today's totals", () => {
     const card = shown.at(-1)!;
     expect(card.questions).toBeUndefined();
     expect(card.meta).toBe("Answer in your terminal");
-    expect(card.detail).toBe("Which framework?");
+    expect(card.detail).toBe("Which framework?\n• React\n• Vue");
   });
 
   it("offers Always only when the agent suggested a rule", () => {
