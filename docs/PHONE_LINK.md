@@ -41,6 +41,7 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
 | `decision` | `rid`, `decision` = `allow` \| `deny` | the user's answer. There is no "always" from the phone |
 | `answer` | `rid`, `answers` = {question: answer} | answers to a question card: 1–8, each one line of at most 500 characters (an option's label, several joined by ", ", or typed text) |
 | `reply` | `rid`, `text` | a further prompt for a held turn (`reply` on its session), up to 4000 characters; line breaks allowed |
+| `replying` | `rid` | the user is writing a reply to that held turn (sent every 15 s or so while they type): the PC keeps holding it for 30 s more even while the PC is in use (phones from Android 0.5.2) |
 | `away` | `on` | away mode switched on the phone |
 | `character` | `id`, `look`?, `theme`? | the user picked a character on the phone (Rui's look and colour only for Rui). The PC checks the names against its own lists; unknown ones change nothing |
 | `peek` | `session` | a picture of that session's window, please (Peek). At most one every 1.5 s per phone |
@@ -87,7 +88,7 @@ Answers to a question go the same way; the relay checks each against what was as
 
 ## Replies
 
-Claude Code's Stop hook asks the app whether to hold the finished turn. It holds only when the link is on, answering from the companion is on, and a signed-in phone has away mode on (away mode is the user saying they're away; the PC doesn't wait to go idle first). A held turn waits up to 290 s. It ends at once when someone uses the PC, when no away phone is left, or when the relay gives up. A `reply` goes back as Claude Code's Stop output, `{"decision":"block","reason":"The user replied from their phone: …"}`, and Claude carries on with it. Without a reply the turn ends as if nothing happened.
+Claude Code's Stop hook asks the app whether to hold the finished turn. It holds only when the link is on, answering from the companion is on, and a signed-in phone has away mode on (away mode is the user saying they're away; the PC doesn't wait to go idle first). A held turn waits up to 290 s. It ends when someone uses the PC for 3 seconds without a break (typing, working: a nudge of the mouse doesn't count, PC 0.15.2 and later; before, any key or mouse movement ended it), except while a phone says a reply is being written (`replying`); when no away phone is left; or when the relay gives up. A `reply` goes back as Claude Code's Stop output, `{"decision":"block","reason":"The user replied from their phone: …"}`, and Claude carries on with it. Without a reply the turn ends as if nothing happened.
 
 ## Peek
 

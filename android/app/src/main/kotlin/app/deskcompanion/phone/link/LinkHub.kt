@@ -101,6 +101,8 @@ object LinkHub {
     private val pieces = PeekPieces()
     /** How long to wait for a picture before saying it didn't come. */
     private const val PEEK_WAIT_MS = 20_000L
+    /** While a reply is being typed, the PC is told this often (it keeps holding the turn 30 s after each). */
+    private const val REPLYING_EVERY_MS = 12_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -220,6 +222,24 @@ object LinkHub {
         if (_state.value !is State.Connected || t.isEmpty()) return false
         scope.launch { send(Protocol.reply(rid, t)) }
         return true
+    }
+
+    /** When the PC was last told a reply to each held turn is being written (rid → elapsedRealtime). */
+    private val replyingSaid = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * The user is typing a reply to held turn [rid]: tells the PC (at most every
+     * REPLYING_EVERY_MS), so it keeps the turn held even if someone uses the PC
+     * meanwhile. Older PCs ignore it.
+     */
+    fun replying(rid: String) {
+        if (_state.value !is State.Connected) return
+        val now = SystemClock.elapsedRealtime()
+        val last = replyingSaid[rid]
+        if (last != null && now - last < REPLYING_EVERY_MS) return
+        if (replyingSaid.size > 32) replyingSaid.clear()
+        replyingSaid[rid] = now
+        scope.launch { send(Protocol.replying(rid)) }
     }
 
     /**

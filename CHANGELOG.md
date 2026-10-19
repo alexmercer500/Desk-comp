@@ -9,6 +9,14 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.15.2 (19 October 2026, Android 0.5.2)
+
+Replying from your phone works when you're near the PC too.
+
+- **A nudge of the mouse no longer takes away your reply.** When a task finishes with Away mode on, the PC waits a few minutes for your reply from the phone. Until now any key press or mouse movement on the PC ended that wait at once, so Send on the phone went grey almost straight away if anyone was at the PC. Now only a few seconds of steady use (typing, working) end it.
+- **Typing a reply on the phone keeps the PC waiting**, even if the PC is used meanwhile, until you send it (needs Android 0.5.2).
+- **The phone says why Send is grey**: the PC was used, or the 5 minutes ran out. If a reply is sent too late, it says that instead of "Not connected".
+
 ## 0.15.1 (19 October 2026, Android 0.5.1)
 
 Safer Allow, and fixes from a full review of both apps.

@@ -22,8 +22,9 @@
 //
 // A finished Claude Code or Command Code turn (`hold`) asks whether to wait for a reply from
 // the phone (phone::should_hold). We answer "hold" or not straight away. A
-// held turn waits up to HOLD_WAIT for a reply, and is let go at once when
-// someone uses this PC or no phone is left to reply from. A reply goes back
+// held turn waits up to HOLD_WAIT for a reply, and is let go when someone uses
+// this PC for a few seconds (PC_IN_USE; not while a phone says a reply is
+// being written) or no phone is left to reply from. A reply goes back
 // to the relay, and the page sees it as the session's next prompt.
 //
 // The pipe's default security only lets the current user (and admins) write
@@ -53,6 +54,29 @@ const SHOW_WAIT: Duration = Duration::from_secs(2);
 const HOLD_WAIT: Duration = Duration::from_secs(290);
 /// How often a held turn checks whether someone is back at the PC.
 const HOLD_CHECK: Duration = Duration::from_millis(400);
+/// Someone using the PC this long without a break (typing, working: not a
+/// nudge of the mouse) lets a held turn go, so the agent carries on there.
+const PC_IN_USE: Duration = Duration::from_secs(3);
+/// After the phone says the user is writing a reply, the turn is held this
+/// long even while the PC is used (the phone says so again while they type).
+const REPLYING_FOR: Duration = Duration::from_secs(30);
+
+/// Held turns someone is writing a reply to on a phone: request id → when the phone last said so.
+static REPLYING: std::sync::LazyLock<Mutex<HashMap<String, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+
+/// The phone says the user is writing a reply to held turn `rid`.
+pub fn phone_replying(rid: &str) {
+    let mut map = REPLYING.lock().unwrap_or_else(|e| e.into_inner());
+    map.retain(|_, at| at.elapsed() < REPLYING_FOR);
+    if map.len() < 64 {
+        map.insert(rid.to_string(), std::time::Instant::now());
+    }
+}
+
+/// Whether a reply to held turn `rid` is being written on a phone right now.
+fn being_replied(rid: &str) -> bool {
+    REPLYING.lock().unwrap_or_else(|e| e.into_inner()).get(rid).is_some_and(|at| at.elapsed() < REPLYING_FOR)
+}
 
 /// What a waiting request is, so an answer of one kind never reaches another.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -452,9 +476,10 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
 }
 
 /// Holds a finished turn until a reply comes from the phone, someone uses the
-/// PC, the phones go, the relay hangs up, or HOLD_WAIT runs out. A reply goes
-/// to the relay (Claude carries on with it) and to the page as the session's
-/// next prompt (`next`, filled in here).
+/// PC (for PC_IN_USE without a break, and not while a reply is being written
+/// on the phone), the phones go, the relay hangs up, or HOLD_WAIT runs out. A
+/// reply goes to the relay (Claude carries on with it) and to the page as the
+/// session's next prompt (`next`, filled in here).
 #[cfg(windows)]
 async fn hold_for_reply<W, R>(app: &AppHandle, write: &mut W, mut lines: tokio::io::Lines<R>, rid: String, session: String, mut next: AgentEvent)
 where
@@ -475,17 +500,20 @@ where
         let _ = tx.send(None).await;
     });
     let deadline = tokio::time::Instant::now() + HOLD_WAIT;
+    let mut in_use = InUse::default();
     let reply = loop {
         tokio::select! {
             r = rx.recv() => break r.flatten(),
             _ = tokio::time::sleep_until(deadline) => break None,
             _ = tokio::time::sleep(HOLD_CHECK) => {
-                if !crate::phone::keep_holding(app) {
+                let Some(used) = crate::phone::held_turn_check(app) else { break None };
+                if in_use.check(used, std::time::Instant::now()) && !being_replied(&rid) {
                     break None;
                 }
             }
         }
     };
+    REPLYING.lock().unwrap_or_else(|e| e.into_inner()).remove(&rid);
     hangup.abort();
     app.state::<Pending>().remove(&rid);
     crate::phone::hold_ended(app, &session, &rid);
@@ -502,6 +530,25 @@ where
     next.event = Some("UserPromptSubmit".into());
     next.prompt = text.map(|t| clip(&t, 300));
     let _ = app.emit_to(desktop::LABEL, "agent", next);
+}
+
+/// Whether the PC has been in use long enough to let a held turn go: in use
+/// at every check for PC_IN_USE. A check with nobody at it starts over, so a
+/// nudge of the mouse, or reading with a scroll now and then, doesn't count.
+#[derive(Default)]
+struct InUse {
+    since: Option<std::time::Instant>,
+}
+
+impl InUse {
+    /// One check: `used` is a key or the mouse in the last second. True once it's been in use long enough.
+    fn check(&mut self, used: bool, now: std::time::Instant) -> bool {
+        if !used {
+            self.since = None;
+            return false;
+        }
+        now.duration_since(*self.since.get_or_insert(now)) >= PC_IN_USE
+    }
 }
 
 /// The last reply in a transcript, and (Command Code's only) the prompt it
@@ -601,6 +648,29 @@ mod tests {
         ]);
         assert_eq!(last_reply(&path), (Some("The lighthouse keeper…".into()), Some("give me a story".into())));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn only_steady_use_of_the_pc_lets_a_held_turn_go() {
+        let t0 = std::time::Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut u = InUse::default();
+        // A nudge of the mouse: in use for a check or two, then quiet again.
+        assert!(!u.check(true, at(0)));
+        assert!(!u.check(true, at(400)));
+        assert!(!u.check(false, at(800)));
+        assert!(!u.check(true, at(1200)), "starts over after a quiet check");
+        // Typing at the PC: in use at every check for PC_IN_USE.
+        assert!(!u.check(true, at(2800)));
+        assert!(u.check(true, at(1200 + PC_IN_USE.as_millis() as u64)));
+    }
+
+    #[test]
+    fn a_reply_being_written_on_the_phone_keeps_its_turn_held() {
+        assert!(!being_replied("held-1"));
+        phone_replying("held-1");
+        assert!(being_replied("held-1"));
+        assert!(!being_replied("held-2"));
     }
 
     #[test]

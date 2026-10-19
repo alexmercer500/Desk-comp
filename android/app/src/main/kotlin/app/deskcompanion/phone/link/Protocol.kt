@@ -30,6 +30,8 @@ object Protocol {
         return line(JSONObject().put("t", "answer").put("rid", rid).put("answers", o))
     }
     fun reply(rid: String, text: String) = line(JSONObject().put("t", "reply").put("rid", rid).put("text", text))
+    /** The user is writing a reply to held turn [rid]: the PC keeps holding it even while the PC is used. */
+    fun replying(rid: String) = line(JSONObject().put("t", "replying").put("rid", rid))
     fun character(id: String, look: String?, theme: String?, outfit: String? = null): String {
         val o = JSONObject().put("t", "character").put("id", id)
         if (look != null) o.put("look", look)

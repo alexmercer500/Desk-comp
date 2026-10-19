@@ -56,6 +56,8 @@ fun SessionScreen(
     onReview: (String) -> Unit,
     /** Sends a reply; calls `sent` once it's on its way (after the fingerprint check, if any). */
     onReply: (id: String, text: String, sent: () -> Unit) -> Unit,
+    /** The user is typing a reply to this session (the PC keeps its turn held meanwhile). */
+    onTyping: (id: String) -> Unit = {},
     /** Peek at its window on the PC; null when that can't be done right now (not linked). */
     onPeek: ((String) -> Unit)?,
     padding: PaddingValues,
@@ -136,6 +138,7 @@ fun SessionScreen(
                         hint = replyHint(state, s),
                         open = state.canReply(s),
                         onSend = { text, sent -> onReply(s.id, text, sent) },
+                        onTyping = { onTyping(s.id) },
                     )
                 }
             }
@@ -238,13 +241,14 @@ private fun replyHint(state: AppState, s: Session): String {
             if (left >= 1) "Your PC is waiting for your reply for about $left more min." else "Your PC is waiting for your reply for a moment longer."
         }
         !state.awayMode -> "Away mode is off: turn it on in Settings to reply from here."
-        else -> "This one finished before it could wait. With Away mode on, the next Claude Code or Command Code task waits for your reply."
+        else -> "Your PC isn't waiting for a reply to this one: someone used the PC, or the 5 minutes ran out. " +
+            "The next Claude Code or Command Code task waits for you; start typing as soon as it's done."
     }
 }
 
 /** A text box with a round send button, for a further prompt once a task is done. */
 @Composable
-private fun ReplyBar(hint: String, open: Boolean, onSend: (String, () -> Unit) -> Unit, modifier: Modifier = Modifier) {
+private fun ReplyBar(hint: String, open: Boolean, onSend: (String, () -> Unit) -> Unit, onTyping: () -> Unit, modifier: Modifier = Modifier) {
     val c = Desk.colors
     var text by remember { mutableStateOf("") }
     val ready = open && text.isNotBlank()
@@ -258,7 +262,10 @@ private fun ReplyBar(hint: String, open: Boolean, onSend: (String, () -> Unit) -
                 if (text.isEmpty()) Text("Give it a further prompt…", style = DeskType.body, color = c.inkSoft)
                 BasicTextField(
                     value = text,
-                    onValueChange = { text = it.take(4000) },
+                    onValueChange = {
+                        text = it.take(4000)
+                        if (open && text.isNotBlank()) onTyping()
+                    },
                     textStyle = DeskType.body.copy(color = c.ink),
                     cursorBrush = SolidColor(c.ink),
                     maxLines = 4,

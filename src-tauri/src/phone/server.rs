@@ -91,6 +91,8 @@ pub trait Host: Send + Sync + 'static {
     fn answer(&self, rid: &str, answers: &[(String, String)]) -> bool;
     /// A further prompt for a held turn; false when it's no longer held.
     fn reply(&self, rid: &str, text: &str) -> bool;
+    /// The user is writing a reply to this held turn.
+    fn replying(&self, rid: &str);
     /// The user picked a character on the phone; false when it isn't a known one.
     fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>, outfit: Option<&str>) -> bool;
     /// The PC's addresses a phone could reach right now.
@@ -236,6 +238,7 @@ where
                         let done = host.reply(&rid, &text);
                         Some(proto::decided(&rid, done))
                     }
+                    Ok(FromPhone::Replying { rid }) => { host.replying(&rid); None }
                     Ok(FromPhone::Character { id, look, theme, outfit }) => {
                         // The change comes back to every phone through the `character` channel.
                         host.set_character(&id, look.as_deref(), theme.as_deref(), outfit.as_deref());
@@ -357,6 +360,7 @@ mod tests {
         fn approvals(&self) -> bool {
             true
         }
+        fn replying(&self, _: &str) {}
         fn seen(&self, rid: &str) {
             self.seen.lock().unwrap().push(rid.into());
         }

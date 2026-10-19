@@ -546,6 +546,7 @@ mod tests {
             true
         }
         fn seen(&self, _: &str) {}
+        fn replying(&self, _: &str) {}
         fn decide(&self, rid: &str, _: bool) -> bool {
             rid == "waiting"
         }

@@ -78,6 +78,9 @@ class LinkTest {
         val answer = JSONObject(Protocol.answer("q1", mapOf("Which one?" to "Blue, Green")))
         assertEquals("q1", answer.getString("rid"))
         assertEquals("Blue, Green", answer.getJSONObject("answers").getString("Which one?"))
+        val replying = JSONObject(Protocol.replying("h1"))
+        assertEquals("replying", replying.getString("t"))
+        assertEquals("h1", replying.getString("rid"))
         val reply = Protocol.reply("h1", "Now the docs\nplease")
         assertEquals(1, reply.count { it == '\n' }) // the line break inside is escaped
         assertEquals("Now the docs\nplease", JSONObject(reply).getString("text"))

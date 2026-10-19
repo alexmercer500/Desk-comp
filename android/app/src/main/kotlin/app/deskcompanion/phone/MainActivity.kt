@@ -149,6 +149,7 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
     val linkNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val notConnected = { Toast.makeText(ctx, "Not connected to your PC right now", Toast.LENGTH_SHORT).show() }
     val movedOn = { Toast.makeText(ctx, "That request was already answered. Nothing was sent", Toast.LENGTH_SHORT).show() }
+    val turnEnded = { Toast.makeText(ctx, "Your PC stopped waiting for this reply (it was used, or the time ran out). Nothing was sent", Toast.LENGTH_LONG).show() }
     // Anything that lets an agent act (Allow, an answer, a reply): prove it's you first. Deny never asks.
     val protect = { title: String, action: () -> Unit ->
         if (state.live && state.requireUnlockForAllow) Unlock.ask(ctx as FragmentActivity, title, action) else action()
@@ -198,12 +199,14 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                     val rid = state.session(id)?.reply?.rid
                     protect("Send your reply?") {
                         when {
-                            rid != null && state.session(id)?.reply?.rid != rid -> movedOn()
+                            rid != null && state.session(id)?.reply?.rid != rid -> turnEnded()
                             state.reply(id, text, rid) -> sent()
+                            state.live && link is LinkHub.State.Connected -> turnEnded()
                             else -> notConnected()
                         }
                     }
                 },
+                onTyping = { id -> state.session(id)?.reply?.rid?.let { LinkHub.replying(it) } },
                 onPeek = if (state.live && link is LinkHub.State.Connected) {
                     { id -> if (LinkHub.peek(id)) peekId = id else notConnected() }
                 } else null,

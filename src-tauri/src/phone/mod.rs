@@ -15,8 +15,9 @@
 // encrypted (relay.rs, docs/RELAY.md).
 //
 // Replies: while a phone with away mode is signed in, a finished Claude Code
-// turn is held for a few minutes (agents.rs); any key or mouse movement on
-// this PC lets it go at once. Its session then carries `reply` for phones,
+// turn is held for a few minutes (agents.rs); a few seconds of using this PC
+// let it go (not while a reply is being written on a phone, `replying`). Its
+// session then carries `reply` for phones,
 // and a reply from one goes to the relay holding the turn.
 
 mod identity;
@@ -93,6 +94,9 @@ impl Host for AppHost {
     fn reply(&self, rid: &str, text: &str) -> bool {
         crate::agents::reply_from_phone(&self.0, rid, text)
     }
+    fn replying(&self, rid: &str) {
+        crate::agents::phone_replying(rid);
+    }
     fn set_character(&self, id: &str, look: Option<&str>, theme: Option<&str>, outfit: Option<&str>) -> bool {
         // Same checks as picking it in Settings: unknown names are refused.
         let set = |key: &str, v: &str| crate::system::update(&self.0, key, &Value::String(v.to_string())).is_ok();
@@ -156,8 +160,8 @@ impl Host for AppHost {
 /// away mode is signed in, and answering from the companion is on. Away mode
 /// is the user saying they're away; there's no wait for the PC to go idle
 /// first (that made replies impossible to try from a PC in use). Someone at
-/// the PC loses nothing: their next key or mouse movement lets the turn go
-/// (keep_holding).
+/// the PC loses nothing: a few seconds of using it let the turn go (agents.rs
+/// hold_for_reply, held_turn_check).
 pub fn should_hold(app: &AppHandle) -> bool {
     let p = crate::system::current(app);
     let link = app.state::<PhoneLink>();
@@ -175,12 +179,13 @@ fn idle_secs() -> Option<u64> {
     crate::system::idle_secs()
 }
 
-/// Whether a held turn should go on waiting: still a phone to reply from, and
-/// still nobody at the PC (any key or mouse movement lets it go).
-pub fn keep_holding(app: &AppHandle) -> bool {
+/// While a turn is held: None once there's no phone left to reply from (it
+/// isn't held any more); otherwise whether someone is using this PC right now
+/// (a key or the mouse in the last second). agents.rs decides what that means.
+pub fn held_turn_check(app: &AppHandle) -> Option<bool> {
     let link = app.state::<PhoneLink>();
     let running = link.running.lock().unwrap_or_else(|e| e.into_inner()).is_some();
-    running && link.shared.any_away() && idle_secs().is_none_or(|s| s >= 1)
+    (running && link.shared.any_away()).then(|| idle_secs().is_some_and(|s| s < 1))
 }
 
 pub fn hold_started(app: &AppHandle, session: &str, rid: &str, until: u64) {

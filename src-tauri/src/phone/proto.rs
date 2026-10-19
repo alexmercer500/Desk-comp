@@ -41,6 +41,8 @@ pub enum FromPhone {
     Answer { rid: String, answers: Vec<(String, String)> },
     /// A further prompt for a turn being held for one.
     Reply { rid: String, text: String },
+    /// The user is writing a reply to this held turn: keep holding it even if the PC is used.
+    Replying { rid: String },
     /// Away mode switched on the phone.
     Away { on: bool },
     /// The user picked a character on the phone (Rui's look and colour, Dogesh Bhai's outfit, only for them).
@@ -106,6 +108,7 @@ pub fn parse(line: &str) -> Result<FromPhone, &'static str> {
                 outfit: name("outfit").map(str::to_string),
             })
         }
+        Some("replying") => Ok(FromPhone::Replying { rid: request_id(text("rid"))? }),
         Some("peek") => Ok(FromPhone::Peek { session: request_id(text("session"))? }),
         Some("away") => Ok(FromPhone::Away { on: o.get("on").and_then(Value::as_bool).ok_or("away without on")? }),
         Some("ping") => Ok(FromPhone::Ping),
@@ -342,6 +345,8 @@ mod tests {
         );
         assert_eq!(parse(r#"{"t":"reply","rid":"h","text":" Add a test\nplease "}"#), Ok(FromPhone::Reply { rid: "h".into(), text: "Add a test\nplease".into() }));
         assert_eq!(parse(r#"{"t":"away","on":true}"#), Ok(FromPhone::Away { on: true }));
+        assert_eq!(parse(r#"{"t":"replying","rid":"h"}"#), Ok(FromPhone::Replying { rid: "h".into() }));
+        assert!(parse(r#"{"t":"replying"}"#).is_err());
         assert_eq!(
             parse(r#"{"t":"character","id":"rui","look":"anime","theme":"mint"}"#),
             Ok(FromPhone::Character { id: "rui".into(), look: Some("anime".into()), theme: Some("mint".into()), outfit: None })
