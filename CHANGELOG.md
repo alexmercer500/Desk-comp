@@ -9,6 +9,29 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.15.1 (19 October 2026, Android 0.5.1)
+
+Safer Allow, and fixes from a full review of both apps.
+
+- **You see everything before you allow it.** A permission card used to show only the first few lines of a command (and only one part of what a tool was given), so the end of a long command could be out of sight when you clicked Allow. Now:
+  - The card shows the whole command, and every other field the tool gets (where it runs, what an edit changes). A long one scrolls, and **Allow waits until you've scrolled to the end**.
+  - The panel shows it in full too.
+  - Something too long to show in full (over 16,000 characters) can't be allowed from the companion or the phone. Deny it, or read it and answer in the terminal.
+  - Invisible characters that could make a command read differently than it runs (right-to-left overrides, zero-width spaces) are shown as codes like ⟨U+202E⟩.
+  - Ctrl+Alt+Y only answers a request short enough to read at a glance; a longer one is answered on its card.
+- **"Always" says what it adds**, for example "Always: allow Bash(npm run lint) in this project". It only ever adds allow rules, folders, or accepting edits; anything else Claude Code might suggest (another permission mode, removing rules) is left out.
+- **Requests no longer vanish while the agent waits.** When an agent ran other tools alongside a request (parallel tool calls, subagents), the card disappeared from the PC and the phone while the agent kept waiting for about two minutes. Now it stays until it's answered. Several requests from one session wait in turn: the card says "1 more waiting", and the next one comes up when you answer.
+- **Fewer missed events at busy moments.** Events that arrived at the same instant (parallel tool calls) could be dropped, leaving a session stuck on "working" or a request only in the terminal.
+- **Fixed: the activity panel didn't open on small screens at high scaling** (for example 1366×768 at 150%). It now fits the screen.
+- **Fixed: the character could stop pottering about for good after a monitor was unplugged.**
+
+On the phone (Android 0.5.1):
+
+- **Allow answers the request you saw.** If the PC moved on to a different request while you were putting your fingerprint in, Allow could have answered that newer one. Now it answers only the one on screen, and otherwise says it was already answered and sends nothing.
+- The request sheet shows the whole command and scrolls. A request too long for the phone (over 4,000 characters) offers Deny only.
+- **Fixed: app updates failed on Android 11 and 12** at the "Update?" step.
+- **Fixed: after Unlink (or pairing again) during a connection attempt,** the old connection could carry on, show "Linked" and keep sending notifications.
+
 ## 0.15.0 (19 October 2026, Android 0.5.0)
 
 - **Peek: see an agent's window from your phone.** Open a session on the phone and tap **Peek at its window**: you get a picture of that agent's window on your PC (VS Code, a terminal), even when other windows cover it. Pinch or double-tap to zoom, Refresh for a new one. It's for the things the phone can't show on its own, like Command Code's permission prompts in VS Code: now you can at least read what it's asking.

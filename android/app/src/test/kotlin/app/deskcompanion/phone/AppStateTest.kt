@@ -1,6 +1,7 @@
 package app.deskcompanion.phone
 
 import app.deskcompanion.phone.model.AppState
+import app.deskcompanion.phone.model.Approval
 import app.deskcompanion.phone.model.Filter
 import app.deskcompanion.phone.model.Status
 import org.junit.Assert.assertEquals
@@ -41,6 +42,38 @@ class AppStateTest {
         assertNull(s.approval)
         assertEquals(1, state.decisions.size)
         assertTrue(state.decisions.first().allowed)
+    }
+
+    @Test
+    fun aDecisionOnlyAnswersTheRequestThatWasOnScreen() {
+        val shown = Session(
+            id = "a", agent = "Claude Code", project = "p", status = Status.Waiting, line = "Wants to run",
+            approval = Approval(rid = "r1", tool = "Bash", action = "run", detail = "npm test"),
+        )
+        val state = AppState(listOf(shown))
+        val sent = mutableListOf<Pair<String, Boolean>>()
+        state.showLive(listOf(shown))
+        state.onDecide = { rid, allow -> sent += rid to allow; true }
+        // While the fingerprint prompt was up, the PC answered r1 and the session asked for something else.
+        state.showLive(listOf(shown.copy(approval = Approval(rid = "r2", tool = "Bash", action = "run", detail = "rm -rf build/"))))
+        assertFalse(state.decide("a", allow = true, rid = "r1"))
+        assertTrue(sent.isEmpty())
+        assertFalse(state.stillWaiting("a", "r1"))
+        assertTrue(state.stillWaiting("a", "r2"))
+        assertTrue(state.decide("a", allow = false, rid = "r2"))
+        assertEquals(listOf("r2" to false), sent)
+    }
+
+    @Test
+    fun whatWasTooLongForThePhoneCanOnlyBeDenied() {
+        val long = Session(
+            id = "a", agent = "Claude Code", project = "p", status = Status.Waiting, line = "Wants to run",
+            approval = Approval(rid = "r1", tool = "Bash", action = "run", detail = "npm test && …", allow = false),
+        )
+        val state = AppState(listOf(long))
+        assertFalse(state.decide("a", allow = true, rid = "r1"))
+        assertEquals(Status.Waiting, state.session("a")!!.status)
+        assertTrue(state.decide("a", allow = false, rid = "r1"))
     }
 
     @Test

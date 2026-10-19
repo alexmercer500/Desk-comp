@@ -23,9 +23,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -102,6 +104,14 @@ object LinkHub {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
+    /**
+     * Which connect() the running loop belongs to. Cancelling a job doesn't
+     * stop a socket that's still being opened or read, so a loop from an
+     * earlier one (unlinked, or paired again, while it was connecting) checks
+     * this at every step and stops: it never shows its state, sessions or
+     * notifications, and never takes over the connection.
+     */
+    @Volatile private var gen = 0
     /** Wakes the reconnect loop early: the network changed, or the app was opened. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
     @Volatile private var lastScan = 0L
@@ -162,6 +172,7 @@ object LinkHub {
     /** Forgets the PC: no more link, no more notifications. */
     @Synchronized
     fun unpair(ctx: Context) {
+        gen++
         job?.cancel()
         closeSocket()
         PairingStore.clear(ctx)
@@ -263,23 +274,33 @@ object LinkHub {
 
     private fun connect(p: Pairing) {
         paired = p
+        val g = ++gen
         job?.cancel()
         closeSocket()
         app?.let { LinkService.start(it) }
-        job = scope.launch { loop() }
+        job = scope.launch { loop(g) }
     }
 
-    private suspend fun loop() {
+    /** The link's state, from loop [g] only while it's the current one (see [gen]). */
+    @Synchronized
+    private fun show(g: Int, s: State) {
+        if (g == gen) _state.value = s
+    }
+
+    private suspend fun loop(g: Int) {
         var wait = 1_000L
-        while (currentCoroutineContext().isActive) {
+        while (currentCoroutineContext().isActive && g == gen) {
             val p = paired ?: return
             wake.tryReceive() // a nudge from before this attempt is used up by it
-            _state.value = State.Connecting(p.name)
+            show(g, State.Connecting(p.name))
             var welcomed = false
             val reason = try {
-                if (session(p) { welcomed = true }) {
-                    _state.value = State.Unlinked(p.name)
-                    _sessions.value = emptyList()
+                if (session(p, g) { welcomed = true }) {
+                    synchronized(this) {
+                        if (g != gen) return
+                        _state.value = State.Unlinked(p.name)
+                        _sessions.value = emptyList()
+                    }
                     app?.let { Notifications.clearLink(it) }
                     return
                 }
@@ -287,55 +308,75 @@ object LinkHub {
             } catch (e: Exception) {
                 friendly(e)
             }
-            if (!currentCoroutineContext().isActive) return
+            if (!currentCoroutineContext().isActive || g != gen) return
             if (welcomed) wait = 1_000L
             // No local network at all: nothing to try until one appears (it nudges), so don't spin.
             // A direct connection was found while on the relay: switch to it at once.
             if (handoff != null) continue
             val offline = Discovery.ownAddresses().isEmpty() && p.relay == null
-            _state.value = State.Retrying(p.name, if (offline) "Not on a network. Waiting for Wi-Fi or your hotspot" else reason)
+            show(g, State.Retrying(p.name, if (offline) "Not on a network. Waiting for Wi-Fi or your hotspot" else reason))
             val nudged = withTimeoutOrNull(if (offline) NO_NETWORK_WAIT_MS else wait) { wake.receive() } != null
             wait = if (nudged) 1_000L else (wait * 2).coerceAtMost(30_000L)
         }
     }
 
     /** One connection, until it ends. True when the PC unlinked this phone (don't retry). */
-    private suspend fun session(p: Pairing, onWelcome: () -> Unit): Boolean {
+    private suspend fun session(p: Pairing, g: Int, onWelcome: () -> Unit): Boolean {
         val w = open(p)
-        wire = w
-        val pinger = scope.launch {
-            while (isActive) {
-                delay(PING_MS)
-                send(Protocol.ping())
-            }
+        // Unlinked, or paired again, while it was connecting: not ours to use.
+        if (g != gen) {
+            w.close()
+            return false
         }
-        val prober = if (w.host == null) scope.launch { probe(p, w) } else null
+        wire = w
         try {
-            // Through the relay too: the token goes inside the encryption, and the PC checks it the same way.
-            send(Protocol.hello(p.token, deviceName(), Settings.shared.awayMode))
-            while (true) {
-                val line = w.readLine() ?: return false
-                when (val m = Protocol.parse(line)) {
-                    is Protocol.FromPc.Welcome -> {
-                        onWelcome()
-                        remember(p, w.host, m.hosts, m.relay)
-                        _state.value = State.Connected(m.name, m.approvals, relayed = w.host == null)
+            // The pinger and the prober belong to this connection: they end with it, or with an unpair.
+            return coroutineScope {
+                val pinger = launch {
+                    while (isActive) {
+                        delay(PING_MS)
+                        send(Protocol.ping())
                     }
-                    is Protocol.FromPc.Sessions -> onSessions(m.sessions)
-                    is Protocol.FromPc.Character -> showCharacter(m.id, m.look, m.theme, m.outfit)
-                    is Protocol.FromPc.Peek -> onPeek(m)
-                    is Protocol.FromPc.Error -> {
-                        if (m.code == "token") return true
-                        throw IOException(m.message.ifEmpty { m.code })
-                    }
-                    else -> Unit
+                }
+                val prober = if (w.host == null) launch { probe(p, w, g) } else null
+                try {
+                    read(p, g, w, onWelcome)
+                } finally {
+                    pinger.cancel()
+                    prober?.cancel()
                 }
             }
         } finally {
-            pinger.cancel()
-            prober?.cancel()
-            wire = null
+            // Only our own: a newer connection may already be the wire.
+            if (wire === w) wire = null
             w.close()
+        }
+    }
+
+    /** Signs in and reads the PC's messages until the connection ends. True when the PC unlinked this phone. */
+    private suspend fun read(p: Pairing, g: Int, w: Wire, onWelcome: () -> Unit): Boolean {
+        // Through the relay too: the token goes inside the encryption, and the PC checks it the same way.
+        send(Protocol.hello(p.token, deviceName(), Settings.shared.awayMode))
+        while (true) {
+            val line = w.readLine() ?: return false
+            // An unpair or a new pairing while this line was on its way: stop here, showing nothing.
+            currentCoroutineContext().ensureActive()
+            if (g != gen) return false
+            when (val m = Protocol.parse(line)) {
+                is Protocol.FromPc.Welcome -> {
+                    onWelcome()
+                    remember(p, w.host, m.hosts, m.relay)
+                    show(g, State.Connected(m.name, m.approvals, relayed = w.host == null))
+                }
+                is Protocol.FromPc.Sessions -> onSessions(m.sessions)
+                is Protocol.FromPc.Character -> showCharacter(m.id, m.look, m.theme, m.outfit)
+                is Protocol.FromPc.Peek -> onPeek(m)
+                is Protocol.FromPc.Error -> {
+                    if (m.code == "token") return true
+                    throw IOException(m.message.ifEmpty { m.code })
+                }
+                else -> Unit
+            }
         }
     }
 
@@ -344,11 +385,16 @@ object LinkHub {
      * changes, tries the PC's own addresses; if one answers, keeps it for the
      * next connection and ends the relay one.
      */
-    private suspend fun probe(p: Pairing, relayed: Wire) {
+    private suspend fun probe(p: Pairing, relayed: Wire, g: Int) {
         while (currentCoroutineContext().isActive) {
             withTimeoutOrNull(PROBE_EVERY_MS) { wake.receive() }
             if (Discovery.ownAddresses().isEmpty()) continue
             val direct = tryHosts(paired ?: p) ?: continue
+            // Found after this connection was let go (unpaired, paired again): not for the next one.
+            if (g != gen || !currentCoroutineContext().isActive) {
+                direct.close()
+                return
+            }
             handoff = direct
             relayed.close()
             return

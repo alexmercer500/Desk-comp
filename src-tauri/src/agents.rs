@@ -63,27 +63,54 @@ enum Kind {
     Hold,
 }
 
+/// Where a permission may be allowed from: only where all of it could be read.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Allowable {
+    /// The cards on this PC showed it whole (not cut for length by the relay).
+    here: bool,
+    /// The phone showed it whole too (it gets at most PHONE_MAX_INPUT characters).
+    phone: bool,
+}
+
+/// One request waiting for the user.
+struct Waiting {
+    tx: Answer,
+    kind: Kind,
+    allowable: Allowable,
+}
+
 /// Requests waiting for the user: request id → where to send the answer.
 #[derive(Default)]
-pub struct Pending(Mutex<HashMap<String, (Answer, Kind)>>);
+pub struct Pending(Mutex<HashMap<String, Waiting>>);
 
 impl Pending {
-    fn insert(&self, rid: String, tx: Answer, kind: Kind) {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(rid, (tx, kind));
+    fn insert(&self, rid: String, tx: Answer, kind: Kind, allowable: Allowable) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).insert(rid, Waiting { tx, kind, allowable });
     }
     /// Removes the request, whatever it is.
     fn remove(&self, rid: &str) {
         self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(rid);
     }
-    /// Takes the request only if it is one of `kinds`.
-    fn take(&self, rid: &str, kinds: &[Kind]) -> Option<Answer> {
+    /// Takes the request only if it is one of `kinds` and `ok` agrees.
+    fn take_if(&self, rid: &str, kinds: &[Kind], ok: impl Fn(Allowable) -> bool) -> Option<Answer> {
         let mut map = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if !map.get(rid).is_some_and(|(_, k)| kinds.contains(k)) {
+        if !map.get(rid).is_some_and(|w| kinds.contains(&w.kind) && ok(w.allowable)) {
             return None;
         }
-        map.remove(rid).map(|(tx, _)| tx)
+        map.remove(rid).map(|w| w.tx)
+    }
+    /// Takes the request only if it is one of `kinds`.
+    fn take(&self, rid: &str, kinds: &[Kind]) -> Option<Answer> {
+        self.take_if(rid, kinds, |_| true)
+    }
+    /// Whether the request is waiting, and where it may be allowed from.
+    fn allowable(&self, rid: &str) -> Option<Allowable> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).get(rid).map(|w| w.allowable)
     }
 }
+
+/// Longest permission text a phone gets; longer, and the phone can only deny it.
+pub const PHONE_MAX_INPUT: usize = 4000;
 
 /// Command Code carries on after a Stop hook's reply at most this many times
 /// in a row; after that it ignores the next one, so a reply then would be lost.
@@ -143,7 +170,8 @@ pub fn mark_shown(app: &AppHandle, rid: &str) {
 /// is already gone (answered elsewhere, timed out).
 pub fn decide_from_phone(app: &AppHandle, rid: &str, word: &str) -> bool {
     debug_assert!(word == "allow" || word == "deny");
-    let Some(tx) = app.state::<Pending>().take(rid, &[Kind::Permission]) else { return false };
+    // Allow only what the phone could show whole; Deny is always fine.
+    let Some(tx) = app.state::<Pending>().take_if(rid, &[Kind::Permission], |a| word == "deny" || a.phone) else { return false };
     let _ = app.emit_to(desktop::LABEL, "phone:decided", serde_json::json!({ "rid": rid, "decision": word }));
     tx.try_send(Some(word.to_string())).is_ok()
 }
@@ -179,6 +207,10 @@ pub async fn answer_permission(pending: State<'_, Pending>, rid: String, decisio
         "terminal" => String::new(),
         other => return Err(format!("unknown decision {other:?}")),
     };
+    // The cards offer no Allow for what they couldn't show whole; nor does this.
+    if (word == "allow" || word == "always") && pending.allowable(&rid).is_some_and(|a| !a.here) {
+        return Err("too long to allow from here: answer in the terminal".into());
+    }
     Ok(pending.take(&rid, &[Kind::Permission, Kind::Question]).is_some_and(|tx| tx.try_send(Some(word)).is_ok()))
 }
 
@@ -236,9 +268,21 @@ pub struct AgentEvent {
     /// Set when the relay is waiting for the user's Allow or Deny (or answers).
     #[serde(default)]
     rid: Option<String>,
+    /// A permission's whole input, as the cards show it before Allow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    input: Option<String>,
+    /// The input was too long to show whole: it can't be allowed from here.
+    #[serde(default)]
+    cut: bool,
+    /// Short enough for the phone to show whole, so it may allow it (worked out here).
+    #[serde(default, skip_deserializing, rename = "phoneOk")]
+    phone_ok: bool,
     /// The agent suggested a rule for "always allow this".
     #[serde(default, rename = "canAlways")]
     can_always: bool,
+    /// That rule, in words ("allow Bash(npm run lint) in this project").
+    #[serde(default, rename = "alwaysRule", skip_serializing_if = "Option::is_none")]
+    always_rule: Option<String>,
     /// Claude Code's multiple-choice questions, to answer from the companion.
     #[serde(default)]
     questions: Option<Value>,
@@ -261,23 +305,31 @@ pub fn spawn(app: AppHandle) {
     let pipe = pipe_name::pipe_name();
     tauri::async_runtime::spawn(async move {
         let mut first = true;
+        let mut next = None;
         loop {
             // Only one app may own the pipe (first_pipe_instance refuses a name that's taken).
             // Taken at start-up usually means the copy this one replaces (an install or an
             // update) hasn't quite let go yet, so keep trying: giving up here left the app
             // running but deaf to every agent until it was restarted.
-            let server = match ServerOptions::new().first_pipe_instance(first).create(&pipe) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("[agents] cannot open {pipe}: {e}");
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    continue;
-                }
+            let server = match next.take() {
+                Some(s) => s,
+                None => match ServerOptions::new().first_pipe_instance(first).create(&pipe) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("[agents] cannot open {pipe}: {e}");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        continue;
+                    }
+                },
             };
             first = false;
             if server.connect().await.is_err() {
                 continue;
             }
+            // The next instance before this one is handed over, so a relay that
+            // arrives meanwhile (parallel tool calls) finds one waiting instead
+            // of "busy". Failing that, the top of the loop makes one.
+            next = ServerOptions::new().create(&pipe).ok();
             let app = app.clone();
             tauri::async_runtime::spawn(async move { read_events(server, app).await });
         }
@@ -366,7 +418,9 @@ async fn read_events(pipe: tokio::net::windows::named_pipe::NamedPipeServer, app
         let (shown_tx, shown_rx) = tokio::sync::oneshot::channel::<()>();
         if let Some(rid) = &rid {
             let kind = if ev.questions.is_some() { Kind::Question } else { Kind::Permission };
-            app.state::<Pending>().insert(rid.clone(), tx.clone(), kind);
+            ev.phone_ok = !ev.cut && ev.input.as_deref().unwrap_or_default().chars().count() <= PHONE_MAX_INPUT;
+            let allowable = Allowable { here: !ev.cut, phone: ev.phone_ok };
+            app.state::<Pending>().insert(rid.clone(), tx.clone(), kind, allowable);
             app.state::<Shown>().insert(rid.clone(), shown_tx);
         }
         let _ = app.emit_to(desktop::LABEL, "agent", ev);
@@ -410,7 +464,7 @@ where
     use tokio::io::AsyncWriteExt;
 
     let (tx, mut rx) = mpsc::channel::<Option<String>>(2);
-    app.state::<Pending>().insert(rid.clone(), tx.clone(), Kind::Hold);
+    app.state::<Pending>().insert(rid.clone(), tx.clone(), Kind::Hold, Allowable { here: false, phone: false });
     let until = std::time::SystemTime::now()
         .checked_add(HOLD_WAIT)
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -547,6 +601,22 @@ mod tests {
         ]);
         assert_eq!(last_reply(&path), (Some("The lighthouse keeper…".into()), Some("give me a story".into())));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn what_wasnt_shown_whole_can_only_be_denied() {
+        let pending = Pending::default();
+        let (tx, _rx) = mpsc::channel(2);
+        pending.insert("cut".into(), tx.clone(), Kind::Permission, Allowable { here: false, phone: false });
+        pending.insert("long".into(), tx.clone(), Kind::Permission, Allowable { here: true, phone: false });
+        assert_eq!(pending.allowable("cut"), Some(Allowable { here: false, phone: false }));
+        // The phone's Allow (decide_from_phone's check): refused where it couldn't show it all.
+        assert!(pending.take_if("long", &[Kind::Permission], |a| a.phone).is_none());
+        assert!(pending.allowable("long").is_some(), "a refused Allow leaves the request waiting");
+        // Deny is always taken.
+        assert!(pending.take_if("long", &[Kind::Permission], |_| true).is_some());
+        assert!(pending.take("long", &[Kind::Permission]).is_none(), "gone once answered");
+        assert!(pending.take("cut", &[Kind::Question]).is_none(), "an answer of the wrong kind never reaches it");
     }
 
     #[test]

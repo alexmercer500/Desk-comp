@@ -32,6 +32,14 @@ export interface AgentEvent {
   rid?: string | null;
   /** The agent suggested a rule for "always allow this". */
   canAlways?: boolean;
+  /** That rule, in words ("allow Bash(npm run lint) in this project"). */
+  alwaysRule?: string | null;
+  /** A permission's whole input (the command and every field), shown before Allow. */
+  input?: string | null;
+  /** The input was too long to show whole: Deny or the terminal only. */
+  cut?: boolean;
+  /** Short enough for a phone to show whole, so it may allow it (the app works it out). */
+  phoneOk?: boolean;
   /** Claude Code asking a multiple-choice question (with `rid`, answerable from here). */
   questions?: Question[] | null;
   /** The relay's parent processes, nearest first: the agent's window is among them. */
@@ -91,6 +99,16 @@ export interface Permission {
   rid: string | null;
   /** "Always" can be offered: the agent suggested a rule for it. */
   canAlways: boolean;
+  /** What "Always" adds, in words. */
+  alwaysRule: string | null;
+  /** Everything it will run, as shown on the card; null when the agent sent only `detail`. */
+  input: string | null;
+  /** Too long to show whole: it can't be allowed from here (Deny, or the terminal). */
+  cut: boolean;
+  /** A phone may allow it (it gets the whole of it). */
+  phoneOk: boolean;
+  /** The tool and its detail as the relay sent them: a later step matching it means it was answered there. */
+  key: string;
   /** A question rather than a permission: answered by picking options. */
   questions: Question[] | null;
   /** What it's waiting for, when that's more than a question or a permission ("Plan ready for review"). */
@@ -106,7 +124,10 @@ export interface SessionView {
   project: string;
   cwd: string | null;
   status: Status;
+  /** The request on the card, oldest first. */
   permission: Permission | null;
+  /** More requests from the same session (parallel tools, subagents), each still waiting, next first. */
+  queued: Permission[];
   current: Turn | null;
   history: Turn[];
   lastEvent: number;
@@ -237,6 +258,12 @@ export class AgentTracker {
    * the prompt. Once per task; the corner shows what it's doing for a moment.
    */
   onStarted: ((session: string) => void) | null = null;
+  /**
+   * A request queued behind the one on the card (`ahead`). Its relay waits
+   * only for a card someone can see, so the owner reports it seen once the
+   * card in front of it is ("1 more waiting" is on it).
+   */
+  onQueued: ((rid: string, ahead: string) => void) | null = null;
   private announced = new WeakSet<Turn>();
 
   private stats: DayStats;
@@ -273,10 +300,17 @@ export class AgentTracker {
     const found = this.byRequest(rid);
     if (!found) return false;
     const [id, s] = found;
-    this.clearPermission(id, s);
-    this.setStatus(s, "working");
+    this.settled(id, s, rid);
     this.onChange?.();
     return true;
+  }
+
+  /** The requests waiting behind this one in its session (for reporting them seen with it). */
+  queuedBehind(rid: string): string[] {
+    for (const s of this.sessions.values()) {
+      if (s.permission?.rid === rid) return s.queued.flatMap((p) => (p.rid ? [p.rid] : []));
+    }
+    return [];
   }
 
   handle(e: AgentEvent) {
@@ -318,14 +352,8 @@ export class AgentTracker {
     const found = this.byRequest(rid);
     if (!found) return false;
     const [id, s] = found;
-    if (decision === "terminal") {
-      // Hand it back to the terminal: keep the details, drop the buttons.
-      s.permission!.rid = null;
-      this.showPermission(id, s);
-    } else {
-      this.clearPermission(id, s);
-      this.setStatus(s, "working");
-    }
+    if (decision === "terminal") this.handedBack(id, s, rid);
+    else this.settled(id, s, rid);
     this.onChange?.();
     return true;
   }
@@ -335,14 +363,49 @@ export class AgentTracker {
     const found = this.byRequest(rid);
     if (!found) return;
     const [id, s] = found;
-    s.permission!.rid = null;
-    this.showPermission(id, s);
+    this.handedBack(id, s, rid);
     this.onChange?.();
   }
 
+  /** The session holding request `rid`, on its card or queued behind it. */
   private byRequest(rid: string): [string, Session] | null {
-    for (const [id, s] of this.sessions) if (s.permission?.rid === rid) return [id, s];
+    for (const [id, s] of this.sessions) {
+      if (s.permission?.rid === rid || s.queued.some((p) => p.rid === rid)) return [id, s];
+    }
     return null;
+  }
+
+  /** Request `rid` was answered: the next one waiting takes the card, or work goes on. */
+  private settled(id: string, s: Session, rid: string) {
+    if (s.permission?.rid !== rid) {
+      s.queued = s.queued.filter((p) => p.rid !== rid);
+      this.showPermission(id, s);
+      return;
+    }
+    if (s.queued.length) return this.promote(id, s);
+    this.clearPermission(id, s);
+    this.setStatus(s, "working");
+  }
+
+  /**
+   * Request `rid` is left to the terminal (the user said so, or the relay
+   * stopped waiting). With others still answerable here, the next takes the
+   * card; alone, it stays up with its details and without its buttons.
+   */
+  private handedBack(id: string, s: Session, rid: string) {
+    if (s.permission?.rid !== rid || s.queued.length) return this.settled(id, s, rid);
+    s.permission.rid = null;
+    this.showPermission(id, s);
+  }
+
+  /** The next request in the queue goes on the card. */
+  private promote(id: string, s: Session) {
+    s.permission = { ...s.queued.shift()!, since: this.now() };
+    s.status = "waiting";
+    s.nudges = 0;
+    s.nudgedAt = this.now();
+    this.character.notify();
+    this.showPermission(id, s);
   }
 
   busyCount() {
@@ -357,6 +420,12 @@ export class AgentTracker {
     return [...this.sessions.values()]
       .sort((a, b) => rank[a.status] - rank[b.status] || b.lastEvent - a.lastEvent)
       .map(({ finishedAt: _f, nudgedAt: _n, nudges: _c, plan: _p, ...view }) => structuredClone(view));
+  }
+
+  /** The permissions answerable by Ctrl+Alt+Y: short enough to have been read whole on the card. */
+  static fitsCard(p: Permission): boolean {
+    const text = p.input ?? p.detail ?? "";
+    return !p.cut && text.length <= CARD_CHARS && text.split("\n").length <= CARD_LINES;
   }
 
   // ── Events ─────────────────────────────────────────────────────────────────
@@ -409,8 +478,7 @@ export class AgentTracker {
         const last = [...turn.steps].reverse().find((st) => st.tool === e.tool);
         if (last) last.failed = true;
       }
-      this.clearPermission(id, s);
-      this.setStatus(s, "working");
+      this.workGoesOn(id, s, name, e);
       if (turn.steps.length > 0) this.announce(id, s);
       return;
     }
@@ -518,6 +586,33 @@ export class AgentTracker {
     }
   }
 
+  /**
+   * A step while requests may be waiting. Other tools run alongside a request
+   * (parallel calls, subagents), and Claude Code's PreToolUse can arrive after
+   * the request it led to, so a step alone never closes a request the relay
+   * still holds: only an answer, the relay letting go, the tool having run
+   * (answered in the terminal), a new prompt or the turn's end do. Cards that
+   * only say "answer in your terminal" go once work moves on.
+   */
+  private workGoesOn(id: string, s: Session, name: string, e: AgentEvent) {
+    if (name === "UserPromptSubmit") {
+      this.clearPermission(id, s);
+      this.setStatus(s, "working");
+      return;
+    }
+    const ran = name === "PostToolUse" || name === "PostToolUseFailure" || name === "ToolUsed" ? requestKey(e) : null;
+    const before = s.queued.length;
+    s.queued = s.queued.filter((p) => p.rid && p.key !== ran);
+    const p = s.permission;
+    if (p && (!p.rid || p.key === ran)) {
+      if (s.queued.length) this.promote(id, s);
+      else this.clearPermission(id, s);
+    } else if (p && s.queued.length !== before) {
+      this.showPermission(id, s);
+    }
+    this.setStatus(s, s.permission ? "waiting" : "working");
+  }
+
   private fail(id: string, s: Session, reason: string | null) {
     this.clearPermission(id, s);
     const turn = s.current;
@@ -562,15 +657,33 @@ export class AgentTracker {
     const wasAnyBusy = this.anyBusy();
     const tool = e.tool ?? "a tool";
     const detail = e.detail ? (tool !== "Bash" ? relativeTo(s.cwd, e.detail) : e.detail) : null;
-    // A Notification about a request we already hold keeps its buttons.
-    const rid = e.rid ?? (s.permission?.tool === tool ? s.permission.rid : null);
     const questions = e.questions?.length ? e.questions : null;
-    const canAlways = Boolean(e.canAlways ?? (s.permission?.tool === tool && s.permission.canAlways));
+    const head = s.permission;
+    const make = (rid: string | null, canAlways: boolean, alwaysRule: string | null): Permission => ({
+      tool, action: permissionAction(tool), detail: questions ? null : detail, since: this.now(), rid, canAlways, alwaysRule,
+      input: questions ? null : (e.input ?? null), cut: Boolean(e.cut), phoneOk: Boolean(e.phoneOk), key: requestKey(e),
+      questions, headline, where: answerIn(s.agent),
+    });
+    // Another request while the card's is still answerable here: both relays
+    // are waiting, so this one queues behind it rather than replacing it.
+    if (head?.rid && e.rid !== head.rid) {
+      // A Notification about the request on the card: it's already up.
+      if (!e.rid && head.tool === tool) return this.showPermission(id, s, e.message);
+      if (e.rid && s.queued.some((p) => p.rid === e.rid)) return;
+      this.count((d) => d.asks++);
+      s.queued.push(make(e.rid ?? null, Boolean(e.canAlways), e.alwaysRule ?? null));
+      if (e.rid) this.onQueued?.(e.rid, head.rid);
+      this.showPermission(id, s);
+      return;
+    }
+    // A Notification about a request we already hold keeps its buttons.
+    const rid = e.rid ?? (head?.tool === tool ? head.rid : null);
+    const same = !e.rid && head?.tool === tool;
+    const canAlways = Boolean(e.canAlways ?? (same && head.canAlways));
     if (s.status !== "waiting") this.count((d) => d.asks++);
-    s.permission = {
-      tool, action: permissionAction(tool), detail: questions ? null : detail, since: this.now(), rid, canAlways, questions,
-      headline, where: answerIn(s.agent),
-    };
+    s.permission = same
+      ? { ...head, since: this.now() }
+      : make(rid, canAlways, e.alwaysRule ?? null);
     if (inTurn) s.current ??= newTurn(null, this.now());
     s.status = "waiting";
     s.nudges = 0;
@@ -601,6 +714,14 @@ export class AgentTracker {
       });
       return;
     }
+    const shown = p.input || p.detail;
+    const more = s.queued.length;
+    const meta = [
+      p.rid && p.cut && `Too long to show here in full: read it and answer in ${p.where}`,
+      p.rid && !p.cut && p.canAlways && p.alwaysRule && `Always: ${p.alwaysRule}`,
+      !p.rid && `Answer in ${p.where}`,
+      more > 0 && `${more} more waiting`,
+    ].filter(Boolean).join("\n");
     this.bubble.show({
       id: permissionId(id),
       category: "agent-permission",
@@ -608,12 +729,14 @@ export class AgentTracker {
       title: this.titleFor(s),
       kind: "attention",
       sticky: true,
-      text: p.detail ? `Needs your OK to ${p.action}:` : (message || `Needs your OK to ${p.action}`),
-      detail: p.detail ?? undefined,
-      mono: !!p.detail,
-      meta: p.rid ? undefined : `Answer in ${p.where}`,
+      text: shown ? `Needs your OK to ${p.action}:` : (message || `Needs your OK to ${p.action}`),
+      detail: shown ?? undefined,
+      mono: !!shown,
+      meta: meta || undefined,
       request: p.rid ?? undefined,
-      always: p.rid ? p.canAlways : undefined,
+      always: p.rid ? p.canAlways && !p.cut : undefined,
+      noAllow: p.rid && p.cut ? true : undefined,
+      rule: p.rid && p.canAlways ? (p.alwaysRule ?? undefined) : undefined,
       elsewhere: elsewhere(p.where),
     });
   }
@@ -621,6 +744,7 @@ export class AgentTracker {
   private clearPermission(id: string, s: Session) {
     if (s.status === "waiting" || s.permission) this.bubble.hide(permissionId(id));
     s.permission = null;
+    s.queued = [];
   }
 
   private endTurn(s: Session, outcome: Turn["outcome"]) {
@@ -654,6 +778,7 @@ export class AgentTracker {
         cwd: e.cwd,
         status: "idle",
         permission: null,
+        queued: [],
         current: null,
         history: [],
         lastEvent: 0,
@@ -700,6 +825,13 @@ export class AgentTracker {
 }
 
 const permissionId = (session: string) => `permission:${session}`;
+
+/** Longest request answerable by Ctrl+Alt+Y: what the card shows without scrolling. */
+const CARD_CHARS = 300;
+const CARD_LINES = 4;
+
+/** A request's tool and what it touches, as the relay sends both for it and for its step once run. */
+const requestKey = (e: AgentEvent) => `${e.tool ?? ""}\n${e.detail ?? ""}`;
 
 /** The button that leaves the answer to the agent: "In terminal", "In Command Code". */
 export const elsewhere = (where: string) => (where === "your terminal" ? "In terminal" : `In ${where}`);

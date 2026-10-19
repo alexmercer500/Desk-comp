@@ -201,6 +201,88 @@ describe("permissions", () => {
     expect(calls.filter((c) => c === "notify")).toHaveLength(1);
   });
 
+  it("a request stays up while other tools run beside it (parallel calls, a late PreToolUse)", () => {
+    t.handle(ev("UserPromptSubmit", { prompt: "tidy up" }));
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "rm -rf build", input: "rm -rf build", rid: "r1" }));
+    // Claude Code's PreToolUse is async: it can land after the request it led to.
+    t.handle(ev("PreToolUse", { tool: "Bash", detail: "rm -rf build" }));
+    t.handle(ev("PreToolUse", { tool: "Read", detail: `${CWD}\\a.ts` }));
+    t.handle(ev("PostToolUse", { tool: "Read", detail: `${CWD}\\a.ts` }));
+    expect(hidden).not.toContain("permission:s1");
+    expect(t.snapshot()[0]).toMatchObject({ status: "waiting", permission: { rid: "r1" } });
+    expect(t.answer("r1", "allow")).toBe(true);
+    expect(t.snapshot()[0]).toMatchObject({ status: "working", permission: null });
+  });
+
+  it("a request answered in the terminal goes once its tool has run", () => {
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm i", input: "npm i", rid: "r1" }));
+    t.handle(ev("PostToolUse", { tool: "Bash", detail: "npm i" }));
+    expect(hidden).toContain("permission:s1");
+    expect(t.snapshot()[0]).toMatchObject({ status: "working", permission: null });
+  });
+
+  it("a second request in the same session queues behind the first, and comes up when it's answered", () => {
+    const queued: [string, string][] = [];
+    t.onQueued = (rid, ahead) => queued.push([rid, ahead]);
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm test", input: "npm test", rid: "r1" }));
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "git push", input: "git push", rid: "r2" }));
+    expect(queued).toEqual([["r2", "r1"]]);
+    expect(t.queuedBehind("r1")).toEqual(["r2"]);
+    expect(shown.at(-1)).toMatchObject({ request: "r1", detail: "npm test", meta: "1 more waiting" });
+    expect(t.snapshot()[0].queued.map((p) => p.rid)).toEqual(["r2"]);
+
+    expect(t.answer("r1", "deny")).toBe(true);
+    expect(shown.at(-1)).toMatchObject({ request: "r2", detail: "git push" });
+    expect(t.snapshot()[0]).toMatchObject({ status: "waiting", permission: { rid: "r2" }, queued: [] });
+    expect(t.answer("r2", "allow")).toBe(true);
+    expect(t.snapshot()[0]).toMatchObject({ status: "working", permission: null });
+  });
+
+  it("the relay letting go of the front request brings up the next; letting go of a queued one drops it", () => {
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "a", rid: "r1" }));
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "b", rid: "r2" }));
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "c", rid: "r3" }));
+    t.permissionClosed("r3");
+    expect(t.snapshot()[0].queued.map((p) => p.rid)).toEqual(["r2"]);
+    t.permissionClosed("r1");
+    expect(t.snapshot()[0]).toMatchObject({ permission: { rid: "r2", detail: "b" }, queued: [] });
+    t.permissionClosed("r2"); // the last one: its details stay, for the terminal
+    expect(t.snapshot()[0]).toMatchObject({ status: "waiting", permission: { rid: null, detail: "b" } });
+  });
+
+  it("a new prompt or the end of the turn clears every waiting request", () => {
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "a", rid: "r1" }));
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "b", rid: "r2" }));
+    t.handle(ev("Stop"));
+    expect(t.snapshot()[0]).toMatchObject({ permission: null, queued: [] });
+    expect(t.answer("r2", "allow")).toBe(false);
+  });
+
+  it("shows the whole input, not the short detail, with what Always adds", () => {
+    const input = "npm run lint -- --fix\nworkdir: C:/code/shop";
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm run lint -- --fix", input, rid: "r1", canAlways: true, alwaysRule: "allow Bash(npm run lint:*) in this project" }));
+    expect(shown.at(-1)).toMatchObject({
+      detail: input, mono: true, always: true, rule: "allow Bash(npm run lint:*) in this project",
+      meta: "Always: allow Bash(npm run lint:*) in this project",
+    });
+    expect(shown.at(-1)?.noAllow).toBeUndefined();
+  });
+
+  it("a request too long to show whole can only be denied or left to the terminal", () => {
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "x", input: "x".repeat(100), cut: true, rid: "r1", canAlways: true }));
+    expect(shown.at(-1)).toMatchObject({ request: "r1", noAllow: true, always: false });
+    expect(shown.at(-1)?.meta).toContain("Too long to show here in full");
+    expect(AgentTracker.fitsCard(t.snapshot()[0].permission!)).toBe(false);
+  });
+
+  it("Ctrl+Alt+Y only answers what the card shows without scrolling", () => {
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm i", input: "npm i", rid: "r1" }));
+    expect(AgentTracker.fitsCard(t.snapshot()[0].permission!)).toBe(true);
+    t.answer("r1", "deny");
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "a", input: "a\nb\nc\nd\ne", rid: "r2" }));
+    expect(AgentTracker.fitsCard(t.snapshot()[0].permission!)).toBe(false);
+  });
+
   it("nudges a pending permission every 45 s, three times at most", () => {
     t.handle(ev("PermissionRequest", { tool: "Bash" }));
     for (let i = 0; i < 6; i++) {

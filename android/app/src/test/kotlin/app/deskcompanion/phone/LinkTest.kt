@@ -115,6 +115,11 @@ class LinkTest {
         assertEquals(Status.Waiting, s.status)
         assertEquals("s1:1:2", s.approval!!.rid)
         assertEquals("npm test", s.approval!!.detail)
+        assertTrue("a PC that doesn't say sends it whole", s.approval!!.allow)
+        assertFalse(
+            Protocol.parse("""{"t":"sessions","sessions":[{"id":"x","status":"waiting","approval":{"rid":"r","tool":"Bash","action":"run","detail":"npm…","allow":false}}]}""")
+                .let { (it as Protocol.FromPc.Sessions).sessions[0].approval!!.allow },
+        )
         assertNull(s.summary)
         assertEquals(3, s.files[0].add)
         assertEquals(1760000000000, s.updatedAt)

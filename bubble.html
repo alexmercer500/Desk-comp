@@ -16,14 +16,18 @@
           </span>
           <span class="text" id="text"></span>
           <span class="rows" id="rows" hidden></span>
-          <span class="detail" id="detail"></span>
-          <span class="meta" id="meta"></span>
         </button>
+        <!-- Outside the button: a command too long for the card scrolls here, and a button's insides needn't scroll. -->
+        <div class="more" id="more">
+          <div class="detail" id="detail"></div>
+          <div class="hint" id="hint" hidden>Scroll to the end to allow</div>
+          <div class="meta" id="meta"></div>
+        </div>
         <div class="questions" id="questions" hidden></div>
         <div class="actions" id="actions" hidden>
           <button class="act deny" type="button" data-decision="deny">Deny</button>
           <button class="act terminal" type="button" data-decision="terminal">In terminal</button>
-          <button class="act always" type="button" data-decision="always" title="Allow, and don't ask again for this in this project">Always</button>
+          <button class="act always" type="button" data-decision="always">Always</button>
           <button class="act allow" type="button" data-decision="allow">Allow</button>
         </div>
       </div>

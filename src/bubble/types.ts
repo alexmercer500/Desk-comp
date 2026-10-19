@@ -26,6 +26,10 @@ export interface BubbleMessage {
   category?: BubbleCategory;
   /** Offer "Always" next to Allow (the agent suggested a rule for it). */
   always?: boolean;
+  /** What "Always" adds, in words, for its tooltip. */
+  rule?: string;
+  /** No Allow (or Always) for this request: it couldn't be shown whole. Deny and the terminal stay. */
+  noAllow?: boolean;
   /** Questions to answer with buttons, instead of Allow / Deny. */
   questions?: Question[];
   /** Clicking opens this instead of the activity panel. */

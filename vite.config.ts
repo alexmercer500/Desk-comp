@@ -5,6 +5,8 @@ import { defineConfig } from "vite";
 export default defineConfig({
   clearScreen: false,
   server: { port: 5179, strictPort: true },
+  // The app's tests only: the relay has its own (`cd relay && npm test`).
+  test: { include: ["tests/**/*.test.ts"] },
   build: {
     target: "es2022",
     // Rui's 3D stage (three.js) is one ~600 kB file, loaded only when he's chosen.

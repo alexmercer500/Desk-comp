@@ -15,6 +15,7 @@
 
 import { ClickGuard } from "../bubble/guard";
 import { renderQuestions, type Answers } from "../bubble/question";
+import { readFirst } from "../bubble/readfirst";
 import { showFor, type BubbleKind, type BubbleMessage } from "../bubble/types";
 import { AGENT_NAMES, describeStep, type Decision, type SessionView } from "./agents";
 import { firstLine } from "./format";
@@ -148,6 +149,10 @@ export interface IslandParts {
   cardText: HTMLElement;
   cardDetail: HTMLElement;
   cardMeta: HTMLElement;
+  /** "Scroll to the end to allow", under a command longer than the card (optional, so tests can leave it out). */
+  cardHint?: HTMLElement;
+  /** What holds the detail, hint and meta, under the readable part (optional, as above). */
+  cardMore?: HTMLElement;
   actions: HTMLElement;
   questions: HTMLElement;
   rows: HTMLElement;
@@ -192,6 +197,8 @@ export class Island {
   private passingTimer = 0;
   private shown: BubbleMessage | null = null;
   private guard = new ClickGuard();
+  /** Stops holding back Allow for the card that was up (readfirst.ts). */
+  private stopReadFirst: (() => void) | null = null;
 
   constructor(
     private el: HTMLElement,
@@ -199,11 +206,16 @@ export class Island {
     private on: IslandHandlers,
   ) {
     makeSparks(parts.sparkles);
-    parts.cardBody.addEventListener("click", () => {
+    const clicked = () => {
       const msg = this.notice();
       if (!msg) return;
       if (!msg.sticky) this.dismiss(msg.id);
       on.noticeClicked(msg);
+    };
+    parts.cardBody.addEventListener("click", clicked);
+    // The rest of the card too, but not a command: that one is scrolled and read.
+    parts.cardMore?.addEventListener("click", (e) => {
+      if (!(e.target as HTMLElement).closest(".card-detail.mono")) clicked();
     });
     parts.actions.addEventListener("click", (e) => {
       const button = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-decision]");
@@ -339,7 +351,18 @@ export class Island {
     this.el.toggleAttribute("data-celebrate", next === "notice" && celebrates(msg));
 
     const newRequest = Boolean(msg?.request) && this.shown?.request !== msg?.request;
-    if (msg !== this.shown) this.fillCard(msg);
+    if (msg !== this.shown) {
+      this.stopReadFirst?.();
+      this.stopReadFirst = null;
+      this.fillCard(msg);
+      // A command longer than the card shows: Allow only once it has been read to the end.
+      // Laid out as a card first, so it can be measured.
+      if (next === "notice" && msg?.request && msg.mono && !msg.questions?.length) {
+        this.el.dataset.state = next;
+        const gated = [...this.parts.actions.querySelectorAll<HTMLButtonElement>('[data-decision="allow"], [data-decision="always"]')];
+        this.stopReadFirst = readFirst(this.parts.cardDetail, gated, this.parts.cardHint ?? document.createElement("span"));
+      }
+    }
     this.shown = msg;
     if (newRequest && next === "notice") {
       this.guard.arm(msg!.request!);
@@ -352,13 +375,15 @@ export class Island {
   private fillCard(msg: BubbleMessage | null) {
     const p = this.parts;
     p.cardText.textContent = msg?.text ?? "";
-    p.cardDetail.textContent = msg?.detail ?? "";
+    // Unchanged text is left alone, so an update to the card ("1 more waiting") keeps its scroll.
+    if (p.cardDetail.textContent !== (msg?.detail ?? "")) p.cardDetail.textContent = msg?.detail ?? "";
     p.cardDetail.hidden = !msg?.detail;
     p.cardDetail.classList.toggle("mono", !!msg?.mono);
     // What it's asking and its choices, one per line (answered where it was asked).
     p.cardDetail.classList.toggle("choices", msg?.category === "agent-permission" && !msg.mono);
     p.cardMeta.textContent = msg?.meta ?? "";
     p.cardMeta.hidden = !msg?.meta;
+    if (p.cardMore) p.cardMore.hidden = !msg?.detail && !msg?.meta;
     p.actions.hidden = !msg?.request;
     // A question is answered with its options; only "In terminal" stays.
     const asking = Boolean(msg?.request && msg.questions?.length);
@@ -375,8 +400,11 @@ export class Island {
     }
     for (const b of p.actions.querySelectorAll<HTMLButtonElement>("[data-decision]")) {
       const d = b.dataset.decision;
-      b.hidden = asking ? d !== "terminal" : d === "always" && !msg?.always;
+      const allows = d === "allow" || d === "always";
+      b.hidden = asking ? d !== "terminal" : (d === "always" && !msg?.always) || (allows && Boolean(msg?.noAllow));
       if (d === "terminal") b.textContent = msg?.elsewhere ?? "In terminal";
+      if (d === "always") b.dataset.title = msg?.rule ? `Allow, and from now on: ${msg.rule}` : "Allow, and don't ask again for this";
+      b.title = b.dataset.title ?? "";
     }
     p.cardBody.title = msg?.session ? "Show this session" : "";
   }

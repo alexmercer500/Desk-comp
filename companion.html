@@ -106,6 +106,9 @@
         text-align: left;
         cursor: pointer;
       }
+      /* Under the readable part, and like it a click opens the panel (all but a command, which scrolls). */
+      .card-more { display: flex; flex-direction: column; gap: 4px; min-width: 0; cursor: pointer; }
+      .card-more .card-detail.mono { cursor: text; }
       .card-text {
         font-weight: 600;
         font-size: 13.5px;
@@ -124,8 +127,14 @@
         overflow: hidden;
       }
       .card-detail.choices { -webkit-line-clamp: 10; white-space: pre-line; }
+      /* The whole command, never cut: a long one scrolls (Allow waits for the end, readfirst.ts). */
       .card-detail.mono {
-        -webkit-line-clamp: 4;
+        display: block;
+        -webkit-line-clamp: unset;
+        /* Six lines: with the rest of the card it still fits the island's window (desktop.rs ISLAND_H). */
+        max-height: calc(6 * 12px * 1.45 + 12px);
+        overflow-y: auto;
+        scrollbar-width: thin;
         margin-top: 2px;
         padding: 6px 8px;
         border-radius: 8px;
@@ -134,7 +143,9 @@
         font: 12px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
         white-space: pre-wrap;
       }
-      .card-meta { font-size: 11.5px; color: var(--faint); }
+      .card-detail.mono.unread { box-shadow: inset 0 -16px 12px -12px rgb(0 0 0 / 0.45); }
+      .card-hint { font-size: 11.5px; font-weight: 600; color: var(--attention); }
+      .card-meta { font-size: 11.5px; color: var(--faint); white-space: pre-line; overflow-wrap: anywhere; }
       .actions { display: flex; gap: 6px; margin-top: 8px; }
       .act {
         flex: 1;
@@ -149,6 +160,7 @@
         cursor: pointer;
       }
       .act:hover { background: var(--code); }
+      .act:disabled, .act:disabled:hover { opacity: 0.45; cursor: not-allowed; background: transparent; color: var(--muted); border-color: var(--line); }
       .act.terminal { flex: 1.2; color: var(--muted); font-weight: 500; }
       .act.deny { color: var(--error); }
       .act.always { color: var(--success); }
@@ -182,7 +194,7 @@
         overflow: hidden;
         text-align: center;
       }
-      .island[data-celebrate] .card-body { position: relative; align-items: center; text-align: center; }
+      .island[data-celebrate] .card-body, .island[data-celebrate] .card-more { position: relative; align-items: center; text-align: center; }
       .island[data-celebrate] .card-text { font-size: 14.5px; -webkit-line-clamp: 1; }
       .island[data-celebrate] .card-detail { -webkit-line-clamp: 2; max-width: 460px; }
       .island[data-celebrate] .card-meta { margin-top: 2px; }
@@ -268,14 +280,18 @@
           <div class="sparkles" id="island-sparkles" aria-hidden="true"></div>
           <button class="card-body" id="island-card-body" type="button">
             <span class="card-text" id="island-card-text"></span>
-            <span class="card-detail" id="island-card-detail"></span>
-            <span class="card-meta" id="island-card-meta"></span>
           </button>
+          <!-- Outside the button: a command too long for the card scrolls here, and a button's insides needn't scroll. -->
+          <div class="card-more" id="island-card-more">
+            <div class="card-detail" id="island-card-detail"></div>
+            <div class="card-hint" id="island-card-hint" hidden>Scroll to the end to allow</div>
+            <div class="card-meta" id="island-card-meta"></div>
+          </div>
           <div class="questions" id="island-questions" hidden></div>
           <div class="actions" id="island-actions" hidden>
             <button class="act deny" type="button" data-decision="deny">Deny</button>
             <button class="act terminal" type="button" data-decision="terminal">In terminal</button>
-            <button class="act always" type="button" data-decision="always" title="Allow, and don't ask again for this in this project">Always</button>
+            <button class="act always" type="button" data-decision="always">Always</button>
             <button class="act allow" type="button" data-decision="allow">Allow</button>
           </div>
         </div>

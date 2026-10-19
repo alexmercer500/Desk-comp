@@ -20,8 +20,12 @@ export interface PhoneSession {
   steps: { tool: string; detail: string; failed: boolean }[];
   files: { path: string; add: number; del: number }[];
   updatedAt: number;
-  /** Present only while Allow / Deny can be sent for it. */
-  approval: { rid: string; tool: string; action: string; detail: string; canAlways: boolean } | null;
+  /**
+   * Present only while Allow / Deny can be sent for it. `detail` is all of
+   * it when `allow` is true; otherwise it's too long for the phone, which then
+   * offers Deny only (the PC refuses an Allow for it anyway, agents.rs).
+   */
+  approval: { rid: string; tool: string; action: string; detail: string; canAlways: boolean; allow: boolean } | null;
   /**
    * The session's processes, for finding its window when a phone peeks
    * (peek.rs). The PC keeps these; they're never sent to the phone.
@@ -46,6 +50,8 @@ export interface PhoneQuestion {
 const MAX_SESSIONS = 20;
 const MAX_STEPS = 20;
 const MAX_FILES = 50;
+/** As much of a request as a phone is sent (agents.rs PHONE_MAX_INPUT decides whether that's all of it). */
+const PHONE_MAX_INPUT = 4000;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
@@ -104,7 +110,11 @@ export function phoneView(sessions: SessionView[]): PhoneSession[] {
       updatedAt: s.lastEvent,
       procs: s.procs,
       approval: p && p.rid && !p.questions
-        ? { rid: p.rid, tool: p.tool, action: p.action, detail: clip(p.detail ?? "", 2000), canAlways: p.canAlways }
+        ? {
+          rid: p.rid, tool: p.tool, action: p.action, canAlways: p.canAlways, allow: p.phoneOk,
+          // Whole when the phone may allow it; otherwise only its start, to recognise it by.
+          detail: p.phoneOk ? (p.input ?? p.detail ?? "") : clip(p.input ?? p.detail ?? "", PHONE_MAX_INPUT),
+        }
         : null,
       // Not clipped: an answer must repeat the question exactly (the relay checks it).
       question: p && p.rid && p.questions ? { rid: p.rid, questions: asked(p.questions) } : null,

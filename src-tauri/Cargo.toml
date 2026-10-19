@@ -1,6 +1,6 @@
 [package]
 name = "desk-companion"
-version = "0.15.0"
+version = "0.15.1"
 description = "A small character that lives in the corner of your desktop"
 edition = "2021"
 

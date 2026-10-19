@@ -196,8 +196,8 @@ mod imp {
                 GdiFlush();
                 let all = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize);
                 // Crop to what's visible.
-                let (cx, cy) = ((seen.left - win.left).clamp(0, w), (seen.top - win.top).clamp(0, h));
-                let (cw, ch) = ((seen.right - seen.left).clamp(1, w - cx), (seen.bottom - seen.top).clamp(1, h - cy));
+                let (cx, cy) = ((seen.left - win.left).clamp(0, (w - 1).max(0)), (seen.top - win.top).clamp(0, (h - 1).max(0)));
+                let (cw, ch) = ((seen.right - seen.left).clamp(1, (w - cx).max(1)), (seen.bottom - seen.top).clamp(1, (h - cy).max(1)));
                 let mut out = Vec::with_capacity((cw * ch * 4) as usize);
                 for y in cy..cy + ch {
                     let start = ((y * w + cx) * 4) as usize;

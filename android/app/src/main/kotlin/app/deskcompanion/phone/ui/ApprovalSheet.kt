@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -46,8 +49,9 @@ const val GUARD_MS = 600L
 fun ApprovalSheet(session: Session, live: Boolean, onAllow: () -> Unit, onDeny: () -> Unit, onDismiss: () -> Unit) {
     val c = Desk.colors
     val request = session.approval ?: return
-    var armed by remember(session.id) { mutableStateOf(false) }
-    LaunchedEffect(session.id) {
+    // Per request: one that replaces another under the finger is guarded afresh.
+    var armed by remember(request.rid) { mutableStateOf(false) }
+    LaunchedEffect(request.rid) {
         delay(GUARD_MS)
         armed = true
     }
@@ -69,11 +73,14 @@ fun ApprovalSheet(session: Session, live: Boolean, onAllow: () -> Unit, onDeny: 
                 }
             }
             Spacer(Modifier.height(18.dp))
+            // All of it, scrolling when it's long: what Allow allows is what's here.
             Box(
                 Modifier
                     .fillMaxWidth()
+                    .heightIn(max = 280.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(c.chip)
+                    .verticalScroll(rememberScrollState())
                     .padding(16.dp),
             ) {
                 Text(request.detail, style = DeskType.mono, color = c.ink)
@@ -81,11 +88,15 @@ fun ApprovalSheet(session: Session, live: Boolean, onAllow: () -> Unit, onDeny: 
             Spacer(Modifier.height(22.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PillButton("Deny", onClick = onDeny, filled = false, enabled = armed, modifier = Modifier.weight(1f), height = 54.dp)
-                PillButton("Allow", onClick = onAllow, enabled = armed, modifier = Modifier.weight(1f), height = 54.dp)
+                if (request.allow) PillButton("Allow", onClick = onAllow, enabled = armed, modifier = Modifier.weight(1f), height = 54.dp)
             }
             Spacer(Modifier.height(10.dp))
             Text(
-                if (live) "Your answer goes straight to the agent on your PC." else "A sample request: nothing is sent anywhere.",
+                when {
+                    !request.allow -> "Too long to show here in full, so it can't be allowed from the phone. Deny it, or read it and answer at your PC."
+                    live -> "Your answer goes straight to the agent on your PC."
+                    else -> "A sample request: nothing is sent anywhere."
+                },
                 style = DeskType.small, color = c.inkSoft, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
             )

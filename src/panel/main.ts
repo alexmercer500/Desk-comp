@@ -175,7 +175,7 @@ function renderSession(s: SessionView, now: number): HTMLElement {
   card.append(row);
   if (s.procs.length && s.status !== "ended") card.append(showWindowButton(s));
 
-  if (s.permission) card.append(renderPerm(s.permission));
+  if (s.permission) card.append(renderPerm(s.permission, s.queued.length));
 
   // While a permission waits, the box above already says what it's about to do.
   if (s.current) card.append(...renderCurrent(s.current, now, !s.permission));
@@ -187,7 +187,7 @@ function renderSession(s: SessionView, now: number): HTMLElement {
 }
 
 /** What it wants to do, with Allow / Deny / In terminal while the agent waits for us. */
-function renderPerm(p: Permission): HTMLElement {
+function renderPerm(p: Permission, more = 0): HTMLElement {
   const box = el("div", "perm");
   if (p.questions) {
     // Claude Code's question: answered with its options, here or in the terminal.
@@ -218,19 +218,25 @@ function renderPerm(p: Permission): HTMLElement {
     }
     return box;
   }
-  box.append(el("div", "perm-label", `Wants to ${p.action}${p.detail ? ":" : ""}`));
-  if (p.detail) box.append(el("pre", undefined, p.detail));
+  // All of it, unclamped: what Allow allows is what's here.
+  const shown = p.input || p.detail;
+  box.append(el("div", "perm-label", `Wants to ${p.action}${shown ? ":" : ""}`));
+  if (shown) box.append(el("pre", "perm-input", shown));
+  if (p.rid && p.cut) box.append(el("div", "perm-hint", `Too long to show here in full: read it and answer in ${p.where ?? "your terminal"}`));
+  if (p.rid && !p.cut && p.canAlways && p.alwaysRule) box.append(el("div", "perm-hint", `Always: ${p.alwaysRule}`));
   if (p.rid) {
     const rid = p.rid;
     guard.armOnce(rid);
     const row = el("div", "perm-actions");
     const choices: [string, string][] = [["deny", "Deny"], ["terminal", elsewhere(p.where ?? "your terminal")]];
-    if (p.canAlways) choices.push(["always", "Always"]);
-    choices.push(["allow", "Allow"]);
+    if (!p.cut) {
+      if (p.canAlways) choices.push(["always", "Always"]);
+      choices.push(["allow", "Allow"]);
+    }
     for (const [decision, label] of choices) {
       const b = el("button", `act ${decision}`, label);
       b.type = "button";
-      if (decision === "always") b.title = "Allow, and don't ask again for this in this project";
+      if (decision === "always") b.title = p.alwaysRule ? `Allow, and from now on: ${p.alwaysRule}` : "Allow, and don't ask again for this";
       b.addEventListener("click", (e) => {
         e.stopPropagation(); // not a click on the tile behind it
         if (!guard.ready(rid)) return; // only just appeared under the cursor
@@ -242,6 +248,7 @@ function renderPerm(p: Permission): HTMLElement {
   } else {
     box.append(el("div", "perm-hint", `Answer in ${p.where ?? "your terminal"}`));
   }
+  if (more > 0) box.append(el("div", "perm-hint", `${more} more waiting after this one`));
   return box;
 }
 
@@ -581,7 +588,7 @@ function renderTile(s: SessionView, now: number): HTMLElement {
   if (prompt) body.append(el("p", "tile-prompt", firstLine(prompt, 80)));
   body.append(el("p", "status", statusText(s, now)));
   tile.append(a.node, body);
-  if (s.permission) tile.append(renderPerm(s.permission));
+  if (s.permission) tile.append(renderPerm(s.permission, s.queued.length));
 
   const openDetail = () => {
     detailId = s.id;

@@ -267,7 +267,7 @@ impl Area {
 
     fn clamp(&self, p: (f64, f64)) -> (f64, f64) {
         let ((x0, x1), (y0, y1)) = self.bounds();
-        (p.0.clamp(x0, x1), p.1.clamp(y0, y1))
+        (p.0.clamp(x0, x1.max(x0)), p.1.clamp(y0, y1.max(y0)))
     }
 
     /// Where a dropped window settles: on the display, pulled onto any edge it is near.
@@ -1022,6 +1022,8 @@ pub async fn panel_show(app: AppHandle) -> Result<(), String> {
     let side = side() * scale;
     let area = area_near(&app, body_center(pos, scale)).ok_or("no display")?;
     let (lw, lh) = panel_size();
+    // Never taller than the screen it's on (a small screen at high scaling).
+    let lh = lh.min(area.h / scale).max(1.0);
     let _ = panel.set_size(LogicalSize::new(lw, lh));
     let (pw, ph) = (lw * scale, lh * scale);
 
@@ -1034,9 +1036,9 @@ pub async fn panel_show(app: AppHandle) -> Result<(), String> {
         // Bottom edge level with the character's base.
         (x, pos.1 + side * 0.92 - ph)
     };
-    // Kept on screen.
-    let x = x.clamp(area.x, area.x + area.w - pw);
-    let y = y.clamp(area.y, area.y + area.h - ph);
+    // Kept on screen (`max`: clamp panics if the panel is wider or taller than the area).
+    let x = x.clamp(area.x, (area.x + area.w - pw).max(area.x));
+    let y = y.clamp(area.y, (area.y + area.h - ph).max(area.y));
 
     panel.set_position(PhysicalPosition::new(x.round(), y.round())).map_err(|e| e.to_string())?;
     panel.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
@@ -1081,10 +1083,20 @@ pub async fn hop_by(app: AppHandle, dx: f64, ms: f64) -> Result<f64, String> {
     let pos = square(&win).ok_or("no position")?;
     let scale = win.scale_factor().unwrap_or(1.0);
     let Some(area) = area_near(&app, body_center(pos, scale)) else { return Ok(0.0) };
-    let home = home.unwrap_or(pos);
     let radius = WANDER_RADIUS * scale;
     let ((x0, x1), _) = area.bounds();
-    let x = (pos.0 + dx * scale).clamp(x0.max(home.0 - radius), x1.min(home.0 + radius));
+    let patch = |home: (f64, f64)| (x0.max(home.0 - radius), x1.min(home.0 + radius));
+    let (mut lo, mut hi) = patch(home.unwrap_or(pos));
+    if lo > hi {
+        // Home is on another display than the window now (a monitor unplugged,
+        // displays rearranged): this is home now.
+        app.state::<Desk>().with(|s| s.home = Some(pos));
+        (lo, hi) = patch(pos);
+        if lo > hi {
+            return Ok(0.0); // off its display altogether: no pottering until it's put back
+        }
+    }
+    let x = (pos.0 + dx * scale).clamp(lo, hi);
     let moved = x - pos.0;
     if moved.abs() < 1.0 {
         return Ok(0.0);

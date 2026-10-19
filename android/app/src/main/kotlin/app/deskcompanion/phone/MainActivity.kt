@@ -148,6 +148,7 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
     }
     val linkNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val notConnected = { Toast.makeText(ctx, "Not connected to your PC right now", Toast.LENGTH_SHORT).show() }
+    val movedOn = { Toast.makeText(ctx, "That request was already answered. Nothing was sent", Toast.LENGTH_SHORT).show() }
     // Anything that lets an agent act (Allow, an answer, a reply): prove it's you first. Deny never asks.
     val protect = { title: String, action: () -> Unit ->
         if (state.live && state.requireUnlockForAllow) Unlock.ask(ctx as FragmentActivity, title, action) else action()
@@ -193,7 +194,15 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                 onBack = { openId = null },
                 onReview = { reviewId = it },
                 onReply = { id, text, sent ->
-                    protect("Send your reply?") { if (state.reply(id, text)) sent() else notConnected() }
+                    // The turn being replied to now, not whichever is held once the fingerprint is in.
+                    val rid = state.session(id)?.reply?.rid
+                    protect("Send your reply?") {
+                        when {
+                            rid != null && state.session(id)?.reply?.rid != rid -> movedOn()
+                            state.reply(id, text, rid) -> sent()
+                            else -> notConnected()
+                        }
+                    }
                 },
                 onPeek = if (state.live && link is LinkHub.State.Connected) {
                     { id -> if (LinkHub.peek(id)) peekId = id else notConnected() }
@@ -236,27 +245,38 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
         Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(c.bg.copy(alpha = 0.94f)))
 
         val reviewing = reviewId?.let { state.session(it) }
+        // A decision answers the request that was on screen when it was made: after the
+        // fingerprint prompt the session may be holding another one, which this never answers.
+        val decided = { id: String, rid: String, sent: Boolean ->
+            when {
+                sent -> reviewId = null
+                !state.stillWaiting(id, rid) -> { movedOn(); reviewId = null }
+                else -> notConnected()
+            }
+        }
         if (reviewing?.approval != null) {
+            val request = reviewing.approval
             ApprovalSheet(
                 session = reviewing,
                 live = state.live,
                 onAllow = {
-                    protect("Allow ${reviewing.agent} to ${reviewing.approval.action}?") {
-                        if (state.decide(reviewing.id, allow = true)) reviewId = null else notConnected()
+                    protect("Allow ${reviewing.agent} to ${request.action}?") {
+                        decided(reviewing.id, request.rid, state.decide(reviewing.id, allow = true, rid = request.rid))
                     }
                 },
                 onDeny = {
-                    if (state.decide(reviewing.id, allow = false)) reviewId = null else notConnected()
+                    decided(reviewing.id, request.rid, state.decide(reviewing.id, allow = false, rid = request.rid))
                 },
                 onDismiss = { reviewId = null },
             )
         } else if (reviewing?.question != null) {
+            val card = reviewing.question
             QuestionSheet(
                 session = reviewing,
                 live = state.live,
                 onSend = { answers ->
                     protect("Send your answer?") {
-                        if (state.answer(reviewing.id, answers)) reviewId = null else notConnected()
+                        decided(reviewing.id, card.rid, state.answer(reviewing.id, answers, rid = card.rid))
                     }
                 },
                 onDismiss = { reviewId = null },

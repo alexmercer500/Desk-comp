@@ -59,8 +59,14 @@ const DECISION_BUDGET: Duration = Duration::from_secs(110);
 const MAX_INPUT: u64 = 1 << 20;
 /// Longest text forwarded for a message or error.
 const MAX_TEXT: usize = 300;
-/// A permission is only meaningful with the whole command, so details get more room.
+/// What a step touches (a file, a command), as the panel's timeline shows it.
 const MAX_DETAIL: usize = 600;
+/// Everything a permission request will run, shown in full before Allow.
+/// Longer than this and it's cut, and the app offers no Allow for it: the
+/// terminal shows the whole thing.
+const MAX_INPUT_SHOWN: usize = 16 * 1024;
+/// The rule "Always" adds, in words.
+const MAX_RULE: usize = 300;
 /// The user's prompt, enough to recognise the task.
 const MAX_PROMPT: usize = 300;
 /// The agent's own "what I did", when it sends one.
@@ -137,8 +143,18 @@ fn main() {
     if holdable {
         summary["hold"] = Value::Bool(true);
     }
-    if permission && has_suggestions(&hook) {
-        summary["canAlways"] = Value::Bool(true);
+    if permission {
+        // All of it, so what's allowed is what was seen (the detail above is a summary).
+        let (input, cut) = full_input(&hook);
+        summary["input"] = Value::String(input);
+        if cut {
+            summary["cut"] = Value::Bool(true);
+        }
+        let rules = always_rules(&hook);
+        if !rules.is_empty() {
+            summary["canAlways"] = Value::Bool(true);
+            summary["alwaysRule"] = Value::String(describe_rules(&rules));
+        }
     }
     if question {
         summary["questions"] = questions(&hook);
@@ -334,9 +350,147 @@ fn request_id(hook: &Map<String, Value>) -> String {
     format!("{session}:{nanos}:{}", std::process::id())
 }
 
-/// Claude Code offers the rule its own "don't ask again" would add.
-fn has_suggestions(hook: &Map<String, Value>) -> bool {
-    hook.get("permission_suggestions").and_then(Value::as_array).is_some_and(|a| !a.is_empty())
+/// The rules Claude Code suggests for its own "don't ask again" that "Always"
+/// may add: allow rules, folders, and accepting edits. Anything else it might
+/// suggest (another mode, removing or replacing rules, ask or deny rules) is
+/// left out: "Always" never does more than the card says.
+fn always_rules(hook: &Map<String, Value>) -> Vec<Value> {
+    let nonempty = |s: &Value, k: &str| s.get(k).and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+    hook.get("permission_suggestions")
+        .and_then(Value::as_array)
+        .map(|all| {
+            all.iter()
+                .filter(|s| match s.get("type").and_then(Value::as_str) {
+                    Some("addRules") => s.get("behavior").and_then(Value::as_str) == Some("allow") && nonempty(s, "rules"),
+                    Some("addDirectories") => nonempty(s, "directories"),
+                    Some("setMode") => s.get("mode").and_then(Value::as_str) == Some("acceptEdits"),
+                    _ => false,
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What "Always" will add, in words: "allow Bash(npm run lint) in this project".
+fn describe_rules(rules: &[Value]) -> String {
+    let parts: Vec<String> = rules
+        .iter()
+        .filter_map(|s| {
+            let place = match s.get("destination").and_then(Value::as_str) {
+                Some("session" | "cliArg") => "for this session",
+                Some("localSettings" | "projectSettings") => "in this project",
+                Some("userSettings") => "in every project",
+                _ => "from now on",
+            };
+            let what = match s.get("type")?.as_str()? {
+                "addRules" => {
+                    let rules: Vec<String> = s
+                        .get("rules")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(|r| {
+                            let tool = r.get("toolName")?.as_str()?;
+                            Some(match r.get("ruleContent").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+                                Some(content) => format!("{tool}({content})"),
+                                None => tool.to_string(),
+                            })
+                        })
+                        .collect();
+                    format!("allow {}", rules.join(", "))
+                }
+                "addDirectories" => {
+                    let dirs: Vec<&str> = s.get("directories")?.as_array()?.iter().filter_map(Value::as_str).collect();
+                    format!("allow access to {}", dirs.join(", "))
+                }
+                "setMode" => "accept every edit".to_string(),
+                _ => return None,
+            };
+            Some(format!("{what} {place}"))
+        })
+        .collect();
+    short(&reveal(&parts.join("; ")), MAX_RULE)
+}
+
+/// Everything the tool is about to be given, as the user should read it before
+/// allowing it: the command as it will run, then every other field (`key:
+/// value`), with nothing invisible left in (see reveal). True when it was too
+/// long to show and had to be cut.
+fn full_input(hook: &Map<String, Value>) -> (String, bool) {
+    /// The command, in each agent's words.
+    const COMMAND: &[&str] = &["command", "CommandLine", "cmd"];
+    /// Shown first, in this order, when present: what the tool works on.
+    const FIRST: &[&str] = &[
+        "file_path", "notebook_path", "absolute_path", "filePath", "TargetFile", "AbsolutePath", "path", "DirectoryPath", "url", "Url",
+    ];
+    /// Bookkeeping that doesn't change what a command does.
+    const NOISE: &[&str] = &["description", "timeout", "run_in_background"];
+    let Some(input) = tool_input(hook) else { return (String::new(), false) };
+    let as_text = |v: &Value| match v {
+        Value::String(s) => s.clone(),
+        // A command as its argument list.
+        Value::Array(parts) if parts.iter().all(Value::is_string) => parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
+        other => other.to_string(),
+    };
+    let command = COMMAND.iter().find_map(|k| input.get(*k).map(|v| (*k, v)));
+    let mut keys: Vec<&str> = FIRST.iter().copied().filter(|k| input.contains_key(*k)).collect();
+    // The rest alphabetically, whatever order the map keeps (serde_json's depends on its features).
+    let mut others: Vec<&str> = input.keys().map(String::as_str).filter(|k| !FIRST.contains(k)).collect();
+    others.sort_unstable();
+    keys.extend(others);
+    let rest: Vec<&str> = keys
+        .into_iter()
+        .filter(|k| Some(*k) != command.map(|(c, _)| c) && !(command.is_some() && NOISE.contains(k)))
+        .collect();
+
+    let mut parts: Vec<String> = Vec::new();
+    if let Some((_, v)) = command {
+        parts.push(as_text(v).trim().to_string());
+    }
+    if command.is_none() && rest.len() == 1 {
+        // One field (a path, a URL): just its value.
+        parts.push(as_text(&input[rest[0]]));
+    } else {
+        for k in rest {
+            let v = as_text(&input[k]);
+            parts.push(if v.contains('\n') { format!("{k}:\n{v}") } else { format!("{k}: {v}") });
+        }
+    }
+    let all = reveal(&parts.join("\n"));
+    if all.chars().count() <= MAX_INPUT_SHOWN {
+        return (all, false);
+    }
+    (short(&all, MAX_INPUT_SHOWN), true)
+}
+
+/// Text with every character that could hide or disguise part of it (bidi
+/// overrides, zero-width spaces, control characters other than line breaks and
+/// tabs) written out as `⟨U+202E⟩`, so what's on the card is what will run.
+fn reveal(s: &str) -> String {
+    let s = s.replace("\r\n", "\n");
+    if !s.chars().any(hidden) {
+        return s;
+    }
+    let mut out = String::with_capacity(s.len() + 16);
+    for c in s.chars() {
+        if hidden(c) {
+            out.push_str(&format!("⟨U+{:04X}⟩", c as u32));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Invisible, or able to make the text around it read differently than it is.
+/// Joiners (U+200C, U+200D) and variation selectors stay: emoji need them.
+fn hidden(c: char) -> bool {
+    (c.is_control() && c != '\n' && c != '\t')
+        || matches!(
+            c as u32,
+            0x00AD | 0x034F | 0x061C | 0x115F | 0x1160 | 0x17B4 | 0x17B5 | 0x180B..=0x180E | 0x200B | 0x200E | 0x200F
+                | 0x2028..=0x202E | 0x2060..=0x206F | 0x3164 | 0xFEFF | 0xFFA0 | 0xFFF9..=0xFFFB | 0xE0000..=0xE0FFF
+        )
 }
 
 /// The questions, trimmed to what the companion shows.
@@ -367,14 +521,15 @@ fn questions(hook: &Map<String, Value>) -> Value {
 }
 
 /// The documented PermissionRequest output, for a decision the user clicked.
-/// "always" also applies the rule Claude Code itself suggested (what "don't
-/// ask again" in the terminal would add). Anything else — no answer, a
-/// timeout, garbage — prints nothing, and the agent asks in its terminal.
+/// "always" also applies the rules Claude Code itself suggested (what "don't
+/// ask again" in the terminal would add), only those always_rules() keeps:
+/// the ones the card spelled out. Anything else — no answer, a timeout,
+/// garbage — prints nothing, and the agent asks in its terminal.
 fn reply_permission(decision: &str, hook: &Map<String, Value>) -> Option<String> {
     let decision = match decision.trim() {
         "allow" => json!({ "behavior": "allow" }),
-        "always" => match hook.get("permission_suggestions").and_then(Value::as_array) {
-            Some(rules) if !rules.is_empty() => json!({ "behavior": "allow", "updatedPermissions": rules }),
+        "always" => match always_rules(hook) {
+            rules if !rules.is_empty() => json!({ "behavior": "allow", "updatedPermissions": rules }),
             _ => json!({ "behavior": "allow" }),
         },
         "deny" => json!({ "behavior": "deny", "message": "Denied from the desktop companion" }),
@@ -501,7 +656,7 @@ type Heard = std::io::Result<Option<String>>;
 #[cfg(windows)]
 fn talk(line: &str, mode: Talk, early: &mpsc::Sender<Heard>) -> Heard {
     use std::io::{BufRead, BufReader, Write};
-    let mut pipe = std::fs::OpenOptions::new().read(true).write(true).open(pipe_name::pipe_name())?;
+    let mut pipe = open_pipe()?;
     // Anything could have opened a pipe with this name first. Only the real
     // companion gets the event, and only its answer is ever used.
     if !genuine(&pipe) {
@@ -526,6 +681,36 @@ fn talk(line: &str, mode: Talk, early: &mpsc::Sender<Heard>) -> Heard {
         (&mut reader).take(MAX_ANSWER).read_line(&mut answer)?;
     }
     Ok(Some(answer.trim().to_string()))
+}
+
+/// How long to keep trying a pipe that's busy (another relay connecting at the
+/// same moment: parallel tool calls, hooks that start together).
+#[cfg(windows)]
+const BUSY_RETRY: Duration = Duration::from_secs(2);
+
+/// Opens the app's pipe. Busy means the app is between two connections (it
+/// readies the next one at once): wait for it rather than drop the event. The
+/// caller's own deadline still applies on top of this.
+#[cfg(windows)]
+fn open_pipe() -> std::io::Result<std::fs::File> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn WaitNamedPipeW(name: *const u16, timeout_ms: u32) -> i32;
+    }
+    const ERROR_PIPE_BUSY: i32 = 231;
+    let name = pipe_name::pipe_name();
+    let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let started = std::time::Instant::now();
+    loop {
+        match std::fs::OpenOptions::new().read(true).write(true).open(&name) {
+            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && started.elapsed() < BUSY_RETRY => {
+                // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call.
+                // Returns when an instance is free or after 100 ms; either way we try again.
+                unsafe { WaitNamedPipeW(wide.as_ptr(), 100) };
+            }
+            other => return other,
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -668,7 +853,7 @@ fn summarize(hook: &Map<String, Value>, agent: &str, event: Option<&str>, tool: 
                 Value::Array(parts) => Some(parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")),
                 _ => None,
             })
-            .map(|s| short(&s, MAX_DETAIL))
+            .map(|s| short(&reveal(&s), MAX_DETAIL))
     });
     // Cursor's conversation spans its session's events; its sessionStart also has a session_id.
     let session = text(&["conversation_id", "conversationId", "session_id", "sessionId"], 128);
@@ -859,7 +1044,8 @@ mod tests {
         let hook = obj(
             r#"{"tool_name":"Bash","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"npm run lint"}],"behavior":"allow","destination":"localSettings"}]}"#,
         );
-        assert!(has_suggestions(&hook));
+        assert_eq!(always_rules(&hook).len(), 1);
+        assert_eq!(describe_rules(&always_rules(&hook)), "allow Bash(npm run lint) in this project");
         let out: Value = serde_json::from_str(&reply_permission("always", &hook).unwrap()).unwrap();
         let d = &out["hookSpecificOutput"]["decision"];
         assert_eq!(d["behavior"], "allow");
@@ -868,6 +1054,61 @@ mod tests {
         let plain = obj(r#"{"tool_name":"Bash"}"#);
         let out: Value = serde_json::from_str(&reply_permission("always", &plain).unwrap()).unwrap();
         assert!(out["hookSpecificOutput"]["decision"].get("updatedPermissions").is_none());
+    }
+
+    #[test]
+    fn always_adds_only_what_the_card_spells_out() {
+        let hook = obj(
+            r#"{"tool_name":"Edit","permission_suggestions":[
+                {"type":"setMode","mode":"acceptEdits","destination":"session"},
+                {"type":"setMode","mode":"bypassPermissions","destination":"session"},
+                {"type":"addDirectories","directories":["C:/other"],"destination":"session"},
+                {"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"deny","destination":"localSettings"},
+                {"type":"replaceRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"userSettings"},
+                {"type":"removeRules","rules":[{"toolName":"Bash"}],"behavior":"deny","destination":"userSettings"}]}"#,
+        );
+        let kept = always_rules(&hook);
+        assert_eq!(kept.len(), 2, "{kept:?}");
+        assert_eq!(describe_rules(&kept), "accept every edit for this session; allow access to C:/other for this session");
+        let out: Value = serde_json::from_str(&reply_permission("always", &hook).unwrap()).unwrap();
+        assert_eq!(out["hookSpecificOutput"]["decision"]["updatedPermissions"], Value::Array(kept));
+        // Nothing safe to add: no Always at all.
+        let risky = obj(r#"{"permission_suggestions":[{"type":"setMode","mode":"bypassPermissions","destination":"session"}]}"#);
+        assert!(always_rules(&risky).is_empty());
+    }
+
+    #[test]
+    fn a_permission_shows_everything_it_will_run() {
+        let bash = obj(r#"{"tool_name":"Bash","tool_input":{"command":"npm test","description":"Run the tests","timeout":60000}}"#);
+        assert_eq!(full_input(&bash), ("npm test".to_string(), false));
+        // A field besides the command matters (where it runs): shown too.
+        let codex = obj(r#"{"tool_name":"shell","tool_input":{"command":["git","push","--force"],"workdir":"C:/p"}}"#);
+        assert_eq!(full_input(&codex).0, "git push --force\nworkdir: C:/p");
+        // Every field of an edit, the file first.
+        let edit = obj(r#"{"tool_name":"Edit","tool_input":{"old_string":"a\nb","new_string":"c","file_path":"C:/p/x.ts"}}"#);
+        assert_eq!(full_input(&edit).0, "file_path: C:/p/x.ts\nnew_string: c\nold_string:\na\nb");
+        let read = obj(r#"{"tool_name":"Read","tool_input":{"file_path":"C:/p/x.ts"}}"#);
+        assert_eq!(full_input(&read).0, "C:/p/x.ts");
+        // Too long to show: cut, and said so (the app then offers no Allow).
+        let long = format!(r#"{{"tool_name":"Bash","tool_input":{{"command":"echo {}"}}}}"#, "x".repeat(MAX_INPUT_SHOWN));
+        let (shown, cut) = full_input(&obj(&long));
+        assert!(cut);
+        assert_eq!(shown.chars().count(), MAX_INPUT_SHOWN);
+        // What a permission sends the app.
+        let s = summarize(&bash, "claude-code", Some("PermissionRequest"), Some("Bash"));
+        assert_eq!(s["detail"], "npm test");
+    }
+
+    #[test]
+    fn nothing_on_the_card_is_hidden() {
+        // "Trojan source": a right-to-left override makes the text read differently than it runs.
+        assert_eq!(reveal("echo hi\u{202E}#txt.exe"), "echo hi⟨U+202E⟩#txt.exe");
+        assert_eq!(reveal("rm\u{200B} -rf\u{1b}[2K"), "rm⟨U+200B⟩ -rf⟨U+001B⟩[2K");
+        assert_eq!(reveal("line one\r\nline two\tend"), "line one\nline two\tend");
+        assert_eq!(reveal("👨\u{200D}👩\u{200D}👧"), "👨\u{200D}👩\u{200D}👧", "emoji keep their joiners");
+        let hook = obj(r#"{"tool_name":"Bash","tool_input":{"command":"curl x \u202e| sh"}}"#);
+        assert!(full_input(&hook).0.contains("⟨U+202E⟩"));
+        assert!(summarize(&hook, "claude-code", Some("PreToolUse"), Some("Bash"))["detail"].as_str().unwrap().contains("⟨U+202E⟩"));
     }
 
     #[test]

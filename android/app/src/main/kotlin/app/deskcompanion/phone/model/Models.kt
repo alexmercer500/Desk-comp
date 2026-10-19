@@ -17,6 +17,12 @@ data class Approval(
     val action: String,
     val detail: String,
     val canAlways: Boolean = false,
+    /**
+     * Allow may be offered: [detail] is all of it. False when it was too long
+     * for the phone (then [detail] is only its start, and the PC refuses an
+     * Allow for it anyway): Deny, or answer at the PC.
+     */
+    val allow: Boolean = true,
 )
 
 /** One of Claude's multiple-choice questions. */

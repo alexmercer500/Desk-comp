@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { ClickGuard } from "./guard";
 import { renderQuestions } from "./question";
+import { readFirst } from "./readfirst";
 import { showFor, type BubbleMessage } from "./types";
 
 // Colours from the chosen theme, before anything is drawn.
@@ -21,9 +22,14 @@ const title = document.getElementById("title")!;
 const text = document.getElementById("text")!;
 const detail = document.getElementById("detail")!;
 const meta = document.getElementById("meta")!;
+const more = document.getElementById("more")!;
 const rows = document.getElementById("rows")!;
 const actions = document.getElementById("actions")!;
 const questionsBox = document.getElementById("questions")!;
+const hint = document.getElementById("hint")!;
+const button = (d: string) => actions.querySelector<HTMLButtonElement>(`[data-decision="${d}"]`)!;
+/** Stops holding back Allow for the card that was up (readfirst.ts). */
+let stopReadFirst: (() => void) | null = null;
 
 /** While a card is up it checks this often whether he has moved away from it (Rust decides; see bubble_place). */
 const FOLLOW_MS = 250;
@@ -70,6 +76,8 @@ function drop(id: string | null) {
 
 async function display(msg: BubbleMessage | null) {
   window.clearTimeout(hideTimer);
+  stopReadFirst?.();
+  stopReadFirst = null;
   if (!msg) return hide();
   const newRequest = Boolean(msg.request) && current?.request !== msg.request;
   current = msg;
@@ -92,13 +100,15 @@ async function display(msg: BubbleMessage | null) {
       return row;
     }),
   );
-  detail.textContent = msg.detail ?? "";
+  // Unchanged text is left alone, so an update to the card ("1 more waiting") keeps its scroll.
+  if (detail.textContent !== (msg.detail ?? "")) detail.textContent = msg.detail ?? "";
   detail.hidden = !msg.detail;
   detail.classList.toggle("mono", !!msg.mono);
   // What it's asking and its choices, one per line (answered where it was asked).
   detail.classList.toggle("choices", msg.category === "agent-permission" && !msg.mono);
   meta.textContent = msg.meta ?? "";
   meta.hidden = !msg.meta;
+  more.hidden = !msg.detail && !msg.meta;
   actions.hidden = !msg.request;
   // A question is answered with its options; only "In terminal" stays.
   const asking = Boolean(msg.request && msg.questions?.length);
@@ -124,9 +134,13 @@ async function display(msg: BubbleMessage | null) {
   }
   for (const b of actions.querySelectorAll<HTMLButtonElement>("[data-decision]")) {
     const d = b.dataset.decision;
-    b.hidden = asking ? d !== "terminal" : d === "always" && !msg.always;
+    const allows = d === "allow" || d === "always";
+    b.hidden = asking ? d !== "terminal" : (d === "always" && !msg.always) || (allows && Boolean(msg.noAllow));
     if (d === "terminal") b.textContent = msg.elsewhere ?? "In terminal";
+    if (d === "always") b.dataset.title = msg.rule ? `Allow, and from now on: ${msg.rule}` : "Allow, and don't ask again for this";
+    b.title = b.dataset.title ?? "";
   }
+  hint.hidden = true;
   card.dataset.kind = msg.kind;
   // Buttons that just appeared under the cursor don't take clicks for a moment.
   if (newRequest) guard.arm(msg.request!);
@@ -134,6 +148,8 @@ async function display(msg: BubbleMessage | null) {
   // Lay the card out, then measure it, then put it beside the character (desktop.rs, placement.rs).
   await new Promise(requestAnimationFrame);
   if (current !== msg) return;
+  // A command longer than the card shows: Allow only once it has been read to the end.
+  if (msg.request && msg.mono && !asking) stopReadFirst = readFirst(detail, [button("allow"), button("always")], hint);
   await place();
   if (current !== msg) return;
   void invoke("bubble_card", { rect: { x: wrap.offsetLeft, y: wrap.offsetTop, w: card.offsetWidth, h: card.offsetHeight } });
@@ -174,10 +190,15 @@ function hide() {
   }, 180);
 }
 
-body.addEventListener("click", () => {
+function clicked() {
   if (!current) return;
   void emitTo("companion", "bubble:clicked", { id: current.id, session: current.session ?? null, action: current.action ?? null });
   drop(current.id);
+}
+body.addEventListener("click", clicked);
+// The rest of the card too, but not a command: that one is scrolled and read.
+more.addEventListener("click", (e) => {
+  if (!(e.target as HTMLElement).closest(".detail.mono")) clicked();
 });
 
 actions.addEventListener("click", (e) => {

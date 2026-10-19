@@ -180,7 +180,9 @@ h2 {
   border: 1px solid color-mix(in srgb, var(--attention) 30%, transparent);
 }
 .perm-label { font-weight: 600; color: var(--attention); font-size: 12px; }
-.perm-hint { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+.perm-hint { margin-top: 6px; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+/* A request's whole input, never clamped: the panel scrolls instead. */
+pre.perm-input { max-height: none; }
 .perm-question { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
 .perm-option { margin: 2px 0 0 4px; overflow-wrap: anywhere; color: var(--muted); }
 .act.always { color: var(--allow); }

@@ -94,11 +94,22 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
     val doneToday: Int get() = sessions.count { it.status == Status.Done }
     val totalToday: Int get() = sessions.size
 
-    /** Allow or Deny the request a session is holding open. */
-    /** False when it couldn't be sent (the link is down); the request stays. */
-    fun decide(sessionId: String, allow: Boolean): Boolean {
+    /** Whether request [rid] is still the one a session is holding open (its approval or its question). */
+    fun stillWaiting(sessionId: String, rid: String): Boolean =
+        session(sessionId)?.let { it.approval?.rid == rid || it.question?.rid == rid } == true
+
+    /**
+     * Allow or Deny the request a session is holding open: request [rid], the
+     * one that was on screen when the user decided (the session may have moved
+     * on to another while the fingerprint prompt was up; that one is never
+     * answered by this). False when it couldn't be sent (the link is down, or
+     * it's no longer that request); the request stays.
+     */
+    fun decide(sessionId: String, allow: Boolean, rid: String? = null): Boolean {
         val s = session(sessionId) ?: return false
         val request = s.approval ?: return false // already answered (here or in the terminal)
+        if (rid != null && request.rid != rid) return false
+        if (allow && !request.allow) return false // too long to show here: Deny or the PC only
         if (live && onDecide?.invoke(request.rid, allow) != true) return false
         replace(
             s.copy(
@@ -111,10 +122,11 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
         return true
     }
 
-    /** Answers to the question card a session is showing: question → choice(s) or typed text. */
-    fun answer(sessionId: String, answers: Map<String, String>): Boolean {
+    /** Answers to the question card a session is showing ([rid], when given, must still be it): question → choice(s) or typed text. */
+    fun answer(sessionId: String, answers: Map<String, String>, rid: String? = null): Boolean {
         val s = session(sessionId) ?: return false
         val q = s.question ?: return false
+        if (rid != null && q.rid != rid) return false
         if (answers.isEmpty() || answers.values.any { it.isBlank() }) return false
         if (live && onAnswer?.invoke(q.rid, answers) != true) return false
         replace(s.copy(question = null, status = Status.Working, line = "Carrying on with your answer"))
@@ -125,11 +137,12 @@ class AppState(initial: List<Session> = DemoData.sessions(), private val store: 
     /** Whether a reply from here would reach the agent right now. */
     fun canReply(s: Session): Boolean = if (live) s.reply != null else s.status == Status.Done
 
-    /** A further prompt for a finished session; the agent carries on with it. */
-    fun reply(sessionId: String, text: String): Boolean {
+    /** A further prompt for a finished session ([rid], when given, must still be the turn held for it); the agent carries on with it. */
+    fun reply(sessionId: String, text: String, rid: String? = null): Boolean {
         val s = session(sessionId) ?: return false
         val prompt = text.trim()
         if (prompt.isEmpty() || !canReply(s)) return false
+        if (rid != null && s.reply?.rid != rid) return false
         if (live && onReply?.invoke(s.reply!!.rid, prompt) != true) return false
         replace(
             s.copy(

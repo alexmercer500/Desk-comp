@@ -124,7 +124,12 @@ object Protocol {
         }.orEmpty()
         val approval = o.optJSONObject("approval")?.let { a ->
             val rid = a.optString("rid").ifEmpty { return@let null }
-            Approval(rid = rid, tool = a.optString("tool"), action = a.optString("action", "continue"), detail = a.optString("detail"), canAlways = a.optBoolean("canAlways"))
+            Approval(
+                rid = rid, tool = a.optString("tool"), action = a.optString("action", "continue"), detail = a.optString("detail"),
+                canAlways = a.optBoolean("canAlways"),
+                // PCs before 0.15.1 don't say, and send it whole.
+                allow = a.optBoolean("allow", true),
+            )
         }
         val question = o.optJSONObject("question")?.let { q ->
             val rid = q.optString("rid").ifEmpty { return@let null }

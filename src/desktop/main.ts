@@ -240,6 +240,8 @@ const island = new Island(
     cardText: byId("island-card-text"),
     cardDetail: byId("island-card-detail"),
     cardMeta: byId("island-card-meta"),
+    cardHint: byId("island-card-hint"),
+    cardMore: byId("island-card-more"),
     actions: byId("island-actions"),
     questions: byId("island-questions"),
     rows: byId("island-rows"),
@@ -259,7 +261,7 @@ const island = new Island(
     },
     answer: (rid, decision) => void answerPermission(rid, decision),
     questionAnswered: (rid, answers) => void answerQuestion(rid, answers),
-    cardShown: (rid) => void invoke("permission_shown", { rid }).catch(() => {}),
+    cardShown: (rid) => cardShown(rid),
     rowClicked: (session) => void openPanel(session),
     // Tucked away to a thin tab: nothing to see, so nothing to draw.
     shape: (state) => {
@@ -490,7 +492,24 @@ async function answerPermission(rid: string, decision: Decision) {
 }
 // The bubble put a permission or question card on screen; without this the
 // agent is let go after a moment and asks in its terminal (agents.rs).
-void listen<string>("permission:shown", ({ payload }) => void invoke("permission_shown", { rid: payload }).catch(() => {}));
+void listen<string>("permission:shown", ({ payload }) => cardShown(payload));
+
+/** Requests whose card has been on screen (bubble or island). */
+const seenCards = new Set<string>();
+
+/**
+ * A card is on screen: its request, and those queued behind it (the card says
+ * how many more are waiting), keep their agents waiting for an answer.
+ */
+function cardShown(rid: string) {
+  seenCards.add(rid);
+  if (seenCards.size > 200) seenCards.delete(seenCards.values().next().value!);
+  for (const r of [rid, ...agents.queuedBehind(rid)]) void invoke("permission_shown", { rid: r }).catch(() => {});
+}
+// A request queued behind a card that's already up counts as seen too.
+agents.onQueued = (rid, ahead) => {
+  if (seenCards.has(ahead)) void invoke("permission_shown", { rid }).catch(() => {});
+};
 // The relay stopped waiting: answered in the terminal, or out of time.
 void listen<string>("permission-closed", ({ payload }) => {
   if (!answering.has(payload)) agents.permissionClosed(payload);
@@ -529,11 +548,15 @@ function syncActivity() {
 /** Like a click on a card's buttons: no answer by key until the card has been up this long. */
 const KEY_GUARD_MS = 600;
 
-/** The request Ctrl+Alt+Y / N answer: the newest one still holding an Allow / Deny card. */
+/**
+ * The request Ctrl+Alt+Y / N answer: the newest one still holding an Allow /
+ * Deny card, and short enough that the card showed all of it without
+ * scrolling (a longer one is answered on the card itself).
+ */
 function keyTarget() {
   return agents
     .snapshot()
-    .filter((s) => s.status === "waiting" && s.permission?.rid && !s.permission.questions?.length)
+    .filter((s) => s.status === "waiting" && s.permission?.rid && !s.permission.questions?.length && AgentTracker.fitsCard(s.permission))
     .sort((a, b) => b.permission!.since - a.permission!.since)[0];
 }
 
@@ -605,7 +628,14 @@ async function openPanel(focus: string | null = null, tab: Tab | null = null) {
   refreshIsland();
   sendSessions();
   lastOpen = { focus, tab, character: stageWho === "rui" ? "rui" : character, place: top ? "top" : "corner" };
-  await invoke("panel_show");
+  try {
+    await invoke("panel_show");
+  } catch {
+    // Couldn't be put on screen (no display found): not open, so the next click tries again.
+    panelOpen = false;
+    refreshIsland();
+    return;
+  }
   await emitTo("panel", "panel:open", lastOpen);
 }
 
@@ -793,19 +823,23 @@ window.setInterval(async () => {
   if (wandering || now < nextWander) return;
 
   wandering = true;
-  let dir = Math.random() < 0.5 ? -1 : 1;
-  const hops = 2 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < hops && c.getState() === "IDLE" && !press; i++) {
-    const moved = await invoke<number>("hop_by", { dx: dir * 22, ms: 380 });
-    if (Math.abs(moved) < 1) {
-      dir = -dir; // hit the edge of its patch: turn round next time
-      continue;
+  try {
+    let dir = Math.random() < 0.5 ? -1 : 1;
+    const hops = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < hops && c.getState() === "IDLE" && !press; i++) {
+      const moved = await invoke<number>("hop_by", { dx: dir * 22, ms: 380 }).catch(() => 0);
+      if (Math.abs(moved) < 1) {
+        dir = -dir; // hit the edge of its patch: turn round next time
+        continue;
+      }
+      c.engine.overlay(moved < 0 ? "hopLeft" : "hopRight");
+      await sleep(460);
     }
-    c.engine.overlay(moved < 0 ? "hopLeft" : "hopRight");
-    await sleep(460);
+  } finally {
+    // Whatever happened, it can potter about again later.
+    wandering = false;
+    nextWander = performance.now() + rand(18_000, 40_000);
   }
-  wandering = false;
-  nextWander = performance.now() + rand(18_000, 40_000);
 }, 1000);
 
 // ── Tray "Try a reaction" ────────────────────────────────────────────────────
