@@ -1,12 +1,12 @@
 # Current builds
 
-The latest installable builds, replaced whenever a fix needs new ones. They are the same files
-published on https://github.com/alexmercer500/Desk-comp-releases/releases, so these copies update
+The latest installable builds, replaced whenever a fix needs new ones. They are built by the same release script as
+what gets published on https://github.com/alexmercer500/Desk-comp-releases/releases, so these copies update
 themselves from there.
 
 | File | What |
 | --- | --- |
-| `DeskCompanion_0.13.0_x64-setup.exe` | Windows app 0.13.0 (relay built in, checks for updates). Not code-signed yet: Windows may warn, choose More info, Run anyway. |
-| `DeskCompanion-Android-0.4.4.apk` | Android app 0.4.4, signed with the release key (checks for updates). Phones with the older debug-signed 0.3.x must uninstall it once and pair again. |
+| `DeskCompanion_0.14.0_x64-setup.exe` | Windows app 0.14.0 (relay built in, checks for updates). Not code-signed yet: Windows may warn, choose More info, Run anyway. |
+| `DeskCompanion-Android-0.4.5.apk` | Android app 0.4.5, signed with the release key (checks for updates). Phones with the older debug-signed 0.3.x must uninstall it once and pair again. |
 
 What changed in each: `CHANGELOG.md`. How releases are made: `docs/RELEASING.md`.
