@@ -12,7 +12,9 @@ import android.net.NetworkRequest
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import android.os.Build
+import android.graphics.BitmapFactory
 import app.deskcompanion.phone.model.Look
+import app.deskcompanion.phone.model.Peek
 import app.deskcompanion.phone.model.Session
 import app.deskcompanion.phone.model.Settings
 import app.deskcompanion.phone.notify.Notifications
@@ -26,6 +28,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -90,6 +93,12 @@ object LinkHub {
     val state: StateFlow<State> = _state
     private val _sessions = MutableStateFlow<List<Session>>(emptyList())
     val sessions: StateFlow<List<Session>> = _sessions
+    /** Pictures of sessions' windows (Peek), by session id. */
+    private val _peeks = MutableStateFlow<Map<String, Peek>>(emptyMap())
+    val peeks: StateFlow<Map<String, Peek>> = _peeks
+    private val pieces = PeekPieces()
+    /** How long to wait for a picture before saying it didn't come. */
+    private const val PEEK_WAIT_MS = 20_000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -158,6 +167,7 @@ object LinkHub {
         PairingStore.clear(ctx)
         paired = null
         _sessions.value = emptyList()
+        _peeks.value = emptyMap()
         _state.value = State.Unpaired
         Notifications.clearLink(ctx)
         LinkService.stop(ctx)
@@ -199,6 +209,47 @@ object LinkHub {
         if (_state.value !is State.Connected || t.isEmpty()) return false
         scope.launch { send(Protocol.reply(rid, t)) }
         return true
+    }
+
+    /**
+     * Asks the PC for a picture of a session's window; it arrives in [peeks].
+     * The last picture stays up meanwhile. False when not connected right now.
+     */
+    fun peek(session: String): Boolean {
+        if (_state.value !is State.Connected) return false
+        val asked = SystemClock.elapsedRealtime()
+        _peeks.update { m ->
+            val shown = when (val p = m[session]) {
+                is Peek.Ready -> p
+                is Peek.Loading -> p.previous
+                else -> null
+            }
+            m + (session to Peek.Loading(asked, shown))
+        }
+        scope.launch { send(Protocol.peek(session)) }
+        scope.launch {
+            delay(PEEK_WAIT_MS)
+            _peeks.update { m ->
+                val p = m[session]
+                if (p is Peek.Loading && p.since == asked) {
+                    m + (session to Peek.Failed("No picture came. The PC may need Desk Companion 0.15 or newer, with Peek on in Settings → Phone."))
+                } else m
+            }
+        }
+        return true
+    }
+
+    /** One piece of a picture (or why there's none) from the PC. */
+    private fun onPeek(m: Protocol.FromPc.Peek) {
+        if (m.error != null) {
+            pieces.drop(m.session)
+            _peeks.update { it + (m.session to Peek.Failed(m.error)) }
+            return
+        }
+        val picture = pieces.add(m) ?: return
+        val image = BitmapFactory.decodeByteArray(picture.jpeg, 0, picture.jpeg.size)
+        val next = if (image != null) Peek.Ready(image, picture.title, picture.at) else Peek.Failed("The picture didn't come through. Try again.")
+        _peeks.update { it + (m.session to next) }
     }
 
     /** Away mode changed in Settings: the PC holds finished turns only for a phone that wants it. */
@@ -272,6 +323,7 @@ object LinkHub {
                     }
                     is Protocol.FromPc.Sessions -> onSessions(m.sessions)
                     is Protocol.FromPc.Character -> showCharacter(m.id, m.look, m.theme, m.outfit)
+                    is Protocol.FromPc.Peek -> onPeek(m)
                     is Protocol.FromPc.Error -> {
                         if (m.code == "token") return true
                         throw IOException(m.message.ifEmpty { m.code })

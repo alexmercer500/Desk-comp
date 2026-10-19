@@ -80,6 +80,8 @@ pub struct Prefs {
     pub phone_link: bool,
     /// Also reach the phone through the internet relay (phone/relay.rs) when it isn't on this network.
     pub phone_relay: bool,
+    /// Let a linked phone ask for a picture of an agent session's window (peek.rs).
+    pub phone_peek: bool,
     /// The relay's address (`https://…workers.dev`); "" uses the one built in, if any.
     pub relay_url: String,
     /// "Not now" on the Activity tab's card that offers to connect the agents found.
@@ -122,6 +124,7 @@ impl Default for Prefs {
             phone_link: false,
             // On when this copy was built with a relay (it's used only while the phone link is on).
             phone_relay: crate::phone::built_in_relay().is_some(),
+            phone_peek: true,
             relay_url: String::new(),
             agent_setup_dismissed: false,
             ui_theme: "character".into(),

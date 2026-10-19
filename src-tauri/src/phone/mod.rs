@@ -107,6 +107,46 @@ impl Host for AppHost {
     fn relay(&self) -> Option<String> {
         relay_url(&self.0)
     }
+    fn peek(&self, session: &str) -> tokio::sync::oneshot::Receiver<Vec<String>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let app = self.0.clone();
+        let session = session.to_string();
+        // Which window: the session's processes and project, as the page last listed them.
+        let found = app
+            .state::<PhoneLink>()
+            .list
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_array()
+            .and_then(|list| list.iter().find(|s| s.get("id").and_then(Value::as_str) == Some(session.as_str())).cloned());
+        if !crate::system::current(&app).phone_peek {
+            let _ = tx.send(vec![proto::peek_failed(&session, "Peek is off on the PC (Settings → Phone)")]);
+            return rx;
+        }
+        let Some(found) = found else {
+            let _ = tx.send(vec![proto::peek_failed(&session, "That session isn't on the PC any more")]);
+            return rx;
+        };
+        let procs: Vec<u32> = found.get("procs").and_then(Value::as_array).map(|a| a.iter().filter_map(|p| p.as_u64()).map(|p| p as u32).collect()).unwrap_or_default();
+        let project = found.get("project").and_then(Value::as_str).unwrap_or_default().to_string();
+        if procs.is_empty() {
+            let _ = tx.send(vec![proto::peek_failed(&session, "The PC doesn't know this session's window yet")]);
+            return rx;
+        }
+        tauri::async_runtime::spawn_blocking(move || {
+            let lines = match crate::peek::capture(&procs, &project) {
+                Ok(shot) => {
+                    // Someone at the PC should know their screen was looked at.
+                    let _ = app.emit_to(crate::desktop::LABEL, "phone:peeked", &shot.title);
+                    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+                    proto::peek(&session, &shot.jpeg, shot.width, shot.height, &shot.title, at)
+                }
+                Err(reason) => vec![proto::peek_failed(&session, &reason)],
+            };
+            let _ = tx.send(lines);
+        });
+        rx
+    }
     fn phones_changed(&self) {
         let _ = self.0.emit("phone-status", status_of(&self.0));
     }
@@ -167,8 +207,12 @@ fn publish(link: &PhoneLink) -> Result<(), String> {
         let holds = link.holds.lock().unwrap_or_else(|e| e.into_inner());
         for s in list.as_array_mut().into_iter().flatten() {
             let held = s.get("id").and_then(Value::as_str).and_then(|id| holds.get(id)).cloned();
-            if let (Some((rid, until)), Some(o)) = (held, s.as_object_mut()) {
-                o.insert("reply".into(), serde_json::json!({ "rid": rid, "until": until }));
+            if let Some(o) = s.as_object_mut() {
+                // For finding the window to peek at, here only: never sent.
+                o.remove("procs");
+                if let Some((rid, until)) = held {
+                    o.insert("reply".into(), serde_json::json!({ "rid": rid, "until": until }));
+                }
             }
         }
     }

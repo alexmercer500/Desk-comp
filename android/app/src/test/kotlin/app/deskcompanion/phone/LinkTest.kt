@@ -1,6 +1,7 @@
 package app.deskcompanion.phone
 
 import app.deskcompanion.phone.link.Pairing
+import app.deskcompanion.phone.link.PeekPieces
 import app.deskcompanion.phone.link.Protocol
 import app.deskcompanion.phone.model.Status
 import org.json.JSONObject
@@ -120,6 +121,30 @@ class LinkTest {
         assertEquals(Status.Done, m.sessions[1].status)
         assertNull(m.sessions[1].approval)
         assertNull(m.sessions[1].ask)
+    }
+
+    @Test
+    fun aPeekArrivesInPiecesAndIsPutBackTogether() {
+        assertEquals("""{"t":"peek","session":"s1"}""" + "\n", Protocol.peek("s1"))
+        val jpeg = ByteArray(1000) { (it * 7).toByte() }
+        val b64 = java.util.Base64.getEncoder().encodeToString(jpeg)
+        val first = Protocol.parse("""{"t":"peek","session":"s1","part":0,"parts":2,"data":"${b64.take(600)}","width":4,"height":2,"title":"VS Code","at":5}""") as Protocol.FromPc.Peek
+        val second = Protocol.parse("""{"t":"peek","session":"s1","part":1,"parts":2,"data":"${b64.drop(600)}"}""") as Protocol.FromPc.Peek
+        assertEquals("VS Code", first.title)
+        val p = PeekPieces()
+        assertNull("not complete yet", p.add(first))
+        val done = p.add(second)!!
+        assertTrue(jpeg.contentEquals(done.jpeg))
+        assertEquals("VS Code", done.title)
+        assertEquals(5L, done.at)
+        // A piece with nothing started, or out of range, goes nowhere.
+        assertNull(PeekPieces().add(second))
+        assertNull(p.add(first.copy(part = 3)))
+        assertNull(p.add(first.copy(parts = PeekPieces.MAX_PARTS + 1)))
+        // Why there's no picture.
+        val failed = Protocol.parse("""{"t":"peek","session":"s1","error":"It's minimized"}""") as Protocol.FromPc.Peek
+        assertEquals("It's minimized", failed.error)
+        assertNull("no session, no message", Protocol.parse("""{"t":"peek","error":"x"}"""))
     }
 
     @Test

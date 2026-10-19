@@ -9,6 +9,18 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.15.0 (19 October 2026, Android 0.5.0)
+
+- **Peek: see an agent's window from your phone.** Open a session on the phone and tap **Peek at its window**: you get a picture of that agent's window on your PC (VS Code, a terminal), even when other windows cover it. Pinch or double-tap to zoom, Refresh for a new one. It's for the things the phone can't show on its own, like Command Code's permission prompts in VS Code: now you can at least read what it's asking.
+  - Only that one window, never your whole screen, and one picture per tap. Nothing is kept on the PC.
+  - Your PC shows a short notice each time ("Your phone took a look at …"), so nobody is looked at without knowing.
+  - Works over your Wi-Fi and through the relay, encrypted like everything else on the link.
+  - A minimized window can't be pictured: the phone says so (restore it on the PC).
+  - Switch it off in Settings → Phone → "Peek from the phone".
+  - Needs both apps updated (PC 0.15.0, phone 0.5.0).
+
+0.14.0 was never released on its own: its changes (Command Code in VS Code, below) come with this version.
+
 ## 0.14.0 (19 October 2026, Android 0.4.5)
 
 Command Code's chat in VS Code, on the PC and on your phone:

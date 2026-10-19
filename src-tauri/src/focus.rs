@@ -11,6 +11,9 @@ pub async fn focus_session(procs: Vec<u32>, project: String) -> Result<bool, Str
 }
 
 #[cfg(windows)]
+pub(crate) use imp::find as find_window;
+
+#[cfg(windows)]
 mod imp {
     /// A window handle, declared as in system.rs (the same functions are linked there).
     type Hwnd = isize;
@@ -58,16 +61,21 @@ mod imp {
         1
     }
 
-    pub fn focus(procs: &[u32], project: &str) -> bool {
+    /// The session's window (see the top of this file) and its title.
+    pub fn find(procs: &[u32], project: &str) -> Option<(Hwnd, String)> {
         let mut windows: Vec<Window> = Vec::new();
         // SAFETY: the callback only touches `windows` through the pointer, during this call.
         unsafe { EnumWindows(collect, &mut windows as *mut Vec<Window> as isize) };
         let project = project.to_lowercase();
-        let Some(target) = procs.iter().find_map(|pid| {
+        procs.iter().find_map(|pid| {
             let mine: Vec<&Window> = windows.iter().filter(|w| w.pid == *pid).collect();
             let named = (!project.is_empty()).then(|| mine.iter().find(|w| w.title.to_lowercase().contains(&project))).flatten();
-            named.or(mine.first()).map(|w| w.hwnd)
-        }) else {
+            named.or(mine.first()).map(|w| (w.hwnd, w.title.clone()))
+        })
+    }
+
+    pub fn focus(procs: &[u32], project: &str) -> bool {
+        let Some((target, _)) = find(procs, project) else {
             return false;
         };
         // SAFETY: plain calls on a live top-level window handle.

@@ -43,6 +43,7 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
 | `reply` | `rid`, `text` | a further prompt for a held turn (`reply` on its session), up to 4000 characters; line breaks allowed |
 | `away` | `on` | away mode switched on the phone |
 | `character` | `id`, `look`?, `theme`? | the user picked a character on the phone (Rui's look and colour only for Rui). The PC checks the names against its own lists; unknown ones change nothing |
+| `peek` | `session` | a picture of that session's window, please (Peek). At most one every 1.5 s per phone |
 | `ping` | | every 25 s; the PC drops a phone silent for 90 s |
 
 ### PC → phone
@@ -54,6 +55,7 @@ TCP + TLS, one JSON object per line (UTF-8, `\n`), at most 64 KiB per line. Ever
 | `sessions` | `sessions`: [Session] | the whole list, sent on connect and whenever it changes |
 | `decided` | `rid`, `ok` | answer to `decision`, `answer` or `reply`: `ok` false when the request was already gone (answered elsewhere, timed out, no longer held) |
 | `character` | `id`, `look`, `theme` | the character in use on the PC, sent after `welcome` and whenever it changes (from either side) |
+| `peek` | `session`, `part`, `parts`, `data`; on part 0 also `width`, `height`, `title`, `at` | a picture of the session's window: a JPEG in base64, split into `parts` lines of at most 48 KiB of `data` each (so every line fits the 64 KiB limit and a relay frame). Or `session`, `error`: why there's no picture (minimized, not found, Peek off) |
 | `pong` | | |
 
 ### Session
@@ -86,6 +88,10 @@ Answers to a question go the same way; the relay checks each against what was as
 ## Replies
 
 Claude Code's Stop hook asks the app whether to hold the finished turn. It holds only when the link is on, answering from the companion is on, and a signed-in phone has away mode on (away mode is the user saying they're away; the PC doesn't wait to go idle first). A held turn waits up to 290 s. It ends at once when someone uses the PC, when no away phone is left, or when the relay gives up. A `reply` goes back as Claude Code's Stop output, `{"decision":"block","reason":"The user replied from their phone: …"}`, and Claude carries on with it. Without a reply the turn ends as if nothing happened.
+
+## Peek
+
+A `peek` asks for a picture of one session's window. The PC finds that window the way "Show window" does (the relay's parent processes, the project's name in the title), has Windows draw just that window (it works when other windows cover it; a minimized one is reported, not restored), scales it to at most 1600 × 1600 and sends it as a JPEG under 600 KB. Only that window, never the whole screen; nothing is kept. Each picture shows a short notice on the PC ("Your phone took a look at …"). Settings → Phone → "Peek from the phone" turns it off (on by default while the link is on). The page sends each session's `procs` with its list for this; the PC removes them before the list goes to phones.
 
 ## Finding the PC again
 

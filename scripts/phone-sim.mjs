@@ -10,6 +10,8 @@
 //   node scripts/phone-sim.mjs "<pairing link>" --away --reply "Now add a test"
 //                                                                 reply to the first held turn
 //   node scripts/phone-sim.mjs "<pairing link>" --answer "Blue"    answer the first question (every item)
+//   node scripts/phone-sim.mjs "<pairing link>" --peek SESSION --out shot.jpg
+//                                                                 a picture of that session's window (Peek)
 //
 // Options: --decide allow|deny, --seen (report requests as shown), --token X,
 // --host H (instead of the link's first), --quit-after N (seconds), --away
@@ -20,6 +22,7 @@
 
 import tls from "node:tls";
 import crypto from "node:crypto";
+import fs from "node:fs";
 
 const args = process.argv.slice(2);
 const opt = (name) => {
@@ -44,6 +47,8 @@ const quitAfter = Number(opt("--quit-after") ?? 0);
 const reply = opt("--reply");
 const answer = opt("--answer");
 const character = opt("--character");
+const peekSession = opt("--peek");
+const peekOut = opt("--out") ?? "peek.jpg";
 const away = args.includes("--away") || Boolean(reply);
 const viaRelay = args.includes("--relay");
 
@@ -182,8 +187,32 @@ function relayLink() {
 }
 
 const answered = new Set();
+let peekAsked = false;
+let peekParts = [];
 onLine = (line) => {
   const m = JSON.parse(line);
+  if (m.t === "peek") {
+    if (m.error) {
+      console.log(`peek: no picture: ${m.error}`);
+      process.exitCode = 5;
+      return;
+    }
+    if (m.part === 0) {
+      peekParts = new Array(m.parts);
+      console.log(`peek: "${m.title}" ${m.width}x${m.height}, ${m.parts} piece(s)`);
+    }
+    peekParts[m.part] = m.data;
+    if (peekParts.every((x) => typeof x === "string")) {
+      const jpeg = Buffer.from(peekParts.join(""), "base64");
+      fs.writeFileSync(peekOut, jpeg);
+      console.log(`peek: saved ${jpeg.length} bytes to ${peekOut}`);
+    }
+    return;
+  }
+  if (m.t === "sessions" && peekSession && !peekAsked) {
+    peekAsked = true;
+    send({ t: "peek", session: peekSession });
+  }
   if (m.t === "sessions") {
     console.log(`sessions (${m.sessions.length}):`);
     for (const s of m.sessions) {

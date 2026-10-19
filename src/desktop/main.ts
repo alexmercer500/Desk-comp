@@ -589,6 +589,10 @@ void listen<{ rid: string; decision: Decision }>("phone:decided", ({ payload }) 
 void listen<string>("phone:answered", ({ payload }) => {
   if (agents.answered(payload)) c.acknowledge();
 });
+// A phone took a picture of an agent's window (Peek): say so, so nobody is looked at unawares.
+void listen<string>("phone:peeked", ({ payload }) => {
+  bubble.show({ id: "notice:peek", category: "notice", title: "Phone", text: `Your phone took a look at ${payload || "an agent's window"}`, kind: "info", ms: 4000 });
+});
 // Timers run out (bubbles, hover) without an event of their own.
 window.setInterval(refreshIsland, 1000);
 

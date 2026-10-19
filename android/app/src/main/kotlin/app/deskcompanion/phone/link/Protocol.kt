@@ -38,6 +38,8 @@ object Protocol {
         return line(o)
     }
     fun away(on: Boolean) = line(JSONObject().put("t", "away").put("on", on))
+    /** A picture of this session's window, please (Peek). */
+    fun peek(session: String) = line(JSONObject().put("t", "peek").put("session", session))
     fun ping() = line(JSONObject().put("t", "ping"))
 
     private fun line(o: JSONObject) = o.toString() + "\n"
@@ -51,6 +53,20 @@ object Protocol {
         data class Decided(val rid: String, val ok: Boolean) : FromPc
         /** The character the PC shows (and Rui's look and colour). */
         data class Character(val id: String, val look: String?, val theme: String?, val outfit: String? = null) : FromPc
+        /**
+         * A piece of a window's picture (base64 JPEG, `part` of `parts`; the
+         * first also carries its title and when it was taken), or, with
+         * `error`, why there's none.
+         */
+        data class Peek(
+            val session: String,
+            val part: Int = 0,
+            val parts: Int = 0,
+            val data: String = "",
+            val title: String = "",
+            val at: Long = 0,
+            val error: String? = null,
+        ) : FromPc
         data object Pong : FromPc
         /** A newer PC's message: ignored. */
         data object Other : FromPc
@@ -74,6 +90,15 @@ object Protocol {
             "sessions" -> FromPc.Sessions(sessions(o.optJSONArray("sessions") ?: JSONArray()))
             "decided" -> FromPc.Decided(o.optString("rid"), o.optBoolean("ok", false))
             "character" -> FromPc.Character(o.optString("id"), o.optStringOrNull("look"), o.optStringOrNull("theme"), o.optStringOrNull("outfit"))
+            "peek" -> FromPc.Peek(
+                session = o.optString("session").ifEmpty { return null },
+                part = o.optInt("part", -1),
+                parts = o.optInt("parts", 0),
+                data = o.optString("data"),
+                title = o.optString("title"),
+                at = o.optLong("at"),
+                error = o.optStringOrNull("error"),
+            )
             "pong" -> FromPc.Pong
             "" -> null
             else -> FromPc.Other

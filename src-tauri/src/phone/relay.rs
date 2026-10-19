@@ -565,6 +565,24 @@ mod tests {
             Some("https://r.example".into())
         }
         fn phones_changed(&self) {}
+        fn peek(&self, session: &str) -> tokio::sync::oneshot::Receiver<Vec<String>> {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = tx.send(vec![proto::peek_failed(session, "no window")]);
+            rx
+        }
+    }
+
+    #[test]
+    fn the_biggest_picture_fits_the_relay_piece_by_piece() {
+        let k = Keys::derive(TOKEN).unwrap();
+        let jpeg: Vec<u8> = (0..600 * 1024).map(|i| (i * 31 % 251) as u8).collect();
+        let lines = proto::peek("session-with-a-long-id-0123456789", &jpeg, 1600, 900, &"t".repeat(300), 1);
+        assert!(lines.len() > 1);
+        for line in &lines {
+            assert!(line.len() < proto::MAX_LINE, "a line the phone reads");
+            let d = k.seal_to_phone(&Header { kind: DATA, from: [1; SESSION], to: [2; SESSION], seq: 9 }, line.as_bytes()).unwrap();
+            assert!(d.len() + 64 < MAX_FRAME_TEXT, "{} of {MAX_FRAME_TEXT}", d.len());
+        }
     }
 
     /// The next message the PC sends the relay, opened as the phone would.

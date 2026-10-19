@@ -49,6 +49,7 @@ import app.deskcompanion.phone.ui.DeskTheme
 import app.deskcompanion.phone.ui.HomeScreen
 import app.deskcompanion.phone.ui.NavBar
 import app.deskcompanion.phone.ui.PairScreen
+import app.deskcompanion.phone.ui.PeekScreen
 import app.deskcompanion.phone.ui.QuestionSheet
 import app.deskcompanion.phone.ui.SessionScreen
 import app.deskcompanion.phone.ui.SettingsScreen
@@ -101,9 +102,12 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
     val state = remember { AppState() }
     val link by LinkHub.state.collectAsState()
     val liveSessions by LinkHub.sessions.collectAsState()
+    val peeks by LinkHub.peeks.collectAsState()
     var tab by remember { mutableStateOf(Tab.Home) }
     var openId by remember { mutableStateOf<String?>(null) }
     var reviewId by remember { mutableStateOf<String?>(null) }
+    /** The session whose window is being peeked at (over its session screen). */
+    var peekId by remember { mutableStateOf<String?>(null) }
     var pairing by remember { mutableStateOf(false) }
     val padding = WindowInsets.systemBars.asPaddingValues()
 
@@ -149,9 +153,10 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
         if (state.live && state.requireUnlockForAllow) Unlock.ask(ctx as FragmentActivity, title, action) else action()
     }
 
-    BackHandler(enabled = reviewId == null && (pairing || openId != null || tab != Tab.Home)) {
+    BackHandler(enabled = reviewId == null && (pairing || peekId != null || openId != null || tab != Tab.Home)) {
         when {
             pairing -> { pairing = false; incomingPairing.value = null }
+            peekId != null -> peekId = null
             openId != null -> openId = null
             else -> tab = Tab.Home
         }
@@ -173,6 +178,16 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                 onBack = { pairing = false; incomingPairing.value = null },
                 padding = padding,
             )
+            peekId != null -> {
+                val id = peekId!!
+                PeekScreen(
+                    project = state.session(id)?.project ?: "Peek",
+                    peek = peeks[id],
+                    onRefresh = { if (!LinkHub.peek(id)) notConnected() },
+                    onBack = { peekId = null },
+                    padding = padding,
+                )
+            }
             open != null -> SessionScreen(
                 state, open,
                 onBack = { openId = null },
@@ -180,6 +195,9 @@ private fun App(incomingPairing: MutableState<Pairing?>, incomingReview: Mutable
                 onReply = { id, text, sent ->
                     protect("Send your reply?") { if (state.reply(id, text)) sent() else notConnected() }
                 },
+                onPeek = if (state.live && link is LinkHub.State.Connected) {
+                    { id -> if (LinkHub.peek(id)) peekId = id else notConnected() }
+                } else null,
                 padding = padding,
             )
             else -> {

@@ -45,6 +45,7 @@ interface Prefs {
   ruiFlatOnBattery: boolean;
   phoneLink: boolean;
   phoneRelay: boolean;
+  phonePeek: boolean;
   relayUrl: string;
 }
 
@@ -459,6 +460,11 @@ function build() {
       "Link a phone",
       "Desk Companion for Android: see your agents and Allow / Deny from your phone, over your own Wi-Fi (or your phone's hotspot).",
     ),
+    switchRow(
+      "phonePeek",
+      "Peek from the phone",
+      "Lets the phone ask for a picture of an agent's window (only that window, one picture per tap) so you can see what it's asking. A notice here says each time it happens.",
+    ),
     phoneBox,
     relayBox,
   );
@@ -713,6 +719,8 @@ function fill(s: Settings, ask: AskStatus) {
   builtIn.textContent = s.builtInRelay ? `Empty uses the relay built into this copy (${s.builtInRelay}). Paste another to use your own.` : "";
   builtIn.hidden = !s.builtInRelay;
   (controls.get("phoneRelay") as HTMLInputElement).disabled = !p.relayUrl && !s.builtInRelay && !p.phoneRelay;
+
+  (controls.get("phonePeek") as HTMLInputElement).disabled = !p.phoneLink;
 
   // Answering from here only makes sense while permission requests show here.
   (controls.get("answerPermissions") as HTMLInputElement).disabled = !p.notifyPermission;

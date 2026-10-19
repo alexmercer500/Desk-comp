@@ -99,7 +99,15 @@ pub trait Host: Send + Sync + 'static {
     fn relay(&self) -> Option<String>;
     /// The list of phones changed.
     fn phones_changed(&self);
+    /// A picture of a session's window (peek.rs), as the lines to send this
+    /// phone: the picture in pieces, or one line saying why there's none.
+    fn peek(&self, session: &str) -> tokio::sync::oneshot::Receiver<Vec<String>>;
 }
+
+/// Least time between two peeks from one phone (each one draws a window and sends a picture).
+const PEEK_EVERY: Duration = Duration::from_millis(1500);
+/// Longest wait for a picture before telling the phone it didn't come.
+const PEEK_WAIT: Duration = Duration::from_secs(10);
 
 pub fn tls(id: &Identity) -> Result<TlsAcceptor, String> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -207,6 +215,7 @@ where
         && send(&mut write, &look).await.is_ok()
         && send(&mut write, &first).await.is_ok();
     let mut deadline = tokio::time::Instant::now() + proto::IDLE_LIMIT;
+    let mut last_peek: Option<tokio::time::Instant> = None;
     while ok {
         tokio::select! {
             line = rx.recv() => {
@@ -231,6 +240,22 @@ where
                         // The change comes back to every phone through the `character` channel.
                         host.set_character(&id, look.as_deref(), theme.as_deref(), outfit.as_deref());
                         None
+                    }
+                    Ok(FromPhone::Peek { session }) => {
+                        let now = tokio::time::Instant::now();
+                        if last_peek.is_some_and(|t| now - t < PEEK_EVERY) {
+                            Some(proto::peek_failed(&session, "Just a moment: one peek at a time"))
+                        } else {
+                            last_peek = Some(now);
+                            let lines = match tokio::time::timeout(PEEK_WAIT, host.peek(&session)).await {
+                                Ok(Ok(lines)) => lines,
+                                _ => vec![proto::peek_failed(&session, "The PC took too long to take the picture")],
+                            };
+                            for line in &lines {
+                                ok = ok && send(&mut write, line).await.is_ok();
+                            }
+                            None
+                        }
                     }
                     Ok(FromPhone::Away { on }) => {
                         let mut phones = shared.phones.lock().unwrap_or_else(|e| e.into_inner());
@@ -358,6 +383,11 @@ mod tests {
             Some("https://r.example.workers.dev".into())
         }
         fn phones_changed(&self) {}
+        fn peek(&self, session: &str) -> tokio::sync::oneshot::Receiver<Vec<String>> {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let _ = tx.send(if session == "s1" { proto::peek("s1", &[0xFF, 0xD8, 1, 2], 2, 1, "VS Code", 5) } else { vec![proto::peek_failed(session, "no such session")] });
+            rx
+        }
     }
 
     async fn read_line<R: AsyncBufRead + Unpin>(r: &mut R) -> serde_json::Value {
@@ -431,6 +461,35 @@ mod tests {
             assert_eq!(read_line(&mut r).await["code"], "token");
             task.await.unwrap();
             assert!(shared.phones().is_empty());
+        });
+    }
+
+    #[test]
+    fn a_peek_goes_back_to_the_phone_that_asked_one_at_a_time() {
+        rt().block_on(async {
+            let shared = Shared::new();
+            let host = Arc::new(FakeHost::default());
+            let (phone, pc) = duplex(64 * 1024);
+            let (s, h) = (shared.clone(), host.clone());
+            let task = tokio::spawn(async move { connection(pc, "192.168.1.9".into(), "secret", "PC", &s, h.as_ref()).await });
+            let (r, mut w) = tokio::io::split(phone);
+            let mut r = BufReader::new(r);
+            w.write_all(b"{\"t\":\"hello\",\"v\":1,\"token\":\"secret\",\"device\":\"Pixel\"}\n").await.unwrap();
+            for _ in 0..3 {
+                read_line(&mut r).await; // welcome, character, sessions
+            }
+            w.write_all(b"{\"t\":\"peek\",\"session\":\"s1\"}\n").await.unwrap();
+            let p = read_line(&mut r).await;
+            assert_eq!((p["t"].as_str(), p["session"].as_str(), p["part"].as_u64(), p["parts"].as_u64()), (Some("peek"), Some("s1"), Some(0), Some(1)));
+            assert_eq!((p["title"].as_str(), p["width"].as_u64()), (Some("VS Code"), Some(2)));
+            assert_eq!(p["data"], "/9gBAg==");
+            // Straight after: refused, not drawn again.
+            w.write_all(b"{\"t\":\"peek\",\"session\":\"s1\"}\n").await.unwrap();
+            let again = read_line(&mut r).await;
+            assert_eq!(again["error"], "Just a moment: one peek at a time");
+            shared.kick_all();
+            assert_eq!(read_line(&mut r).await["code"], "token");
+            task.await.unwrap();
         });
     }
 

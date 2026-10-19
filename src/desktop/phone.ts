@@ -22,6 +22,11 @@ export interface PhoneSession {
   updatedAt: number;
   /** Present only while Allow / Deny can be sent for it. */
   approval: { rid: string; tool: string; action: string; detail: string; canAlways: boolean } | null;
+  /**
+   * The session's processes, for finding its window when a phone peeks
+   * (peek.rs). The PC keeps these; they're never sent to the phone.
+   */
+  procs: number[];
   /** Claude's question card, while it can be answered from here. */
   question: { rid: string; questions: PhoneQuestion[] } | null;
   /**
@@ -97,6 +102,7 @@ export function phoneView(sessions: SessionView[]): PhoneSession[] {
         return { path: clip(path, 300), add: c?.add ?? 0, del: c?.del ?? 0 };
       }),
       updatedAt: s.lastEvent,
+      procs: s.procs,
       approval: p && p.rid && !p.questions
         ? { rid: p.rid, tool: p.tool, action: p.action, detail: clip(p.detail ?? "", 2000), canAlways: p.canAlways }
         : null,

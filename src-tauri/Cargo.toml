@@ -1,6 +1,6 @@
 [package]
 name = "desk-companion"
-version = "0.14.0"
+version = "0.15.0"
 description = "A small character that lives in the corner of your desktop"
 edition = "2021"
 
@@ -42,3 +42,5 @@ tokio-tungstenite = { version = "0.24", default-features = false, features = ["c
 rustls-platform-verifier = "0.7"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 tauri-plugin-global-shortcut = "2"
+# Peek (peek.rs): the agent's window as a JPEG for the phone. Pure Rust, no other dependencies.
+jpeg-encoder = "0.6"

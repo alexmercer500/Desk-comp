@@ -56,6 +56,8 @@ fun SessionScreen(
     onReview: (String) -> Unit,
     /** Sends a reply; calls `sent` once it's on its way (after the fingerprint check, if any). */
     onReply: (id: String, text: String, sent: () -> Unit) -> Unit,
+    /** Peek at its window on the PC; null when that can't be done right now (not linked). */
+    onPeek: ((String) -> Unit)?,
     padding: PaddingValues,
 ) {
     val c = Desk.colors
@@ -82,6 +84,16 @@ fun SessionScreen(
                 }
             }
             item { StatusCard(s, onReview) }
+            if (onPeek != null) {
+                item {
+                    PillButton(
+                        "Peek at its window",
+                        onClick = { onPeek(s.id) },
+                        filled = false,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
             if (s.ask != null) {
                 item { AskSection(s.ask, canReply = state.canReply(s)) }
             }

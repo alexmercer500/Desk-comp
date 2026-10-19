@@ -4,6 +4,7 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
+use base64::Engine;
 use serde_json::{json, Value};
 
 pub const VERSION: u64 = 1;
@@ -44,6 +45,8 @@ pub enum FromPhone {
     Away { on: bool },
     /// The user picked a character on the phone (Rui's look and colour, Dogesh Bhai's outfit, only for them).
     Character { id: String, look: Option<String>, theme: Option<String>, outfit: Option<String> },
+    /// A picture of this session's window, please (peek.rs).
+    Peek { session: String },
     Ping,
     /// A type this version doesn't know (a newer phone): ignored.
     Other,
@@ -103,6 +106,7 @@ pub fn parse(line: &str) -> Result<FromPhone, &'static str> {
                 outfit: name("outfit").map(str::to_string),
             })
         }
+        Some("peek") => Ok(FromPhone::Peek { session: request_id(text("session"))? }),
         Some("away") => Ok(FromPhone::Away { on: o.get("on").and_then(Value::as_bool).ok_or("away without on")? }),
         Some("ping") => Ok(FromPhone::Ping),
         Some(_) => Ok(FromPhone::Other),
@@ -271,6 +275,37 @@ pub fn character(id: &str, look: &str, theme: &str, outfit: &str) -> String {
     line(json!({ "t": "character", "id": id, "look": look, "theme": theme, "outfit": outfit }))
 }
 
+/// Base64 characters per piece of a picture: a piece's line stays well under
+/// MAX_LINE (and the relay's frame, which carries it encrypted).
+pub const PEEK_PIECE: usize = 48 * 1024;
+
+/// A window's picture for the phone, as lines: the JPEG in base64, in pieces
+/// (`part` of `parts`); the first also says its size, the window's title and when.
+pub fn peek(session: &str, jpeg: &[u8], width: usize, height: usize, title: &str, at: u64) -> Vec<String> {
+    let data = base64::engine::general_purpose::STANDARD.encode(jpeg);
+    let pieces: Vec<&str> = data.as_bytes().chunks(PEEK_PIECE).map(|c| std::str::from_utf8(c).unwrap_or_default()).collect();
+    let parts = pieces.len();
+    pieces
+        .iter()
+        .enumerate()
+        .map(|(i, piece)| {
+            let mut o = json!({ "t": "peek", "session": session, "part": i, "parts": parts, "data": piece });
+            if i == 0 {
+                o["width"] = json!(width);
+                o["height"] = json!(height);
+                o["title"] = json!(title.chars().take(200).collect::<String>());
+                o["at"] = json!(at);
+            }
+            line(o)
+        })
+        .collect()
+}
+
+/// No picture of that session's window, and why (words for the phone to show).
+pub fn peek_failed(session: &str, reason: &str) -> String {
+    line(json!({ "t": "peek", "session": session, "error": reason }))
+}
+
 pub fn pong() -> String {
     line(json!({ "t": "pong" }))
 }
@@ -323,6 +358,9 @@ mod tests {
         assert_eq!(parse(r#"{"t":"decision","rid":"s:1:2","decision":"deny"}"#), Ok(FromPhone::Decision { rid: "s:1:2".into(), allow: false }));
         assert_eq!(parse(r#"{"t":"seen","rid":"x"}"#), Ok(FromPhone::Seen { rid: "x".into() }));
         assert_eq!(parse(r#"{"t":"ping"}"#), Ok(FromPhone::Ping));
+        assert_eq!(parse(r#"{"t":"peek","session":"cc:1"}"#), Ok(FromPhone::Peek { session: "cc:1".into() }));
+        assert!(parse(r#"{"t":"peek"}"#).is_err());
+        assert!(parse(r#"{"t":"peek","session":""}"#).is_err());
         assert_eq!(parse(r#"{"t":"something-new","x":1}"#), Ok(FromPhone::Other));
         for bad in [
             "",

@@ -7,6 +7,7 @@ mod assistant;
 mod connections;
 mod desktop;
 mod focus;
+mod peek;
 mod phone;
 mod placement;
 mod secrets;
