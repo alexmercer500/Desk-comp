@@ -179,6 +179,9 @@ interface Particle {
 
 // ── The character ─────────────────────────────────────────────────────────────
 
+/** Every particle's ball, shared (each burst used to make its own and never free it). */
+const PARTICLE = new THREE.SphereGeometry(1, 10, 8);
+
 export class Dogesh {
   readonly root = new THREE.Group();
   /** Furthest he may walk from the centre, set by the stage. */
@@ -980,9 +983,8 @@ export class Dogesh {
   private burst(
     at: THREE.Vector3, count: number, color: string, size: number, speed: number, gravity: number, toward?: THREE.Vector3,
   ): void {
-    const geo = new THREE.SphereGeometry(1, 10, 8);
     for (let i = 0; i < count; i++) {
-      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true }));
+      const mesh = new THREE.Mesh(PARTICLE, new THREE.MeshBasicMaterial({ color, transparent: true }));
       mesh.position.copy(at);
       mesh.scale.setScalar(size * (0.6 + Math.random() * 0.6));
       const a = Math.random() * Math.PI * 2;

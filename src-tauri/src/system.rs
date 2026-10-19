@@ -343,6 +343,31 @@ pub async fn set_autostart(app: AppHandle, on: bool) -> Result<(), String> {
     result
 }
 
+// ── Locked ────────────────────────────────────────────────────────────────────
+
+/// Whether this PC is locked, from one reading every POLL. Locked only after
+/// two readings in a row say so, and never while someone is giving it input:
+/// a wrong "locked" would stop him drawing in front of them. Unlocked at the
+/// first reading that says so.
+#[derive(Default)]
+struct Lock {
+    locked: bool,
+    readings: u8,
+}
+
+impl Lock {
+    /// One reading; Some(new state) when it changed.
+    fn poll(&mut self, input_desktop_locked: bool, idle_secs: Option<u64>) -> Option<bool> {
+        let quiet = idle_secs.is_some_and(|s| s >= 2);
+        self.readings = if input_desktop_locked && quiet { self.readings.saturating_add(1) } else { 0 };
+        let locked = self.readings >= 2;
+        (locked != self.locked).then(|| {
+            self.locked = locked;
+            locked
+        })
+    }
+}
+
 // ── Events ────────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Serialize)]
@@ -384,6 +409,7 @@ pub fn spawn(app: AppHandle) {
         let mut presence = Presence::default();
         let mut power = Power::default();
         let mut downloads = app.path().download_dir().ok().map(Downloads::new);
+        let mut lock = Lock::default();
         loop {
             let prefs = app.state::<PrefsState>().0.lock().map(|p| p.clone()).unwrap_or_default();
             let mut out = Vec::new();
@@ -408,6 +434,10 @@ pub fn spawn(app: AppHandle) {
                 let covered = desktop::character_center(&app)
                     .is_some_and(|c| win::fullscreen_display().is_some_and(|r| r.contains(c)));
                 desktop::set_hidden(&app, covered);
+            }
+            // Locked: nobody can see him, so the page stops drawing (and nothing else changes).
+            if let Some(locked) = lock.poll(win::input_desktop_locked(), win::idle_secs()) {
+                let _ = app.emit_to(desktop::LABEL, "locked", locked);
             }
             std::thread::sleep(POLL);
         }
@@ -690,6 +720,27 @@ mod win {
         fn GetSystemPowerStatus(status: *mut SystemPowerStatus) -> i32;
     }
 
+    #[link(name = "user32")]
+    extern "system" {
+        fn OpenInputDesktop(flags: u32, inherit: i32, access: u32) -> isize;
+        fn CloseDesktop(desktop: isize) -> i32;
+    }
+
+    /// The desktop that gets input isn't ours: the PC is locked (or showing
+    /// another secure screen, such as a UAC prompt). Either way nobody sees ours.
+    pub fn input_desktop_locked() -> bool {
+        const DESKTOP_SWITCHDESKTOP: u32 = 0x0100;
+        // SAFETY: plain call; a desktop handle it returns is closed right away.
+        unsafe {
+            let desktop = OpenInputDesktop(0, 0, DESKTOP_SWITCHDESKTOP);
+            if desktop == 0 {
+                return true;
+            }
+            CloseDesktop(desktop);
+            false
+        }
+    }
+
     /// Seconds since the last keyboard or mouse input, system-wide.
     pub fn idle_secs() -> Option<u64> {
         let mut info = LastInputInfo { cb_size: std::mem::size_of::<LastInputInfo>() as u32, dw_time: 0 };
@@ -745,12 +796,35 @@ mod win {
     pub fn battery() -> Option<Battery> {
         None
     }
+    pub fn input_desktop_locked() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn locked_only_after_two_quiet_readings_and_back_at_once() {
+        let mut l = Lock::default();
+        assert_eq!(l.poll(true, Some(5)), None, "one reading isn't enough");
+        assert_eq!(l.poll(true, Some(7)), Some(true));
+        assert_eq!(l.poll(true, Some(9)), None);
+        assert_eq!(l.poll(false, Some(0)), Some(false), "unlocked: at once");
+        // Someone at the PC: never "locked", whatever the reading says.
+        for _ in 0..5 {
+            assert_eq!(l.poll(true, Some(0)), None);
+        }
+        assert_eq!(l.poll(true, None), None, "no idle reading: not locked");
+        assert_eq!(l.poll(true, None), None);
+    }
+
+    #[test]
+    fn this_desktop_is_not_locked_while_the_tests_run() {
+        assert!(!win::input_desktop_locked());
+    }
 
     #[test]
     fn a_setting_changes_by_name() {

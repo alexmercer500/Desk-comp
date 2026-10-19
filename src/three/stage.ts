@@ -48,6 +48,8 @@ const SCENES: readonly string[] = [...CHANGE_STYLES, ...OUTFIT_CHANGES];
 const HEAD_DROP: Record<Who, number> = { rui: 0, dogesh: 0.1 };
 /** How long after he appears to build the change-colour props, so the first change doesn't stutter. */
 const PREWARM_AFTER_MS = 4000;
+/** While hidden, how often the loop looks in (it is woken at once when shown, setHidden). */
+const HIDDEN_CHECK_MS = 250;
 
 /** Behaviours that last until the state changes; leaving the state stops them. */
 const LASTING: ReadonlySet<string> = new Set(["work", "research", "run", "browse", "ponder", "shrug", "droop", "call", "doze", "nap", "rest", "held"]);
@@ -140,6 +142,10 @@ export class RuiStage {
   private running = false;
   private hidden = false;
   private raf = 0;
+  /** While hidden: the timer that looks in now and then instead of a frame at every screen refresh. */
+  private resting = 0;
+  /** The frame loop, to pick up again at once when shown. */
+  private frame: ((now: number) => void) | null = null;
   private last = 0;
   private resizer: ResizeObserver;
 
@@ -384,8 +390,18 @@ export class RuiStage {
     this.speed.start(this.last);
     const frame = (now: number) => {
       if (!this.running) return;
+      if (this.hidden) {
+        // Nothing to see: rest rather than wake at every screen refresh. setHidden(false) picks up at once.
+        this.last = now;
+        this.speed.pause(now);
+        this.resting = window.setTimeout(() => {
+          this.resting = 0;
+          if (this.running) this.raf = requestAnimationFrame(frame);
+        }, HIDDEN_CHECK_MS);
+        return;
+      }
       this.raf = requestAnimationFrame(frame);
-      if (this.hidden || this.warming) {
+      if (this.warming) {
         this.last = now;
         this.speed.pause(now);
         return;
@@ -404,6 +420,7 @@ export class RuiStage {
       this.trackStill(dt);
       if (this.speed.frame(now, fps, dt, performance.now() - t0)) this.onSlow?.();
     };
+    this.frame = frame;
     this.raf = requestAnimationFrame(frame);
   }
 
@@ -426,11 +443,21 @@ export class RuiStage {
   stop(): void {
     this.running = false;
     cancelAnimationFrame(this.raf);
+    window.clearTimeout(this.resting);
+    this.resting = 0;
   }
 
-  /** Nothing to see (the island is tucked away): no drawing, no updates. */
+  /** Nothing to see (the island is tucked away, the PC locked): no drawing, no updates. */
   setHidden(hidden: boolean): void {
     this.hidden = hidden;
+    if (hidden || !this.resting || !this.frame) return;
+    // Shown again: frames straight away, timed from now (as if it had been looking at every refresh).
+    window.clearTimeout(this.resting);
+    this.resting = 0;
+    const now = performance.now();
+    this.last = now;
+    this.speed.pause(now);
+    this.raf = requestAnimationFrame(this.frame);
   }
 
   dispose(): void {

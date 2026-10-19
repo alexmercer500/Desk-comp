@@ -9,6 +9,20 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.15.3 (19 October 2026, Android 0.5.3)
+
+Lighter on your PC, with nothing changed that you can see: the character looks and moves exactly as before, at the same frame rates.
+
+- **Nothing is drawn while your PC is locked.** The character picks up where it was the moment you unlock. Notifications, permission requests and replies from the phone work as before while it's locked.
+- **The 3D characters (Rui, Dogesh Bhai) rest while the island is tucked away**, instead of waking at every screen refresh to draw nothing. They're back at once when it opens.
+- **Following your cursor costs much less.** The character's eyes and dragging work the same, but the app no longer stops its main thread four times a step to ask where things are.
+- **Busy agents cost less.** Each event used to copy every session's tasks and diffs several times over; now once.
+- **Fixed: a small memory leak** in the 3D characters' sparkles and puffs.
+- The activity panel's animations wait while it's closed.
+- The installer is built with more optimisation.
+
+On the phone (Android 0.5.3): reading from the PC over Wi-Fi takes much less work, which helps most with Peek pictures.
+
 ## 0.15.2 (19 October 2026, Android 0.5.2)
 
 Replying from your phone works when you're near the PC too.

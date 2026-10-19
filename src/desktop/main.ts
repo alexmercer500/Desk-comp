@@ -136,7 +136,7 @@ async function use3d(who: Who3d | null) {
     if (who === "dogesh") stage.setOutfit(prefs.dogeshOutfit);
     stage.setReducedMotion(reducedMotion.matches);
     stage.setState(c.getState(), c.getVariant());
-    stage.setHidden(top && island.shapeNow() === "tucked");
+    stage.setHidden(locked || (top && island.shapeNow() === "tucked"));
     if (!fullscreen) stage.start();
   }
   c.engine.setHeadless(on);
@@ -264,10 +264,7 @@ const island = new Island(
     cardShown: (rid) => cardShown(rid),
     rowClicked: (session) => void openPanel(session),
     // Tucked away to a thin tab: nothing to see, so nothing to draw.
-    shape: (state) => {
-      c.engine.setHidden(top && state === "tucked");
-      stage?.setHidden(top && state === "tucked");
-    },
+    shape: () => syncDrawing(),
   },
 );
 
@@ -282,6 +279,9 @@ function refreshIsland() {
   island.setBusy(panelOpen || press !== null || performance.now() < bubbleUntil || !QUIET.has(c.getState()));
 }
 
+/** The PC is locked (system.rs): nobody can see him, so nothing is drawn. Everything else carries on. */
+let locked = false;
+
 function applyPlace(nextTop: boolean) {
   top = nextTop;
   document.body.dataset.place = top ? "top" : "corner";
@@ -289,12 +289,22 @@ function applyPlace(nextTop: boolean) {
   stage?.setFraming(top ? "island" : "corner");
   if (top) refreshIsland();
   else {
-    c.engine.setHidden(false);
-    stage?.setHidden(false);
+    syncDrawing();
     lastHit = "";
     reportHit();
   }
 }
+
+/** Whether to draw: not while the island is tucked away, nor while the PC is locked. */
+function syncDrawing() {
+  const hidden = locked || (top && island.shapeNow() === "tucked");
+  c.engine.setHidden(hidden);
+  stage?.setHidden(hidden);
+}
+void listen<boolean>("locked", ({ payload }) => {
+  locked = payload;
+  syncDrawing();
+});
 
 // Full-screen app on our display: the window is parked by Rust; stop drawing
 // entirely, and on return show what's still worth showing.

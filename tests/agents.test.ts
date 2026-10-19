@@ -429,6 +429,24 @@ describe("several sessions", () => {
   });
 });
 
+describe("snapshot", () => {
+  it("is one copy until something changes, then a fresh one", () => {
+    t.handle(ev("UserPromptSubmit", { prompt: "a" }));
+    const first = t.snapshot();
+    expect(t.snapshot()).toBe(first);
+    t.handle(ev("PreToolUse", { tool: "Read", detail: "x" }));
+    const second = t.snapshot();
+    expect(second).not.toBe(first);
+    expect(second[0].current?.steps).toHaveLength(1);
+    expect(first[0].current?.steps).toHaveLength(0); // an earlier copy isn't changed under its reader
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm i", rid: "r1" }));
+    const asking = t.snapshot();
+    t.answer("r1", "allow");
+    expect(t.snapshot()).not.toBe(asking);
+    expect(t.snapshot()[0].permission).toBeNull();
+  });
+});
+
 describe("describeStep", () => {
   it.each([
     ["Edit", "src/cart.ts", "Editing cart.ts"],

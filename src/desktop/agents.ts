@@ -265,6 +265,12 @@ export class AgentTracker {
    */
   onQueued: ((rid: string, ahead: string) => void) | null = null;
   private announced = new WeakSet<Turn>();
+  /**
+   * The last snapshot, until something changes. The page asks for it several
+   * times per event (island, panel, phone, keys), and it copies every
+   * session's tasks and diffs: once per change is enough. Callers only read it.
+   */
+  private snap: SessionView[] | null = null;
 
   private stats: DayStats;
 
@@ -297,6 +303,7 @@ export class AgentTracker {
 
   /** The user answered a question from the companion. */
   answered(rid: string): boolean {
+    this.snap = null;
     const found = this.byRequest(rid);
     if (!found) return false;
     const [id, s] = found;
@@ -314,12 +321,14 @@ export class AgentTracker {
   }
 
   handle(e: AgentEvent) {
+    this.snap = null;
     this.apply(e);
     this.onChange?.();
   }
 
   /** Call every few seconds: re-nudges pending permissions and drops sessions that went silent. */
   sweep() {
+    this.snap = null;
     const now = this.now();
     let changed = false;
     for (const [id, s] of this.sessions) {
@@ -349,6 +358,7 @@ export class AgentTracker {
    * false if that request isn't waiting any more (nothing to send).
    */
   answer(rid: string, decision: Decision): boolean {
+    this.snap = null;
     const found = this.byRequest(rid);
     if (!found) return false;
     const [id, s] = found;
@@ -360,6 +370,7 @@ export class AgentTracker {
 
   /** The relay stopped waiting (answered in the terminal, or timed out). */
   permissionClosed(rid: string) {
+    this.snap = null;
     const found = this.byRequest(rid);
     if (!found) return;
     const [id, s] = found;
@@ -416,8 +427,9 @@ export class AgentTracker {
 
   /** Sessions for the panel: waiting first, then working, then most recent. */
   snapshot(): SessionView[] {
+    if (this.snap) return this.snap;
     const rank: Record<Status, number> = { waiting: 0, working: 1, idle: 2, ended: 3 };
-    return [...this.sessions.values()]
+    return this.snap = [...this.sessions.values()]
       .sort((a, b) => rank[a.status] - rank[b.status] || b.lastEvent - a.lastEvent)
       .map(({ finishedAt: _f, nudgedAt: _n, nudges: _c, plan: _p, ...view }) => structuredClone(view));
   }

@@ -721,6 +721,91 @@ pub fn reset(app: &AppHandle) {
 
 // ── Poll ──────────────────────────────────────────────────────────────────────
 
+/// What each poll step needs: the cursor, the character's square (as
+/// `square`) and the window's scale, all physical px.
+///
+/// On Windows these come straight from Windows (GetCursorPos, GetWindowRect,
+/// GetDpiForWindow: what tao itself reads for them). Asking the window instead
+/// waits for its main thread each time, 4 times a step, 20 steps a second.
+/// The cursor, the square, the scale (see `readings`).
+type Readings = ((f64, f64), (f64, f64), f64);
+
+#[cfg(windows)]
+fn readings(win: &WebviewWindow) -> Option<Readings> {
+    let hwnd = direct::hwnd(win)?;
+    let scale = direct::scale(hwnd).unwrap_or(1.0);
+    let (rx, rt) = room();
+    let (x, y) = direct::origin(hwnd)?;
+    Some((direct::cursor()?, (x + rx * scale, y + rt * scale), scale))
+}
+
+#[cfg(not(windows))]
+fn readings(win: &WebviewWindow) -> Option<Readings> {
+    Some((cursor(win)?, square(win)?, win.scale_factor().unwrap_or(1.0)))
+}
+
+#[cfg(windows)]
+mod direct {
+    use std::sync::atomic::{AtomicIsize, Ordering};
+    use tauri::WebviewWindow;
+
+    #[repr(C)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
+    #[repr(C)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetCursorPos(point: *mut Point) -> i32;
+        fn GetWindowRect(hwnd: isize, rect: *mut Rect) -> i32;
+        fn GetDpiForWindow(hwnd: isize) -> u32;
+        fn IsWindow(hwnd: isize) -> i32;
+    }
+
+    /// The companion window's handle, asked for once (that too goes through the main thread).
+    static HWND: AtomicIsize = AtomicIsize::new(0);
+
+    pub fn hwnd(win: &WebviewWindow) -> Option<isize> {
+        let h = HWND.load(Ordering::Relaxed);
+        // SAFETY: IsWindow takes any value and only says whether it's a window.
+        if h != 0 && unsafe { IsWindow(h) } != 0 {
+            return Some(h);
+        }
+        let h = win.hwnd().ok()?.0 as isize;
+        HWND.store(h, Ordering::Relaxed);
+        Some(h)
+    }
+
+    pub fn cursor() -> Option<(f64, f64)> {
+        let mut p = Point { x: 0, y: 0 };
+        // SAFETY: a valid out-parameter.
+        (unsafe { GetCursorPos(&mut p) } != 0).then_some((p.x as f64, p.y as f64))
+    }
+
+    /// The window's top-left corner (as outer_position).
+    pub fn origin(hwnd: isize) -> Option<(f64, f64)> {
+        let mut r = Rect { left: 0, top: 0, right: 0, bottom: 0 };
+        // SAFETY: a window handle and a valid out-parameter.
+        (unsafe { GetWindowRect(hwnd, &mut r) } != 0).then_some((r.left as f64, r.top as f64))
+    }
+
+    /// As scale_factor: the window's DPI over 96.
+    pub fn scale(hwnd: isize) -> Option<f64> {
+        // SAFETY: plain query on a window handle.
+        let dpi = unsafe { GetDpiForWindow(hwnd) };
+        (dpi > 0).then(|| dpi as f64 / 96.0)
+    }
+}
+
 pub fn spawn_poll(app: AppHandle) {
     std::thread::spawn(move || loop {
         // Nothing to track while a full-screen app has the display.
@@ -736,8 +821,7 @@ pub fn spawn_poll(app: AppHandle) {
 /// One poll step. Returns true while the window is moving (poll faster).
 fn tick(app: &AppHandle) -> bool {
     let Some(win) = window(app) else { return false };
-    let (Some(cur), Some(mut pos)) = (cursor(&win), square(&win)) else { return false };
-    let scale = win.scale_factor().unwrap_or(1.0);
+    let Some((cur, mut pos, scale)) = readings(&win) else { return false };
     let (w, h) = hit_dims();
     let (w, h) = (w * scale, h * scale);
     let (rx, rt) = room();

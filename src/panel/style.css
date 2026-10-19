@@ -33,6 +33,9 @@ html, body {
 }
 
 body:not(.open) .panel { visibility: hidden; }
+/* Closed (the window is parked off-screen, still "visible" to the page): its looping
+   animations wait, and carry on where they were when it opens. */
+body:not(.open) .panel * { animation-play-state: paused !important; }
 
 .panel {
   position: absolute;

@@ -23,7 +23,9 @@ interface Wire : Closeable {
 
 /** A pinned TLS connection on the local network. */
 class SocketWire(override val host: String, private val socket: Socket, private val maxLine: Int) : Wire {
-    private val input: InputStream = socket.getInputStream()
+    // Buffered: readLine takes a byte at a time, and each unbuffered read is a call into TLS
+    // (a Peek picture is ~800,000 of them). The same bytes, the same blocking and timeouts.
+    private val input: InputStream = java.io.BufferedInputStream(socket.getInputStream(), 16 * 1024)
     private val out = socket.getOutputStream()
 
     override fun send(line: String) {
