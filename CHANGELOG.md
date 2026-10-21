@@ -9,6 +9,10 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.15.4 (21 October 2026, Android 0.5.3 carried over)
+
+- **Fixed: Rui or Dogesh Bhai could vanish after the PC sat idle.** When the screen turned off, Windows sometimes reset the graphics card and wiped the 3D character. Speech bubbles kept working, but the character only came back after a restart. Now the app redraws the character on its own as soon as the graphics are back, or after 10 seconds at most. If 3D can't start again, the 2D character takes over.
+
 ## 0.15.3 (19 October 2026, Android 0.5.3)
 
 Lighter on your PC, with nothing changed that you can see: the character looks and moves exactly as before, at the same frame rates.

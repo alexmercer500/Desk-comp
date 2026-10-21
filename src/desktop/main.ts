@@ -126,6 +126,7 @@ async function use3d(who: Who3d | null) {
       return;
     }
     stage.onSlow = () => standIn("slow");
+    stage.onLost = () => void restage();
     stage.setPowerSaving(onBattery);
     // See-through room round his square, for scenes and strolls (only used in the corner).
     stage.setRoom(ROOM);
@@ -141,6 +142,21 @@ async function use3d(who: Who3d | null) {
   }
   c.engine.setHeadless(on);
   reportHit();
+}
+
+/**
+ * His drawing was lost (the graphics card reset, often while the display
+ * slept): the same character on a new stage and canvas, as at start-up. If
+ * the graphics won't start again, the 2D character stands in (use3d).
+ */
+async function restage() {
+  const who = stageWho;
+  if (!stage || !who) return;
+  stage.dispose();
+  document.getElementById("rui")?.remove();
+  stage = null;
+  stageWho = null;
+  await use3d(who);
 }
 
 /** The clickable part of the window: the character's body (the island reports its own). */

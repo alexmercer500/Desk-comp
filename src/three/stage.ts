@@ -50,6 +50,8 @@ const HEAD_DROP: Record<Who, number> = { rui: 0, dogesh: 0.1 };
 const PREWARM_AFTER_MS = 4000;
 /** While hidden, how often the loop looks in (it is woken at once when shown, setHidden). */
 const HIDDEN_CHECK_MS = 250;
+/** After his drawing is lost, how long to wait for the graphics to say they're back before rebuilding anyway. */
+const LOST_RETRY_MS = 10_000;
 
 /** Behaviours that last until the state changes; leaving the state stops them. */
 const LASTING: ReadonlySet<string> = new Set(["work", "research", "run", "browse", "ponder", "shrug", "droop", "call", "doze", "nap", "rest", "held"]);
@@ -127,6 +129,25 @@ export class RuiStage {
   /** His square inside the window, client px. */
   private sq = { left: 0, top: 0, size: 0 };
   private onWindowResize = () => this.layout();
+  /** Set while his drawing is lost: the fallback for a "restored" that never comes. */
+  private lostTimer = 0;
+  /**
+   * The graphics card dropped his drawing (a driver reset, often while the
+   * display sleeps): the canvas is blank and stays blank, and what was on the
+   * card (lighting, looks) doesn't come back with it. Stops, and asks for a
+   * new stage (`onLost`) once the graphics are back.
+   */
+  private onContextLost = () => {
+    this.stop();
+    window.clearTimeout(this.lostTimer);
+    this.lostTimer = window.setTimeout(this.onContextRestored, LOST_RETRY_MS);
+  };
+  private onContextRestored = () => {
+    if (!this.lostTimer) return;
+    window.clearTimeout(this.lostTimer);
+    this.lostTimer = 0;
+    this.onLost?.();
+  };
   /** On battery: fewer frames all round. */
   private saving = false;
   /** Seconds in the current lasting behaviour, and which one. */
@@ -136,6 +157,8 @@ export class RuiStage {
   private speed = new SpeedWatch();
   /** Called once if he can't keep up on this PC (the app shows a 2D character instead). */
   onSlow: (() => void) | null = null;
+  /** Called once if his drawing is lost (the app puts up a new stage in its place). */
+  onLost: (() => void) | null = null;
   private reduced = false;
   private still = false;
   private variant: Variant = null;
@@ -173,6 +196,8 @@ export class RuiStage {
     this.resizer = new ResizeObserver(() => this.layout());
     this.resizer.observe(canvas);
     window.addEventListener("resize", this.onWindowResize);
+    canvas.addEventListener("webglcontextlost", this.onContextLost);
+    canvas.addEventListener("webglcontextrestored", this.onContextRestored);
     this.layout();
     this.warmTimer = window.setTimeout(() => void this.warmUp(), PREWARM_AFTER_MS);
   }
@@ -464,6 +489,11 @@ export class RuiStage {
     this.stop();
     window.clearTimeout(this.warmTimer);
     window.removeEventListener("resize", this.onWindowResize);
+    // Before forceContextLoss, which would otherwise read as a lost drawing.
+    this.canvas.removeEventListener("webglcontextlost", this.onContextLost);
+    this.canvas.removeEventListener("webglcontextrestored", this.onContextRestored);
+    window.clearTimeout(this.lostTimer);
+    this.lostTimer = 0;
     this.resizer.disconnect();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
