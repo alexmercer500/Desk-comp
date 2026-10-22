@@ -5,7 +5,7 @@
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { MOODS, custom, moodOf, pictureFor, setCustomPictures, setCustomShape } from "../src/skins/custom";
-import { clearBackground, solidBox } from "../src/panel/picture";
+import { clearBackground, sheetCuts, solidBox } from "../src/panel/picture";
 import { FILE_NAMES, filesPrompt, isPictureName, moodFromName, sheetPrompt } from "../src/panel/character-import";
 import { readZip } from "../src/panel/zip";
 
@@ -120,6 +120,42 @@ describe("clearing a plain background", () => {
     const clear = picture(12, 10, [255, 255, 255]);
     for (let i = 0; i < 120; i++) if (clear.data[i * 4] === 255) clear.data[i * 4 + 3] = 0;
     expect(clearBackground(clear)).toBe(false);
+  });
+});
+
+describe("finding a sheet's cells", () => {
+  /** A see-through w × h picture with a solid blob at each of these boxes [x, y, w, h]. */
+  const blobs = (w: number, h: number, boxes: [number, number, number, number][]) => {
+    const data = new Uint8ClampedArray(w * h * 4);
+    for (const [bx, by, bw, bh] of boxes) for (let y = by; y < by + bh; y++) for (let x = bx; x < bx + bw; x++) data[(y * w + x) * 4 + 3] = 255;
+    return { width: w, height: h, data };
+  };
+  /** 8 characters in a 4 × 2 grid of 100 × 100 cells, each `at` its cell's left plus a nudge. */
+  const grid = (nudge: (n: number) => number) =>
+    blobs(400, 200, [...Array(8)].map((_, n) => [(n % 4) * 100 + 20 + nudge(n), Math.floor(n / 4) * 100 + 15, 60, 70] as [number, number, number, number]));
+
+  it("cuts in the gaps between the characters, even when the AI's grid isn't even", () => {
+    const even = sheetCuts(grid(() => 0));
+    expect(even).not.toBeNull();
+    expect(even!.xs).toHaveLength(5);
+    expect(even!.ys).toHaveLength(3);
+    // Characters nudged 15 px right or left: each cut still falls in a gap, never through one.
+    const uneven = blobs(400, 200, [
+      [35, 15, 60, 70], [105, 15, 60, 70], [235, 15, 50, 70], [310, 15, 60, 70],
+      [10, 112, 60, 70], [130, 112, 60, 70], [205, 112, 60, 70], [330, 112, 60, 70],
+    ]);
+    const cuts = sheetCuts(uneven);
+    expect(cuts).not.toBeNull();
+    expect(cuts!.xs[1]).toBeGreaterThanOrEqual(95);
+    expect(cuts!.xs[1]).toBeLessThanOrEqual(105);
+    expect(cuts!.ys[1]).toBeGreaterThan(85);
+    expect(cuts!.ys[1]).toBeLessThan(112);
+  });
+
+  it("isn't fooled by one wide picture, a missing character, or a square picture", () => {
+    expect(sheetCuts(blobs(400, 200, [[20, 20, 360, 160]]))).toBeNull();
+    expect(sheetCuts(blobs(400, 200, [...Array(7)].map((_, n) => [(n % 4) * 100 + 20, Math.floor(n / 4) * 100 + 15, 60, 70] as [number, number, number, number])))).toBeNull();
+    expect(sheetCuts(blobs(200, 200, [[50, 50, 100, 100]]))).toBeNull();
   });
 });
 

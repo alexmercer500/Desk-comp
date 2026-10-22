@@ -34,8 +34,18 @@ export interface PrepareOptions {
 
 /** A sheet's grid: 4 across, 2 down (the AI prompt asks for this, in MOODS order). */
 export const SHEET = { cols: 4, rows: 2 };
-/** Each cell's edges left out, as a share of its size: a grid line or a neighbour's stray pixels. */
+/** Each cell's edges left out when cut into equal cells, as a share of its size: a grid line or a neighbour's stray pixels. */
 const CELL_INSET = 0.02;
+/** Longest side a sheet is cut up at, px: its cells then come out at about SCAN_SIDE / 2. */
+const SHEET_SIDE = 2048;
+/** A sheet is about twice as wide as tall (4 × 2 roughly square cells). */
+const SHEET_RATIO = { least: 1.4, most: 2.8 };
+/** Where to look for each gap between cells: this share of the picture either side of where it would be in an even grid. */
+const GAP_WINDOW = 0.07;
+/** A line counts as a gap when at most this share of it is solid. */
+const GAP_SOLID = 0.004;
+/** A cell counts as having a character when at least this share of it is solid. */
+const CELL_FILLED = 0.02;
 
 type Box = { x: number; y: number; w: number; h: number };
 type Scan = { c: HTMLCanvasElement; g: CanvasRenderingContext2D };
@@ -69,28 +79,63 @@ export async function prepareSet<K>(items: { key: K; file: Blob }[], opts: Prepa
   return { ready, failed };
 }
 
-/** A sheet: one picture with a mood in each cell of SHEET, in `order`. Empty cells are left out. */
+/**
+ * A sheet: one picture with a mood in each cell of SHEET, in `order`. It's cut
+ * along the empty gaps between the characters where it has them (an AI's grid
+ * is rarely exact), else into equal cells. Empty cells are left out.
+ */
 export async function splitSheet<K>(file: Blob, order: readonly K[], opts: PrepareOptions): Promise<Map<K, string>> {
-  const bmp = await bitmapOf(file);
-  const cw = Math.floor(bmp.width / SHEET.cols);
-  const ch = Math.floor(bmp.height / SHEET.rows);
-  if (cw < 16 || ch < 16) throw new Error("That picture is too small to be a sheet.");
-  const ix = Math.round(cw * CELL_INSET), iy = Math.round(ch * CELL_INSET);
-  // Every cell at the same scale, so they can be trimmed as one.
-  const k = Math.min(1, SCAN_SIDE / Math.max(cw - 2 * ix, ch - 2 * iy));
-  const w = Math.max(1, Math.round((cw - 2 * ix) * k)), h = Math.max(1, Math.round((ch - 2 * iy) * k));
-  const scans: { key: K; scan: Scan; box: Box }[] = [];
-  order.forEach((key, n) => {
-    if (n >= SHEET.cols * SHEET.rows) return;
+  const sheet = await sheetOf(file, SHEET_SIDE, opts);
+  const { c, img } = sheet;
+  const cuts = sheetCuts(img);
+  const even = (n: number, of: number, size: number) => Math.round((size * n) / of);
+  const xs = cuts?.xs ?? [0, 1, 2, 3, 4].map((n) => even(n, SHEET.cols, c.width));
+  const ys = cuts?.ys ?? [0, 1, 2].map((n) => even(n, SHEET.rows, c.height));
+  // Equal cells lose a little at their edges: a grid line, or a neighbour's stray pixels.
+  const inset = cuts ? 0 : CELL_INSET;
+  const cells = order.slice(0, SHEET.cols * SHEET.rows).map((key, n) => {
     const col = n % SHEET.cols, row = Math.floor(n / SHEET.cols);
-    const scan = canvasOf(w, h);
-    scan.g.drawImage(bmp, col * cw + ix, row * ch + iy, cw - 2 * ix, ch - 2 * iy, 0, 0, w, h);
-    const box = clean(scan, opts);
-    if (box) scans.push({ key, scan, box });
+    const ix = Math.round((xs[col + 1] - xs[col]) * inset), iy = Math.round((ys[row + 1] - ys[row]) * inset);
+    return { key, x: xs[col] + ix, y: ys[row] + iy, w: xs[col + 1] - xs[col] - 2 * ix, h: ys[row + 1] - ys[row] - 2 * iy };
   });
-  bmp.close();
+  if (cells.some((cell) => cell.w < 16 || cell.h < 16)) throw new Error("That picture is too small to be a sheet.");
+  // Each cell centred in a canvas of the largest cell's size, so they can be trimmed as one.
+  const cw = Math.max(...cells.map((cell) => cell.w)), ch = Math.max(...cells.map((cell) => cell.h));
+  const scans: { key: K; scan: Scan; box: Box }[] = [];
+  for (const cell of cells) {
+    const scan = canvasOf(cw, ch);
+    scan.g.drawImage(c, cell.x, cell.y, cell.w, cell.h, Math.floor((cw - cell.w) / 2), Math.floor((ch - cell.h) / 2), cell.w, cell.h);
+    const box = solidBox(scan.g.getImageData(0, 0, cw, ch));
+    if (box) scans.push({ key: cell.key, scan, box });
+  }
   if (!scans.length) throw new Error("No pictures found in that sheet.");
   return exportTogether(scans);
+}
+
+/**
+ * Whether a picture is a sheet of SHEET's moods rather than one picture: wide
+ * like one, with a character in every cell and an empty gap between each.
+ * (Picked in one mood's slot, it's cut up instead of kept whole.)
+ */
+export async function isSheet(file: Blob, opts: PrepareOptions): Promise<boolean> {
+  try {
+    const { img } = await sheetOf(file, SCAN_SIDE, opts);
+    return sheetCuts(img) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** The whole sheet, no bigger than `side`, its plain background taken away (if asked). */
+async function sheetOf(file: Blob, side: number, opts: PrepareOptions): Promise<{ c: HTMLCanvasElement; img: ImageData }> {
+  const bmp = await bitmapOf(file);
+  const k = Math.min(1, side / Math.max(bmp.width, bmp.height));
+  const s = canvasOf(Math.max(1, Math.round(bmp.width * k)), Math.max(1, Math.round(bmp.height * k)));
+  s.g.drawImage(bmp, 0, 0, s.c.width, s.c.height);
+  bmp.close();
+  const img = s.g.getImageData(0, 0, s.c.width, s.c.height);
+  if (opts.plainBackground && clearBackground(img)) s.g.putImageData(img, 0, 0);
+  return { c: s.c, img };
 }
 
 // ── Steps ─────────────────────────────────────────────────────────────────────
@@ -186,6 +231,65 @@ export function solidBox(img: Pixels): Box | null {
     }
   }
   return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+/**
+ * Where to cut a sheet (see-through background): the x of each column's edges
+ * (5, from 0 to the width) and the y of each row's (3), each inner one in the
+ * middle of the empty gap nearest where an even grid would put it. Null when
+ * it isn't a sheet: not about 2:1, a gap missing, or a cell with nothing in it.
+ */
+export function sheetCuts(img: Pixels): { xs: number[]; ys: number[] } | null {
+  const { width: w, height: h, data } = img;
+  const ratio = w / h;
+  if (ratio < SHEET_RATIO.least || ratio > SHEET_RATIO.most) return null;
+  // Solid pixels in each column and each row.
+  const cols = new Uint32Array(w), rows = new Uint32Array(h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3] >= SOLID) {
+        cols[x]++;
+        rows[y]++;
+      }
+    }
+  }
+  /** The middle of the empty run (a gap) nearest `at`, looking within ±window; null when there's none. */
+  const gap = (counts: Uint32Array, length: number, across: number, at: number, window: number): number | null => {
+    const empty = (i: number) => counts[i] <= across * GAP_SOLID;
+    let best: number | null = null;
+    for (let i = Math.max(1, at - window); i <= Math.min(length - 2, at + window); i++) {
+      if (!empty(i)) continue;
+      // The run of empty lines through i, and its middle.
+      let a = i, b = i;
+      while (a > 0 && empty(a - 1)) a--;
+      while (b < length - 1 && empty(b + 1)) b++;
+      const mid = Math.round((a + b) / 2);
+      if (best === null || Math.abs(mid - at) < Math.abs(best - at)) best = mid;
+      i = b;
+    }
+    return best;
+  };
+  const xs = [0];
+  for (let n = 1; n < SHEET.cols; n++) {
+    const x = gap(cols, w, h, Math.round((w * n) / SHEET.cols), Math.round(w * GAP_WINDOW));
+    if (x === null || x <= xs[xs.length - 1]) return null;
+    xs.push(x);
+  }
+  xs.push(w);
+  const y = gap(rows, h, w, Math.round(h / 2), Math.round(h * GAP_WINDOW * 2));
+  if (y === null) return null;
+  const ys = [0, y, h];
+  // A character in every cell.
+  for (let r = 0; r < SHEET.rows; r++) {
+    for (let c = 0; c < SHEET.cols; c++) {
+      let solid = 0;
+      for (let yy = ys[r]; yy < ys[r + 1]; yy++) {
+        for (let xx = xs[c]; xx < xs[c + 1]; xx++) if (data[(yy * w + xx) * 4 + 3] >= SOLID) solid++;
+      }
+      if (solid < (xs[c + 1] - xs[c]) * (ys[r + 1] - ys[r]) * CELL_FILLED) return null;
+    }
+  }
+  return { xs, ys };
 }
 
 /**

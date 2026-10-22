@@ -10,7 +10,7 @@ import type { CharacterId, StateName, Variant } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, applyCustomPrefs, isCharacter } from "../skins";
 import { MOODS, customPicture, hasCustomCharacter, type Mood } from "../skins/custom";
 import { loadCustomCharacter } from "../skins/custom-load";
-import { PICTURE_TYPES, prepareSet, preparePicture, splitSheet } from "./picture";
+import { PICTURE_TYPES, isSheet, prepareSet, preparePicture, splitSheet } from "./picture";
 import { FILE_NAMES, filesPrompt, isPictureName, moodFromName, pictureType, sheetPrompt } from "./character-import";
 import { readZip } from "./zip";
 import { LOOKS, LOOK_NAMES, THEMES, THEME_NAMES, themeColors } from "../three/palette";
@@ -413,7 +413,7 @@ function customOptions(): HTMLElement {
   for (const step of [
     "Copy the prompt.",
     "In ChatGPT or Gemini, attach a picture of your character and paste the prompt.",
-    "Save what it makes, then add it here: a sheet with Add a sheet…, separate pictures or a .zip with Add files or a zip…",
+    "Save the picture it makes and add it here with Add a sheet… (or any Choose…). The app cuts it into the 8 moods and puts each in its place.",
   ]) steps.append(el("li", undefined, step));
   const details = el("details", "custom-prompt-box");
   details.append(el("summary", undefined, "Read the prompt"), promptText);
@@ -595,6 +595,8 @@ async function afterAdding(hadMain: boolean) {
 }
 
 async function addPicture(mood: Mood, file: File) {
+  // A whole sheet picked here is cut up into every mood, not kept as this one.
+  if (await isSheet(file, { plainBackground })) return addSheet(file);
   const hadMain = hasCustomCharacter();
   customSay("Getting the picture ready…");
   try {
@@ -643,13 +645,21 @@ async function addFiles(files: File[]) {
     customSay(e instanceof Error ? e.message : `Couldn't open that: ${String(e)}`, true);
     return;
   }
-  // A sheet among them is cut up; the rest go by their names.
-  const sheetFile = named.find((n) => moodFromName(n.name) === "sheet");
+  // A sheet among them (by its name, or a picture that is one) is cut up; the rest go by their names.
+  let sheetFile = named.find((n) => moodFromName(n.name) === "sheet");
+  if (!sheetFile) {
+    for (const n of named) {
+      if (moodFromName(n.name) === null && (await isSheet(n.file, { plainBackground }))) {
+        sheetFile = n;
+        break;
+      }
+    }
+  }
   const items = new Map<Mood, { key: Mood; file: Blob }>();
   const unknown: string[] = [];
   for (const n of named) {
     const mood = moodFromName(n.name);
-    if (mood === "sheet") continue;
+    if (mood === "sheet" || n === sheetFile) continue;
     if (mood && !items.has(mood)) items.set(mood, { key: mood, file: n.file });
     else unknown.push(n.name.split("/").pop() ?? n.name);
   }
