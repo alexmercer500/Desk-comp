@@ -371,7 +371,7 @@ function customOptions(): HTMLElement {
   controls.set("customOptions", box);
 
   // ① Made with an AI: the prompt to copy, and where its pictures come back in.
-  const ai = el("div", "custom-ai");
+  const ai = fold("ai", "Make it with AI");
   const kinds = el("div", "segmented");
   kinds.setAttribute("role", "radiogroup");
   kinds.setAttribute("aria-label", "What the AI makes");
@@ -418,13 +418,13 @@ function customOptions(): HTMLElement {
   const details = el("details", "custom-prompt-box");
   details.append(el("summary", undefined, "Read the prompt"), promptText);
   const aiHead = row(
-    "Make it with AI",
+    "What the AI makes",
     "An AI that draws pictures can make your character in every mood from one picture of it. One sheet works with any of them; separate files need one that can make a zip. (Claude doesn't draw pictures.)",
     kinds,
   );
   const copyLine = el("div", "custom-buttons");
   copyLine.append(copy);
-  ai.append(aiHead, steps, copyLine, details);
+  ai.body.append(aiHead, steps, copyLine, details);
   showPrompt();
 
   // ② Pictures: several at once, or one per mood.
@@ -497,19 +497,51 @@ function customOptions(): HTMLElement {
   const useRow = row("Use your character", "Instead of the one you have now", use);
   controls.set("customUseRow", useRow);
 
-  box.append(
-    el("p", "set-hint custom-intro", "Your character is your pictures, brought to life: it breathes, hops, slumps and dozes like the others. One picture is enough; a picture for each mood makes it far livelier."),
-    ai,
-    addRow,
-    backgroundRow,
-    status,
-    slots,
+  const pictures = fold("pictures", "Pictures");
+  pictures.body.append(addRow, backgroundRow, slots);
+  const look = fold("look", "Name and shape");
+  look.body.append(
     row("Name", null, nameLine),
     row("Shape", "As it is suits a picture with a see-through background. Round sticker puts each picture in a white circle, for photos.", segmented("customShape", "Shape", [["free", "As it is"], ["round", "Round sticker"]])),
-    preview,
+  );
+  const seen = fold("preview", "Preview");
+  seen.body.append(preview);
+
+  box.append(
+    el("p", "set-hint custom-intro", "Your character is your pictures, brought to life: it breathes, hops, slumps and dozes like the others. One picture is enough; a picture for each mood makes it far livelier."),
     useRow,
+    status,
+    ai.section,
+    pictures.section,
+    look.section,
+    seen.section,
   );
   return box;
+}
+
+/**
+ * One of the editor's parts, folded under its title (and a word on what's in
+ * it, `custom-fold:<key>`'s note). fillCustom opens the ones that matter
+ * now, until you open or close one yourself.
+ */
+function fold(key: string, title: string): { section: HTMLDetailsElement; body: HTMLElement } {
+  const section = el("details", "custom-fold");
+  const summary = el("summary");
+  const note = el("span", "custom-fold-note");
+  summary.append(el("span", "custom-fold-title", title), note);
+  // Opened, closed or used by you: it stays as you have it.
+  section.addEventListener("click", () => (section.dataset.touched = "1"));
+  const body = el("div", "custom-fold-body");
+  section.append(summary, body);
+  controls.set(`custom-fold:${key}`, section);
+  return { section, body };
+}
+
+/** Opens or folds a part (unless you have), and says what's in it. */
+function setFold(key: string, open: boolean, note: string) {
+  const section = controls.get(`custom-fold:${key}`) as HTMLDetailsElement;
+  if (!section.dataset.touched) section.open = open;
+  section.querySelector(".custom-fold-note")!.textContent = note;
 }
 
 /** One mood's picture: a thumbnail, Choose… and Remove. */
@@ -556,7 +588,14 @@ function fillCustom(p: Prefs) {
     remove.hidden = !pic;
   }
   controls.get("customPreviewBox")!.hidden = !has;
+  controls.get("custom-fold:preview")!.hidden = !has;
   controls.get("customUseRow")!.hidden = !has || p.character === "custom";
+  // A new character: how to make it, open. One already made: folded, but for its preview.
+  const count = MOODS.filter((m) => customPicture(m)).length;
+  setFold("ai", !has, "");
+  setFold("pictures", !has, has ? `${count} of ${MOODS.length}` : "none yet");
+  setFold("look", false, has ? `${p.customName} · ${p.customShape === "round" ? "Round sticker" : "As it is"}` : "");
+  setFold("preview", has, "");
   redrawCustomCard?.();
   if (open && has) customPreview?.start();
   else customPreview?.stop();

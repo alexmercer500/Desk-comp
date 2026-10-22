@@ -12,6 +12,7 @@ The installed version is shown at the bottom of the tray menu.
 ## 0.16.1 (22 October 2026, Android 0.5.3 carried over)
 
 - **Fixed: your own character shook in the Desk Companion window.** It stood among the characters walking along the top, flipping left and right many times a second. It isn't in that line any more; on your desktop it was never affected.
+- **Your own character's settings fold away.** They're in four parts you can open and close: Make it with AI, Pictures, Name and shape, and Preview, each with a word on what's in it ("8 of 8", "Bunny · As it is"). A new character opens on how to make it; one that's made shows only its preview. Whatever you open or close stays that way.
 
 ## 0.16.0 (22 October 2026, Android 0.5.3 carried over)
 
