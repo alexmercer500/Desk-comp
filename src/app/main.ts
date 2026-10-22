@@ -14,7 +14,6 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { Engine } from "../engine/engine";
 import type { CharacterId, StateName, Variant } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, applyCustomPrefs } from "../skins";
-import { hasCustomCharacter } from "../skins/custom";
 import { followCustomCharacter, loadCustomCharacter } from "../skins/custom-load";
 import { SetupCard, loadConnections, renderBadges, since, type ConnectionsView } from "../panel/connections";
 import { ruiPicture, setRuiStyle } from "../panel/rui-pictures";
@@ -328,8 +327,6 @@ function cast() {
     setRuiStyle(prefs);
     walkers.push(new Walker("rui", right, right));
   }
-  // Your own character joins them, once it has its pictures.
-  if (prefs?.character === "custom" && hasCustomCharacter()) walkers.push(new Walker("custom", right, right));
   for (const w of walkers) stage.append(w.node);
 }
 
@@ -369,9 +366,9 @@ window.setInterval(() => void refreshConnections(), 30_000);
 async function start() {
   prefs = await invoke<Prefs>("get_prefs").catch(() => null);
   if (prefs) applyCustomPrefs(prefs);
-  // Your own character's pictures (for the walkers and Settings in this window).
+  // Your own character's pictures, for Settings in this window (it doesn't walk with the others).
   await loadCustomCharacter();
-  followCustomCharacter(() => cast());
+  followCustomCharacter(() => {});
   const s = await invoke<{ version: string }>("get_settings").catch(() => null);
   version = s?.version ?? "";
   document.getElementById("version")!.textContent = version ? `Version ${version}` : "";

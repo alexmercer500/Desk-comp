@@ -9,6 +9,10 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.16.1 (22 October 2026, Android 0.5.3 carried over)
+
+- **Fixed: your own character shook in the Desk Companion window.** It stood among the characters walking along the top, flipping left and right many times a second. It isn't in that line any more; on your desktop it was never affected.
+
 ## 0.16.0 (22 October 2026, Android 0.5.3 carried over)
 
 - **Make your own character from your pictures.** In Settings → Character, choose **Your own**: a drawing, a logo, a photo of your pet. It moves like the other characters: it breathes, sways, hops when a task is done, slumps when something goes wrong, pops up when an agent needs you, and dozes off with little Z's.
