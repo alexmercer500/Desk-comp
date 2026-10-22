@@ -629,9 +629,9 @@ label.set-text { cursor: pointer; }
 
 /* Your own character's editor: four parts, each folded under its title (AI, pictures, name and shape, preview). */
 .custom-intro { margin: 8px 0 2px; }
-.custom-fold { margin: 6px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-.custom-fold[hidden] { display: none; }
-.custom-fold > summary {
+.set-fold { margin: 6px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.set-fold[hidden] { display: none; }
+.set-fold > summary {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -640,9 +640,9 @@ label.set-text { cursor: pointer; }
   cursor: pointer;
   list-style: none;
 }
-.custom-fold > summary::-webkit-details-marker { display: none; }
+.set-fold > summary::-webkit-details-marker { display: none; }
 /* A chevron that turns down when open. */
-.custom-fold > summary::before {
+.set-fold > summary::before {
   content: "";
   flex: none;
   width: 6px;
@@ -652,13 +652,13 @@ label.set-text { cursor: pointer; }
   transform: translateY(-1px) rotate(-45deg);
   transition: transform 0.15s;
 }
-.custom-fold[open] > summary::before { transform: translateY(-3px) rotate(45deg); }
-.custom-fold > summary:hover { background: var(--code); }
-.custom-fold > summary:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
-.custom-fold-title { font-weight: 650; font-size: 13px; color: var(--text); }
-.custom-fold-note { margin-left: auto; font-size: 11.5px; color: var(--muted); }
-.custom-fold-body { padding: 0 12px 10px; }
-@media (prefers-reduced-motion: reduce) { .custom-fold > summary::before { transition: none; } }
+.set-fold[open] > summary::before { transform: translateY(-3px) rotate(45deg); }
+.set-fold > summary:hover { background: var(--code); }
+.set-fold > summary:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
+.set-fold-title { font-weight: 650; font-size: 13px; color: var(--text); }
+.set-fold-note { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.set-fold-body { padding: 0 12px 10px; }
+@media (prefers-reduced-motion: reduce) { .set-fold > summary::before { transition: none; } }
 .custom-steps { margin: 0 0 8px; padding-left: 20px; font-size: 12px; line-height: 1.5; color: var(--text); }
 .custom-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
 .custom-buttons input[type="file"], .custom-slot-buttons input[type="file"] { display: none; }
@@ -727,7 +727,7 @@ label.set-text { cursor: pointer; }
 .custom-moods button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); }
 .custom-moods button:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
 
-/* Rui's own choices, under the character cards while he's chosen. */
+/* Your own character's editor, under the character cards while it's chosen. */
 .rui-options { margin: 0 0 4px; padding: 2px 12px; border-radius: 12px; background: var(--raised); }
 /* Dogesh Bhai's outfits: a picture card each, as many to a line as fit. */
 .outfit-box { padding: 0 0 10px; }

@@ -520,28 +520,29 @@ function customOptions(): HTMLElement {
 }
 
 /**
- * One of the editor's parts, folded under its title (and a word on what's in
- * it, `custom-fold:<key>`'s note). fillCustom opens the ones that matter
- * now, until you open or close one yourself.
+ * A part of a settings page, folded under its title (and a word on what's
+ * set in it, `set-fold:<key>`'s note). fill opens the ones that matter now,
+ * until you open or close one yourself.
  */
-function fold(key: string, title: string): { section: HTMLDetailsElement; body: HTMLElement } {
-  const section = el("details", "custom-fold");
+function fold(key: string, title: string, ...rows: HTMLElement[]): { section: HTMLDetailsElement; body: HTMLElement } {
+  const section = el("details", "set-fold");
   const summary = el("summary");
-  const note = el("span", "custom-fold-note");
-  summary.append(el("span", "custom-fold-title", title), note);
+  const note = el("span", "set-fold-note");
+  summary.append(el("span", "set-fold-title", title), note);
   // Opened, closed or used by you: it stays as you have it.
   section.addEventListener("click", () => (section.dataset.touched = "1"));
-  const body = el("div", "custom-fold-body");
+  const body = el("div", "set-fold-body");
+  body.append(...rows);
   section.append(summary, body);
-  controls.set(`custom-fold:${key}`, section);
+  controls.set(`set-fold:${key}`, section);
   return { section, body };
 }
 
 /** Opens or folds a part (unless you have), and says what's in it. */
 function setFold(key: string, open: boolean, note: string) {
-  const section = controls.get(`custom-fold:${key}`) as HTMLDetailsElement;
+  const section = controls.get(`set-fold:${key}`) as HTMLDetailsElement;
   if (!section.dataset.touched) section.open = open;
-  section.querySelector(".custom-fold-note")!.textContent = note;
+  section.querySelector(".set-fold-note")!.textContent = note;
 }
 
 /** One mood's picture: a thumbnail, Choose… and Remove. */
@@ -588,7 +589,7 @@ function fillCustom(p: Prefs) {
     remove.hidden = !pic;
   }
   controls.get("customPreviewBox")!.hidden = !has;
-  controls.get("custom-fold:preview")!.hidden = !has;
+  controls.get("set-fold:preview")!.hidden = !has;
   controls.get("customUseRow")!.hidden = !has || p.character === "custom";
   // A new character: how to make it, open. One already made: folded, but for its preview.
   const count = MOODS.filter((m) => customPicture(m)).length;
@@ -751,7 +752,7 @@ let redrawDogesh: (() => void) | null = null;
 
 /** Dogesh Bhai's own choices: his outfit, 3D or 2D, and (in 3D) the same look as Rui's. Shown while he's the character. */
 function dogeshOptions(): HTMLElement {
-  const box = el("div", "rui-options");
+  const box = el("div");
   controls.set("dogeshOptions", box);
 
   // His outfits as little picture cards, each a drawing of him wearing it.
@@ -794,20 +795,24 @@ function dogeshOptions(): HTMLElement {
   );
   controls.set("dogeshLookRow", lookRow);
   box.append(
-    row(
-      "Drawn in",
-      "3D: a little 3D pup, like Rui. 2D: drawn like the others, and lighter on your PC.",
-      segmented("dogeshStyle", "Dogesh Bhai is drawn in", [["3d", "3D"], ["2d", "2D"]]),
-    ),
-    lookRow,
-    outfitBox,
+    fold(
+      "dogesh",
+      "Dogesh Bhai's look",
+      row(
+        "Drawn in",
+        "3D: a little 3D pup, like Rui. 2D: drawn like the others, and lighter on your PC.",
+        segmented("dogeshStyle", "Dogesh Bhai is drawn in", [["3d", "3D"], ["2d", "2D"]]),
+      ),
+      lookRow,
+      outfitBox,
+    ).section,
   );
   return box;
 }
 
 /** Rui's own choices: shown while he's the character. */
 function ruiOptions(): HTMLElement {
-  const box = el("div", "rui-options");
+  const box = el("div");
   controls.set("ruiOptions", box);
 
   const swatches = el("div", "swatches");
@@ -832,13 +837,18 @@ function ruiOptions(): HTMLElement {
   controls.set("ruiThemeName", colourName);
 
   const look = segmented("ruiLook", "Rui's look", LOOK_NAMES.map((l) => [l, LOOKS[l]]));
-  box.append(
-    row("Rui's look", "Toy: soft vinyl. Anime: flat colours and outlines.", look),
-    row("Rui's colour", null, swatches),
-    switchRow("ruiFlatOnBattery", "On battery, use a 2D character", "Saves power on a laptop. Rui comes back when you plug in."),
-  );
+  const colourRow = row("Rui's colour", null, swatches);
   // The colour's name goes under the title.
-  box.children[1].querySelector(".set-text")!.append(colourName);
+  colourRow.querySelector(".set-text")!.append(colourName);
+  box.append(
+    fold(
+      "rui",
+      "Rui's look",
+      row("Rui's look", "Toy: soft vinyl. Anime: flat colours and outlines.", look),
+      colourRow,
+      switchRow("ruiFlatOnBattery", "On battery, use a 2D character", "Saves power on a laptop. Rui comes back when you plug in."),
+    ).section,
+  );
   return box;
 }
 
@@ -852,14 +862,18 @@ function build() {
     ruiOptions(),
     dogeshOptions(),
     customOptions(),
-    row("Where I live", null, segmented("place", "Where I live", [["corner", "Desktop"], ["top", "Top edge"]])),
-    row(
-      "Theme",
-      "Character: colours from your character (Rui and Dogesh Bhai: from what they wear). System follows Windows.",
-      segmented("uiTheme", "Theme", Object.entries(UI_THEMES)),
-    ),
-    sizeRow,
-    switchRow("hideFullscreen", "Step aside for full-screen apps", "Games, videos and slideshows"),
+    fold(
+      "place",
+      "Place, theme and size",
+      row("Where I live", null, segmented("place", "Where I live", [["corner", "Desktop"], ["top", "Top edge"]])),
+      row(
+        "Theme",
+        "Character: colours from your character (Rui and Dogesh Bhai: from what they wear). System follows Windows.",
+        segmented("uiTheme", "Theme", Object.entries(UI_THEMES)),
+      ),
+      sizeRow,
+      switchRow("hideFullscreen", "Step aside for full-screen apps", "Games, videos and slideshows"),
+    ).section,
   );
 
   // Notifications
@@ -917,19 +931,26 @@ function build() {
   testRow.querySelector(".set-text")?.append(testStatus);
   const agents = section(
     "Coding agents",
-    testRow,
-    ...agentRows,
-    switchRow("notifyWorking", "What agents are working on", "A few seconds when one starts. In the top island it's always on its status line."),
-    switchRow("notifyDone", "When a task finishes"),
-    switchRow("notifyPermission", "When an agent needs permission"),
-    switchRow("answerPermissions", "Allow / Deny from here", "Off: requests go straight to your terminal. Nothing is ever allowed unless you click Allow or press its shortcut."),
-    switchRow(
-      "keyboardShortcuts",
-      "Keyboard shortcuts",
-      "Ctrl+Alt+Y / Ctrl+Alt+N: Allow / Deny the request on screen. Ctrl+Alt+J: go to the agent that needs you. Ctrl+Alt+A: activity. Ctrl+Alt+M: pause notifications. Ctrl+Alt+H: hide or show the character.",
-    ),
-    switchRow("notifyWaiting", "When an agent is waiting for you"),
-    switchRow("notifyErrors", "When something fails"),
+    fold("agents", "Your agents", testRow, ...agentRows).section,
+    fold(
+      "tell",
+      "What to tell you",
+      switchRow("notifyWorking", "What agents are working on", "A few seconds when one starts. In the top island it's always on its status line."),
+      switchRow("notifyDone", "When a task finishes"),
+      switchRow("notifyPermission", "When an agent needs permission"),
+      switchRow("notifyWaiting", "When an agent is waiting for you"),
+      switchRow("notifyErrors", "When something fails"),
+    ).section,
+    fold(
+      "answer",
+      "Answering requests",
+      switchRow("answerPermissions", "Allow / Deny from here", "Off: requests go straight to your terminal. Nothing is ever allowed unless you click Allow or press its shortcut."),
+      switchRow(
+        "keyboardShortcuts",
+        "Keyboard shortcuts",
+        "Ctrl+Alt+Y / Ctrl+Alt+N: Allow / Deny the request on screen. Ctrl+Alt+J: go to the agent that needs you. Ctrl+Alt+A: activity. Ctrl+Alt+M: pause notifications. Ctrl+Alt+H: hide or show the character.",
+      ),
+    ).section,
   );
 
   // Phone
@@ -1223,6 +1244,19 @@ function fill(s: Settings, ask: AskStatus) {
   }
   relayTest = s.relayTest;
   drawRelayTest();
+
+  // Each folded part says what's set in it. Only the agents open by themselves, while none is connected.
+  const look = LOOKS[p.ruiLook as keyof typeof LOOKS] ?? "";
+  setFold("rui", false, `${look} · ${themeName}`);
+  setFold("dogesh", false, p.dogeshStyle === "2d" ? `2D · ${outfit.label}` : `3D · ${look} · ${outfit.label}`);
+  const sizeName = { small: "Small", medium: "Medium", large: "Large" }[p.size as string] ?? "";
+  setFold("place", false, [top ? "Top edge" : "Desktop", UI_THEMES[p.uiTheme as keyof typeof UI_THEMES], top ? "" : sizeName].filter(Boolean).join(" · "));
+  const connected = s.agents.filter((a) => a.connected).length;
+  setFold("agents", connected === 0, connected ? `${connected} connected` : "none connected");
+  const told = (["notifyWorking", "notifyDone", "notifyPermission", "notifyWaiting", "notifyErrors"] as const).filter((k) => p[k]).length;
+  setFold("tell", false, `${told} of 5 on`);
+  setFold("answer", false, p.answerPermissions ? "From here" : "In your terminal");
+  setFold("relay", false, p.phoneRelay ? "On" : "Off");
   (controls.get("autostart") as HTMLInputElement).checked = s.autostart;
   (controls.get("shareDevice") as HTMLInputElement).disabled = !p.askEnabled;
   controls.get("device")!.textContent = ask.device;
@@ -1306,13 +1340,17 @@ function relaySettings(): HTMLElement {
   const status = el("p", "set-hint");
   controls.set("relayStatus", status);
   box.append(
-    switchRow(
-      "phoneRelay",
-      "Reach your phone anywhere",
-      "When the phone isn't on this network, it connects through a relay you run on Cloudflare (free). Everything is encrypted between this PC and the phone: the relay can't read it. Setup: docs/RELAY.md.",
-    ),
-    address,
-    status,
+    fold(
+      "relay",
+      "Away from this network",
+      switchRow(
+        "phoneRelay",
+        "Reach your phone anywhere",
+        "When the phone isn't on this network, it connects through a relay you run on Cloudflare (free). Everything is encrypted between this PC and the phone: the relay can't read it. Setup: docs/RELAY.md.",
+      ),
+      address,
+      status,
+    ).section,
   );
   return box;
 }
