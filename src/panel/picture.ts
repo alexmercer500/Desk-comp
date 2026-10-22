@@ -16,8 +16,13 @@ const SCAN_SIDE = 1024;
 const MAX_FILE = 25 << 20;
 /** Pixels at least this opaque (0–255) count as part of the picture. */
 const SOLID = 12;
-/** How far (RGB distance) a pixel may be from the background colour and still be background. */
-const BACKGROUND_TOLERANCE = 40;
+/**
+ * How far (RGB distance) a pixel may be from the background colour and still
+ * be background: a little more than the background's own noise, within these
+ * bounds. A clean AI background gets the least, so a pale character (cream fur
+ * on white) keeps its edges; a noisy one (a photo's wall, JPEG) more.
+ */
+const BACKGROUND_TOLERANCE = { least: 12, most: 40, perNoise: 3 };
 
 /** What can be picked: the browser opens these. */
 export const PICTURE_TYPES = "image/png,image/jpeg,image/webp,image/gif,image/bmp";
@@ -191,7 +196,7 @@ export function solidBox(img: Pixels): Box | null {
  * character (white eyes on a white background) is left alone. False, changing
  * nothing, when the edge isn't one plain colour (a photo, or already see-through).
  */
-export function clearBackground(img: Pixels, tolerance = BACKGROUND_TOLERANCE): boolean {
+export function clearBackground(img: Pixels, fixedTolerance?: number): boolean {
   const { width: w, height: h, data: d } = img;
   if (w < 3 || h < 3) return false;
   const edge: number[] = [];
@@ -210,8 +215,14 @@ export function clearBackground(img: Pixels, tolerance = BACKGROUND_TOLERANCE): 
   r /= opaque;
   g /= opaque;
   b /= opaque;
-  const t2 = tolerance * tolerance;
   const dist2 = (i: number) => (d[i * 4] - r) ** 2 + (d[i * 4 + 1] - g) ** 2 + (d[i * 4 + 2] - b) ** 2;
+  // The background's noise: how far its edge pixels stray from their own colour, on average.
+  let noise = 0;
+  for (const i of edge) if (d[i * 4 + 3] >= 250) noise += Math.sqrt(dist2(i));
+  noise /= opaque;
+  const { least, most, perNoise } = BACKGROUND_TOLERANCE;
+  const tolerance = fixedTolerance ?? Math.min(most, Math.max(least, least + perNoise * noise));
+  const t2 = tolerance * tolerance;
   const near = (i: number) => d[i * 4 + 3] >= 250 && dist2(i) <= t2;
   if (edge.filter(near).length < edge.length * 0.85) return false;
 

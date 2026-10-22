@@ -101,6 +101,15 @@ describe("clearing a plain background", () => {
     expect(solidBox(img)).toEqual({ x: 3, y: 3, w: 6, h: 4 });
   });
 
+  it("on a clean background, keeps a pale edge (cream fur on white)", () => {
+    const img = picture(12, 10, [255, 255, 255]);
+    // A cream rim round the character, 26 away from white, as a bunny's ears were in an AI sheet.
+    for (let x = 2; x < 10; x++) img.data.set([254, 250, 230, 255], (2 * 12 + x) * 4);
+    expect(clearBackground(img)).toBe(true);
+    expect(alpha(img, 5, 2)).toBeGreaterThan(150);
+    expect(alpha(img, 0, 0)).toBe(0);
+  });
+
   it("leaves a picture alone when its edge isn't one colour (a photo) or is already see-through", () => {
     const photo = picture(12, 10, [255, 255, 255]);
     for (let x = 0; x < 12; x += 2) photo.data.set([10, 10, 10, 255], x * 4);
