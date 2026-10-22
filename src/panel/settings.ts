@@ -6,8 +6,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Engine } from "../engine/engine";
-import type { CharacterId } from "../engine/types";
-import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
+import type { CharacterId, StateName, Variant } from "../engine/types";
+import { CHARACTER_NAMES, SKINS, applyCustomPrefs, isCharacter } from "../skins";
+import { MOODS, customPicture, hasCustomCharacter, type Mood } from "../skins/custom";
+import { loadCustomCharacter } from "../skins/custom-load";
+import { PICTURE_TYPES, preparePicture } from "./picture";
 import { LOOKS, LOOK_NAMES, THEMES, THEME_NAMES, themeColors } from "../three/palette";
 import { UI_THEMES } from "../theme";
 import { linkState, linkText, since, type AgentStatus, type RelayTest } from "./connections";
@@ -42,6 +45,8 @@ interface Prefs {
   ruiTheme: string;
   dogeshStyle: string;
   dogeshOutfit: string;
+  customName: string;
+  customShape: string;
   ruiFlatOnBattery: boolean;
   phoneLink: boolean;
   phoneRelay: boolean;
@@ -260,9 +265,231 @@ function characterPicker(): HTMLElement {
     // Dogesh Bhai again in a new outfit.
     if (id === "dogesh") redrawDogesh = draw;
   }
+  grid.append(customCard());
   controls.set("character", grid);
   return grid;
 }
+
+// ── Your own character ───────────────────────────────────────────────────────
+
+/** Each mood's slot: its title, and when it shows. */
+const MOOD_TEXT: Record<Mood, [string, string]> = {
+  idle: ["Main", "Shown whenever a mood has no picture of its own"],
+  working: ["Working", "While an agent works"],
+  waiting: ["Needs you", "A permission or a question"],
+  done: ["Done", "A task finished"],
+  error: ["Oops", "Something went wrong"],
+  sleeping: ["Asleep", "After a while with nothing going on"],
+};
+/** What the preview plays for each mood. */
+const MOOD_STATE: Record<Mood, [StateName, Variant]> = {
+  idle: ["IDLE", null],
+  working: ["WORKING", null],
+  waiting: ["WORKING", "wait"],
+  done: ["SUCCESS", null],
+  error: ["ERROR", null],
+  sleeping: ["SLEEPING", null],
+};
+
+/** Its editor is open without it being the character (its card was clicked before it had a picture). */
+let customOpen = false;
+/** Redraws its card (new pictures, a new shape). */
+let redrawCustomCard: (() => void) | null = null;
+/** The editor's live preview. */
+let customPreview: Engine | null = null;
+
+/** Its card: a drawing of it once it has its main picture, else a "+" to make it. */
+function customCard(): HTMLElement {
+  const b = el("button", "char-card");
+  b.type = "button";
+  b.setAttribute("role", "radio");
+  b.dataset.value = "custom";
+  const c = el("canvas");
+  c.setAttribute("aria-hidden", "true");
+  const plus = el("span", "char-plus", "+");
+  plus.setAttribute("aria-hidden", "true");
+  const name = el("span", "char-name", "Your own");
+  controls.set("customCardName", name);
+  b.append(c, plus, name, el("span", "char-what", "your pictures"));
+  b.addEventListener("click", () => {
+    if (hasCustomCharacter()) {
+      void set("character", "custom");
+      return;
+    }
+    // Nothing to show yet: open its editor to add the main picture.
+    customOpen = true;
+    void refreshSettings();
+  });
+  const e = new Engine(SKINS.custom);
+  e.addView(c);
+  e.setState("IDLE", null, 0);
+  redrawCustomCard = () => {
+    const has = hasCustomCharacter();
+    c.hidden = !has;
+    plus.hidden = has;
+    if (has && c.clientWidth) e.advance(400);
+  };
+  new ResizeObserver(() => redrawCustomCard?.()).observe(c);
+  return b;
+}
+
+/** Your own character's choices: its name, a picture per mood, its shape, and a preview. */
+function customOptions(): HTMLElement {
+  const box = el("div", "rui-options custom-options");
+  controls.set("customOptions", box);
+
+  const name = el("input", "set-input");
+  name.maxLength = 24;
+  name.spellcheck = false;
+  name.setAttribute("aria-label", "Your character's name");
+  controls.set("customNameInput", name);
+  const saveName = () => {
+    if (name.value.trim() && name.value.trim() !== CHARACTER_NAMES.custom) void set("customName", name.value);
+  };
+  name.addEventListener("change", saveName);
+  name.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") saveName();
+  });
+  const nameLine = el("div", "set-key");
+  nameLine.append(name);
+
+  const slots = el("div", "custom-slots");
+  for (const mood of MOODS) slots.append(customSlot(mood));
+
+  // The preview: your character, playing the mood picked under it.
+  const preview = el("div", "custom-preview");
+  controls.set("customPreviewBox", preview);
+  const stage = el("canvas");
+  stage.setAttribute("aria-hidden", "true");
+  customPreview = new Engine(SKINS.custom);
+  customPreview.addView(stage);
+  customPreview.setState("IDLE", null, 0);
+  const moods = el("div", "custom-moods");
+  moods.setAttribute("role", "radiogroup");
+  moods.setAttribute("aria-label", "Preview a mood");
+  for (const mood of MOODS) {
+    const m = el("button", undefined, MOOD_TEXT[mood][0]);
+    m.type = "button";
+    m.setAttribute("role", "radio");
+    m.setAttribute("aria-checked", String(mood === "idle"));
+    m.addEventListener("click", () => {
+      for (const other of moods.children) other.setAttribute("aria-checked", String(other === m));
+      const [state, variant] = MOOD_STATE[mood];
+      customPreview?.setState(state, variant, 200);
+    });
+    moods.append(m);
+  }
+  preview.append(stage, moods);
+
+  const use = el("button", "set-button", "Use it");
+  use.type = "button";
+  use.addEventListener("click", () => void set("character", "custom"));
+  const useRow = row("Use your character", "Instead of the one you have now", use);
+  controls.set("customUseRow", useRow);
+
+  box.append(
+    el("p", "set-hint custom-intro", "A picture for each mood. Only the main one is needed: a mood without its own shows the main one. A PNG with a see-through background looks best; a photo looks good as a round sticker."),
+    row("Name", null, nameLine),
+    slots,
+    row("Shape", "Round sticker: each picture in a white circle.", segmented("customShape", "Shape", [["free", "As it is"], ["round", "Round sticker"]])),
+    preview,
+    useRow,
+  );
+  return box;
+}
+
+/** One mood's picture: a thumbnail, Choose… and Remove. */
+function customSlot(mood: Mood): HTMLElement {
+  const s = el("div", "custom-slot");
+  const thumb = el("div", "custom-thumb");
+  const img = el("img");
+  img.alt = "";
+  thumb.append(img);
+  const text = el("div", "custom-slot-text");
+  text.append(el("span", "custom-slot-title", MOOD_TEXT[mood][0]), el("span", "custom-slot-hint", MOOD_TEXT[mood][1]));
+  const input = el("input");
+  input.type = "file";
+  input.accept = PICTURE_TYPES;
+  input.hidden = true;
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    input.value = "";
+    if (file) void addPicture(mood, file);
+  });
+  const what = MOOD_TEXT[mood][0].toLowerCase();
+  const choose = el("button", "set-button", "Choose…");
+  choose.type = "button";
+  choose.setAttribute("aria-label", `Choose the ${what} picture`);
+  choose.addEventListener("click", () => input.click());
+  const remove = el("button", "set-button", "Remove");
+  remove.type = "button";
+  remove.setAttribute("aria-label", `Remove the ${what} picture`);
+  remove.addEventListener("click", () => void removePicture(mood));
+  const buttons = el("div", "custom-slot-buttons");
+  buttons.append(choose, remove);
+  s.append(thumb, text, buttons, input);
+  controls.set(`customSlot:${mood}`, s);
+  return s;
+}
+
+/** Shows each slot's picture, and what can be done with it. */
+function fillCustom(p: Prefs) {
+  applyCustomPrefs(p);
+  const has = hasCustomCharacter();
+  const open = p.character === "custom" || customOpen;
+  controls.get("customOptions")!.hidden = !open;
+  controls.get("customCardName")!.textContent = has ? p.customName : "Your own";
+  const name = controls.get("customNameInput") as HTMLInputElement;
+  if (document.activeElement !== name) name.value = p.customName;
+  for (const mood of MOODS) {
+    const s = controls.get(`customSlot:${mood}`)!;
+    const pic = customPicture(mood);
+    const img = s.querySelector("img")!;
+    img.hidden = !pic;
+    if (pic && img.src !== pic.src) img.src = pic.src;
+    s.classList.toggle("no-picture", !pic);
+    const [choose, remove] = s.querySelectorAll("button");
+    choose.textContent = pic ? "Change…" : "Choose…";
+    remove.hidden = !pic;
+    // The other moods come once there's a main picture to fall back to.
+    choose.disabled = mood !== "idle" && !has;
+  }
+  controls.get("customPreviewBox")!.hidden = !has;
+  controls.get("customUseRow")!.hidden = !has || p.character === "custom";
+  redrawCustomCard?.();
+  if (open && has) customPreview?.start();
+  else customPreview?.stop();
+}
+
+async function addPicture(mood: Mood, file: File) {
+  const first = mood === "idle" && !hasCustomCharacter();
+  say("Getting the picture ready…");
+  try {
+    await invoke("custom_picture_set", { mood, png: await preparePicture(file) });
+    say("");
+  } catch (e) {
+    say(e instanceof Error ? e.message : `Couldn't add it: ${String(e)}`, true);
+    return;
+  }
+  await loadCustomCharacter();
+  // Its first picture: it becomes your character straight away.
+  if (first) await set("character", "custom");
+  else await refreshSettings();
+}
+
+async function removePicture(mood: Mood) {
+  try {
+    await invoke("custom_picture_clear", { mood });
+    say("");
+  } catch (e) {
+    say(`Couldn't remove it: ${String(e)}`, true);
+  }
+  await loadCustomCharacter();
+  // Without its main picture it isn't the character any more; the editor stays open to add another.
+  if (mood === "idle") customOpen = true;
+  await refreshSettings();
+}
+
 
 /** Redraws Dogesh Bhai's card (after a change of outfit). */
 let redrawDogesh: (() => void) | null = null;
@@ -369,6 +596,7 @@ function build() {
     characterPicker(),
     ruiOptions(),
     dogeshOptions(),
+    customOptions(),
     row("Where I live", null, segmented("place", "Where I live", [["corner", "Desktop"], ["top", "Top edge"]])),
     row(
       "Theme",
@@ -674,6 +902,7 @@ function fill(s: Settings, ask: AskStatus) {
   (controls.get("ruiPicture") as HTMLImageElement).src = ruiPicture("idle");
   controls.get("ruiOptions")!.hidden = p.character !== "rui";
   controls.get("dogeshOptions")!.hidden = p.character !== "dogesh";
+  fillCustom(p);
   controls.get("dogeshLookRow")!.hidden = p.dogeshStyle === "2d";
   const outfit = OUTFITS[p.dogeshOutfit as keyof typeof OUTFITS] ?? OUTFITS.cozy;
   controls.get("dogeshOutfitBlurb")!.textContent = `${outfit.label}: ${outfit.blurb} He changes into it with a little scene.`;

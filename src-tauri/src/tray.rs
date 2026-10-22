@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, Wry};
 use crate::{desktop, setup, system};
 
 /// Display names for the character and size choices.
-const CHARACTER_NAMES: &[(&str, &str)] = &[("kulhi", "Kulhi (chai cup)"), ("hexo", "Hexo (hex nut)"), ("glim", "Glim (firefly)"), ("billu", "Billu (space cat)"), ("rui", "Rui (3D yeti)"), ("dogesh", "Dogesh Bhai (scaredy pup)")];
+const CHARACTER_NAMES: &[(&str, &str)] = &[("kulhi", "Kulhi (chai cup)"), ("hexo", "Hexo (hex nut)"), ("glim", "Glim (firefly)"), ("billu", "Billu (space cat)"), ("rui", "Rui (3D yeti)"), ("dogesh", "Dogesh Bhai (scaredy pup)"), ("custom", "Your own character")];
 const SIZE_NAMES: &[(&str, &str)] = &[("small", "Small"), ("medium", "Medium"), ("large", "Large")];
 const RUI_LOOK_NAMES: &[(&str, &str)] = &[("toy", "Toy (soft vinyl)"), ("anime", "Anime (outlined)")];
 const RUI_THEME_NAMES: &[(&str, &str)] = &[("cream", "Cream"), ("mint", "Mint"), ("sky", "Sky blue"), ("lavender", "Lavender"), ("peach", "Peach pink"), ("panda", "Panda")];
@@ -169,7 +169,11 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                         system::toggle(app, key);
                     } else if let Some((group, choice)) = id.split_once(':') {
                         if matches!(group, "character" | "size" | "place" | "ruiLook" | "ruiTheme") {
-                            let _ = system::update(app, group, &Value::String(choice.into()));
+                            let done = system::update(app, group, &Value::String(choice.into()));
+                            // Your own character without its pictures yet: where to add them.
+                            if done.is_err() && choice == "custom" {
+                                let _ = desktop::open_home(app, Some("appearance"));
+                            }
                         } else if group == "demo" {
                             let _ = app.emit_to(desktop::LABEL, "demo", choice);
                         }

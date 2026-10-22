@@ -25,6 +25,9 @@ export interface Prefs {
   hideFullscreen: boolean;
   size: "small" | "medium" | "large";
   character: string;
+  /** Your own character's name, and how its pictures are shown ("free" | "round"). */
+  customName?: string;
+  customShape?: string;
   /** "corner": anywhere on the desktop; "top": an island at the top edge. */
   place: "corner" | "top";
   /** Minutes at the keyboard before a break reminder. */

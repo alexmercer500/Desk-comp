@@ -613,6 +613,70 @@ label.set-text { cursor: pointer; }
 .char-name { font-weight: 650; font-size: 12.5px; line-height: 1.3; overflow-wrap: anywhere; }
 .char-what { font-size: 11px; line-height: 1.3; color: var(--muted); }
 
+/* Your own character's card before it has a picture: a "+" where the drawing goes. */
+.char-plus {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+}
+.char-card canvas[hidden], .char-plus[hidden] { display: none; }
+
+/* Your own character's editor: a slot per mood, its shape, a preview. */
+.custom-intro { margin: 8px 0 2px; }
+.custom-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; padding: 6px 0; }
+.custom-slot {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 6px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.custom-thumb {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: var(--code);
+}
+.custom-slot.no-picture .custom-thumb { background: none; border: 1.5px dashed var(--border); }
+.custom-thumb img { max-width: 40px; max-height: 40px; object-fit: contain; }
+.custom-thumb img[hidden] { display: none; }
+.custom-slot-text { display: flex; flex-direction: column; min-width: 0; }
+.custom-slot-title { font-weight: 650; font-size: 12.5px; }
+.custom-slot-hint { font-size: 11px; line-height: 1.3; color: var(--muted); }
+.custom-slot-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.custom-slot-buttons [hidden] { display: none; }
+.custom-preview { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 10px; }
+.custom-preview[hidden] { display: none; }
+.custom-preview canvas { width: 120px; height: 120px; }
+.custom-moods { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; padding: 2px; border-radius: 10px; background: var(--code); }
+.custom-moods button {
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.custom-moods button[aria-checked="true"] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--border); }
+.custom-moods button:focus-visible { outline: 2px solid var(--attention); outline-offset: 1px; }
+
 /* Rui's own choices, under the character cards while he's chosen. */
 .rui-options { margin: 0 0 4px; padding: 2px 12px; border-radius: 12px; background: var(--raised); }
 /* Dogesh Bhai's outfits: a picture card each, as many to a line as fit. */

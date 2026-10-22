@@ -15,7 +15,8 @@ import type { Change } from "../desktop/diff";
 import { ago, elapsed, firstLine, plural } from "../desktop/format";
 import { Engine } from "../engine/engine";
 import type { CharacterId, StateName } from "../engine/types";
-import { SKINS, isCharacter } from "../skins";
+import { SKINS, applyCustomPrefs, isCharacter } from "../skins";
+import { followCustomCharacter, loadCustomCharacter } from "../skins/custom-load";
 import { focusAsk, refreshAsk, setCharacter } from "./ask";
 import { SetupCard, loadConnections, renderBadges, type ConnectionsView } from "./connections";
 import { poseFor, ruiPicture, setRuiStyle } from "./rui-pictures";
@@ -73,6 +74,8 @@ for (const b of document.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
 interface PanelPrefs {
   askEnabled?: boolean;
   character?: string;
+  customName?: string;
+  customShape?: string;
   ruiLook?: string;
   ruiTheme?: string;
 }
@@ -80,6 +83,7 @@ interface PanelPrefs {
 /** Settings changed (here, in the tray, or anywhere else). */
 function applyPrefs(p: PanelPrefs) {
   setRuiStyle(p);
+  applyCustomPrefs(p);
   if (p.character) ruiChosen = p.character === "rui";
   askEnabled = p.askEnabled !== false;
   document.getElementById("tab-ask")!.hidden = !askEnabled;
@@ -92,6 +96,11 @@ void listen<PanelPrefs>("prefs", ({ payload }) => {
   if (open && place === "top" && tab === "activity") render();
 });
 void invoke<PanelPrefs>("get_prefs").then(applyPrefs);
+// Your own character's pictures, for the tiles (and Settings, in this window).
+void loadCustomCharacter();
+followCustomCharacter(() => {
+  if (open && place === "top" && tab === "activity") render();
+});
 // Settings → API key → "Add in Ask".
 window.addEventListener("settings:open-ask", () => showTab("ask"));
 

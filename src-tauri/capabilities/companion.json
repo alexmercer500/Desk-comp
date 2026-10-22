@@ -20,6 +20,7 @@
     "allow-phone-sessions",
     "allow-focus-session",
     "allow-session-in-front",
-    "allow-answer-keys"
+    "allow-answer-keys",
+    "allow-custom-pictures"
   ]
 }

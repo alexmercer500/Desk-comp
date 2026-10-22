@@ -18,7 +18,8 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { showFor, type BubbleMessage } from "../bubble/types";
 import { CharacterController } from "../engine/controller";
 import type { CharacterId, StateName } from "../engine/types";
-import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
+import { CHARACTER_NAMES, SKINS, applyCustomPrefs, isCharacter } from "../skins";
+import { followCustomCharacter, loadCustomCharacter } from "../skins/custom-load";
 import { AgentTracker, activityOf, sessionName, type AgentEvent, type DayStats, type Decision, type StatsStore } from "./agents";
 import { Companion, allowed, type Prefs, type SystemEvent } from "./companion";
 import { Island, agentRows, agentStatus, workingCard } from "./island";
@@ -40,8 +41,13 @@ const initialPrefs = await invoke<Prefs>("get_prefs");
 // Dogesh Bhai's outfit, for his 2D self (his 3D self gets it from the stage).
 setDogeshOutfit(initialPrefs.dogeshOutfit);
 
+// Your own character: its name, its shape and its pictures, before it's first drawn.
+applyCustomPrefs(initialPrefs);
+const hasCustom = await loadCustomCharacter();
+
 /** The 2D character (with Rui, the one the controller keeps, unseen). */
-let character: CharacterId = isCharacter(initialPrefs.character) ? initialPrefs.character : "kulhi";
+let character: CharacterId =
+  isCharacter(initialPrefs.character) && (initialPrefs.character !== "custom" || hasCustom) ? initialPrefs.character : "kulhi";
 let top = initialPrefs.place === "top";
 /** The 3D stage while a 3D character is shown (Rui, or Dogesh Bhai in 3D), else null. */
 let stage: RuiStage | null = null;
@@ -169,6 +175,8 @@ function reportHit() {
   lastHit = key;
   void invoke("set_hit_rect", { rect });
 }
+// New pictures for your own character: its clickable part follows the main one.
+followCustomCharacter(() => reportHit());
 // Rui moves about inside his window, so his clickable box follows him.
 window.setInterval(() => {
   if (stage) reportHit();
@@ -385,6 +393,9 @@ function changeOutfit(name: string | undefined, onShow: boolean) {
 void listen<Prefs>("prefs", ({ payload }) => {
   const before = prefs;
   prefs = payload;
+  // Your own character's shape changes its clickable part.
+  applyCustomPrefs(payload);
+  reportHit();
   if (payload.phoneLink && !before.phoneLink) sendToPhone();
   if (stage) {
     if (isLook(payload.ruiLook)) stage.setLook(payload.ruiLook);

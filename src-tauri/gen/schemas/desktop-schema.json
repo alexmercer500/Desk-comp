@@ -255,6 +255,24 @@
           "markdownDescription": "Enables the connect_found_agents command without any pre-configured scope."
         },
         {
+          "description": "Enables the custom_picture_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-custom-picture-clear",
+          "markdownDescription": "Enables the custom_picture_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the custom_picture_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-custom-picture-set",
+          "markdownDescription": "Enables the custom_picture_set command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the custom_pictures command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-custom-pictures",
+          "markdownDescription": "Enables the custom_pictures command without any pre-configured scope."
+        },
+        {
           "description": "Enables the drag_begin command without any pre-configured scope.",
           "type": "string",
           "const": "allow-drag-begin",
@@ -481,6 +499,24 @@
           "type": "string",
           "const": "deny-connect-found-agents",
           "markdownDescription": "Denies the connect_found_agents command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the custom_picture_clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-custom-picture-clear",
+          "markdownDescription": "Denies the custom_picture_clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the custom_picture_set command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-custom-picture-set",
+          "markdownDescription": "Denies the custom_picture_set command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the custom_pictures command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-custom-pictures",
+          "markdownDescription": "Denies the custom_pictures command without any pre-configured scope."
         },
         {
           "description": "Denies the drag_begin command without any pre-configured scope.",

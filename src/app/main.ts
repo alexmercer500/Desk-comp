@@ -13,7 +13,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { Engine } from "../engine/engine";
 import type { CharacterId, StateName, Variant } from "../engine/types";
-import { CHARACTER_NAMES, SKINS } from "../skins";
+import { CHARACTER_NAMES, SKINS, applyCustomPrefs } from "../skins";
+import { hasCustomCharacter } from "../skins/custom";
+import { followCustomCharacter, loadCustomCharacter } from "../skins/custom-load";
 import { SetupCard, loadConnections, renderBadges, since, type ConnectionsView } from "../panel/connections";
 import { ruiPicture, setRuiStyle } from "../panel/rui-pictures";
 import { refreshSettings } from "../panel/settings";
@@ -35,6 +37,8 @@ const PAGES: Record<Page, { title: string; lede: string }> = {
 
 interface Prefs {
   character: string;
+  customName?: string;
+  customShape?: string;
   ruiLook: string;
   ruiTheme: string;
 }
@@ -324,6 +328,8 @@ function cast() {
     setRuiStyle(prefs);
     walkers.push(new Walker("rui", right, right));
   }
+  // Your own character joins them, once it has its pictures.
+  if (prefs?.character === "custom" && hasCustomCharacter()) walkers.push(new Walker("custom", right, right));
   for (const w of walkers) stage.append(w.node);
 }
 
@@ -352,6 +358,7 @@ void listen<string>("home:page", ({ payload }) => {
 void listen<Prefs>("prefs", ({ payload }) => {
   const who = prefs?.character;
   prefs = payload;
+  applyCustomPrefs(payload);
   if (payload.character !== who) cast();
   void refreshConnections();
 });
@@ -361,6 +368,10 @@ window.setInterval(() => void refreshConnections(), 30_000);
 
 async function start() {
   prefs = await invoke<Prefs>("get_prefs").catch(() => null);
+  if (prefs) applyCustomPrefs(prefs);
+  // Your own character's pictures (for the walkers and Settings in this window).
+  await loadCustomCharacter();
+  followCustomCharacter(() => cast());
   const s = await invoke<{ version: string }>("get_settings").catch(() => null);
   version = s?.version ?? "";
   document.getElementById("version")!.textContent = version ? `Version ${version}` : "";

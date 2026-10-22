@@ -5,6 +5,7 @@ use tauri::Manager;
 mod agents;
 mod assistant;
 mod connections;
+mod custom;
 mod desktop;
 mod focus;
 mod peek;
@@ -64,6 +65,9 @@ pub fn run() {
             phone::phone_sessions,
             focus::focus_session,
             focus::session_in_front,
+            custom::custom_pictures,
+            custom::custom_picture_set,
+            custom::custom_picture_clear,
             assistant::assistant_status,
             assistant::assistant_set_key,
             assistant::assistant_forget_key,

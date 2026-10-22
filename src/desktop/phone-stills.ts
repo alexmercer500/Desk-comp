@@ -33,6 +33,8 @@ window.addEventListener("unhandledrejection", (e) => (out.textContent = `ERROR $
 
 const pictures: Record<string, string> = {};
 for (const [id, skin] of Object.entries(SKINS)) {
+  // Your own character is made on each PC from its own pictures: none to bundle.
+  if (id === "custom") continue;
   for (const [mood, [state, settle]] of Object.entries(MOODS)) {
     const draw = () => {
       const canvas = document.createElement("canvas");

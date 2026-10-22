@@ -9,7 +9,18 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
-## 0.15.5 (22 October 2026, Android 0.5.3 carried over)
+## 0.16.0 (22 October 2026, Android 0.5.3 carried over)
+
+- **Make your own character from your pictures.** In Settings → Character, choose **Your own**, then pick a picture: a drawing, a logo, a photo of your pet. It moves like the other characters: it breathes, sways, hops when a task is done, slumps when something goes wrong, pops up when an agent needs you, and dozes off with little Z's.
+  - **One picture is enough.** You can add a different one for each moment: Working, Needs you, Done, Oops and Asleep. A moment without its own picture shows the main one, and the picture changes with a quick squash.
+  - **Give it a name**, shown wherever the character is named.
+  - **As it is or a round sticker.** A PNG with a see-through background looks best as it is. A photo looks good as a round sticker, which puts it in a white circle.
+  - Try each moment in the preview before you use it.
+  - Pictures are trimmed of empty see-through edges and kept small, on your PC only. Clicking and dragging work on the picture itself.
+  - Also in the tray menu, as "Your own character".
+  - The phone keeps showing the character it had before; your own pictures don't go to the phone yet.
+
+## 0.15.5 (22 October 2026, not released on its own: in 0.16.0)
 
 - **Fixed: approving a Claude Code plan from the card.** When Claude finished a plan, Allow on the card didn't start it: Claude Code was still waiting in the terminal. Now the card shows the plan with the terminal's own choices:
   - **Manual**: start, and approve each edit yourself.

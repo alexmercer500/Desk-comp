@@ -45,6 +45,7 @@ pub struct Prefs {
     /// "small" | "medium" | "large"
     pub size: String,
     /// "kulhi" | "hexo" | "glim" | "billu" | "rui" (3D) | "dogesh" (3D or 2D, see dogesh_style)
+    /// | "custom" (your own pictures, custom.rs)
     pub character: String,
     /// "corner" (anywhere on the desktop) | "top" (an island at the top edge)
     pub place: String,
@@ -92,6 +93,10 @@ pub struct Prefs {
     pub dogesh_style: String,
     /// Dogesh Bhai's outfit (DOGESH_OUTFITS; what each looks like is in src/skins/dogesh-outfits.ts).
     pub dogesh_outfit: String,
+    /// Your own character's name (custom.rs has its pictures).
+    pub custom_name: String,
+    /// How its pictures are shown (CUSTOM_SHAPES): "free" (as they are) | "round" (a round sticker).
+    pub custom_shape: String,
 }
 
 impl Default for Prefs {
@@ -130,12 +135,18 @@ impl Default for Prefs {
             ui_theme: "character".into(),
             dogesh_style: "3d".into(),
             dogesh_outfit: "cozy".into(),
+            custom_name: "My character".into(),
+            custom_shape: "free".into(),
         }
     }
 }
 
 pub const SIZES: &[&str] = &["small", "medium", "large"];
-pub const CHARACTERS: &[&str] = &["kulhi", "hexo", "glim", "billu", "rui", "dogesh"];
+pub const CHARACTERS: &[&str] = &["kulhi", "hexo", "glim", "billu", "rui", "dogesh", "custom"];
+/// How your own character's pictures are shown.
+pub const CUSTOM_SHAPES: &[&str] = &["free", "round"];
+/// Longest name for your own character, in characters.
+const CUSTOM_NAME_MAX: usize = 24;
 /// How Dogesh Bhai is drawn: "3d" (like Rui, in Rui's look) or "2d" (like the others).
 pub const DOGESH_STYLES: &[&str] = &["3d", "2d"];
 /// Dogesh Bhai's outfits.
@@ -173,6 +184,13 @@ impl Prefs {
         }
         if !RUI_THEMES.contains(&self.rui_theme.as_str()) {
             return Err(format!("unknown colour {:?}", self.rui_theme));
+        }
+        if !CUSTOM_SHAPES.contains(&self.custom_shape.as_str()) {
+            return Err(format!("unknown shape {:?}", self.custom_shape));
+        }
+        let name = &self.custom_name;
+        if name.trim().is_empty() || name.chars().count() > CUSTOM_NAME_MAX || name.chars().any(char::is_control) {
+            return Err(format!("a name of 1–{CUSTOM_NAME_MAX} characters"));
         }
         if !self.relay_url.is_empty() && crate::phone::relay_address(&self.relay_url).as_deref() != Ok(self.relay_url.as_str()) {
             return Err("relay address must be plain https://host (Settings makes it so)".into());
@@ -217,6 +235,10 @@ pub fn current(app: &AppHandle) -> Prefs {
 /// Changes one setting (from the Settings tab or the tray), saves it, applies
 /// it, and tells every window and the tray menu.
 pub fn update(app: &AppHandle, key: &str, value: &Value) -> Result<Prefs, String> {
+    // Your own character: there's nothing to show until it has its main picture (Settings, the tray or a phone).
+    if key == "character" && value.as_str() == Some("custom") && !crate::custom::has_main(app) {
+        return Err("Add its main picture first.".into());
+    }
     let state = app.state::<PrefsState>();
     let mut prefs = state.0.lock().unwrap_or_else(|e| e.into_inner());
     let before = prefs.clone();
@@ -323,6 +345,8 @@ pub async fn set_setting(app: AppHandle, key: String, value: Value) -> Result<Pr
     let value = match (key.as_str(), value.as_str()) {
         ("relayUrl", Some(t)) if !t.trim().is_empty() => Value::String(crate::phone::relay_address(t).map_err(String::from)?),
         ("relayUrl", Some(_)) => Value::String(String::new()),
+        // Your own character's name as typed: trimmed, and the default if left empty.
+        ("customName", Some(t)) => Value::String(if t.trim().is_empty() { Prefs::default().custom_name } else { t.trim().to_string() }),
         _ => value,
     };
     update(&app, &key, &value)

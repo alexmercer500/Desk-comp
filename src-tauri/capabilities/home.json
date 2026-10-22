@@ -22,6 +22,9 @@
     "allow-connect-found-agents",
     "allow-phone-status",
     "allow-phone-pairing",
-    "allow-phone-pair-again"
+    "allow-phone-pair-again",
+    "allow-custom-pictures",
+    "allow-custom-picture-set",
+    "allow-custom-picture-clear"
   ]
 }

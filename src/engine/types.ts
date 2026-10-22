@@ -1,6 +1,6 @@
 // Contract between the shared engine and each character skin.
 
-export type CharacterId = "kulhi" | "hexo" | "glim" | "billu" | "dogesh";
+export type CharacterId = "kulhi" | "hexo" | "glim" | "billu" | "dogesh" | "custom";
 
 export type StateName =
   | "OFF" | "BOOTING" | "IDLE" | "ATTENTIVE" | "TOUCHED" | "WORKING"
