@@ -10,7 +10,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ClickGuard } from "../bubble/guard";
 import { renderQuestions } from "../bubble/question";
-import { AGENT_NAMES, describeStep, elsewhere, lineTotals, turnMeta, type DayStats, type Permission, type SessionView, type Turn } from "../desktop/agents";
+import { AGENT_NAMES, describeStep, elsewhere, lineTotals, PLAN_CHOICES, PLAN_TOOL, sessionName, turnMeta, type DayStats, type Permission, type SessionView, type Turn } from "../desktop/agents";
 import type { Change } from "../desktop/diff";
 import { ago, elapsed, firstLine, plural } from "../desktop/format";
 import { Engine } from "../engine/engine";
@@ -169,7 +169,7 @@ function renderSession(s: SessionView, now: number): HTMLElement {
   if (s.id === focusId) card.classList.add("focus");
 
   const row = el("div", "row");
-  row.append(el("span", "dot"), el("h2", undefined, s.project || "Unknown project"));
+  row.append(el("span", "dot"), el("h2", undefined, sessionName(s) || "Unknown project"));
   row.append(el("span", "agent", AGENT_NAMES[s.agent] ?? s.agent));
   row.append(el("span", "status", statusText(s, now)));
   card.append(row);
@@ -220,23 +220,27 @@ function renderPerm(p: Permission, more = 0): HTMLElement {
   }
   // All of it, unclamped: what Allow allows is what's here.
   const shown = p.input || p.detail;
-  box.append(el("div", "perm-label", `Wants to ${p.action}${shown ? ":" : ""}`));
+  const plan = p.tool === PLAN_TOOL;
+  box.append(el("div", "perm-label", plan ? "Has a plan ready:" : `Wants to ${p.action}${shown ? ":" : ""}`));
   if (shown) box.append(el("pre", "perm-input", shown));
   if (p.rid && p.cut) box.append(el("div", "perm-hint", `Too long to show here in full: read it and answer in ${p.where ?? "your terminal"}`));
-  if (p.rid && !p.cut && p.canAlways && p.alwaysRule) box.append(el("div", "perm-hint", `Always: ${p.alwaysRule}`));
+  if (p.rid && !p.cut && !plan && p.canAlways && p.alwaysRule) box.append(el("div", "perm-hint", `Always: ${p.alwaysRule}`));
   if (p.rid) {
     const rid = p.rid;
     guard.armOnce(rid);
     const row = el("div", "perm-actions");
-    const choices: [string, string][] = [["deny", "Deny"], ["terminal", elsewhere(p.where ?? "your terminal")]];
+    const own = plan ? PLAN_CHOICES : {};
+    const choices: [string, string][] = [["deny", own.deny?.text ?? "Deny"], ["terminal", elsewhere(p.where ?? "your terminal")]];
     if (!p.cut) {
-      if (p.canAlways) choices.push(["always", "Always"]);
-      choices.push(["allow", "Allow"]);
+      if (p.canAlways) choices.push(["always", own.always?.text ?? "Always"]);
+      choices.push(["allow", own.allow?.text ?? "Allow"]);
     }
     for (const [decision, label] of choices) {
       const b = el("button", `act ${decision}`, label);
       b.type = "button";
       if (decision === "always") b.title = p.alwaysRule ? `Allow, and from now on: ${p.alwaysRule}` : "Allow, and don't ask again for this";
+      const tip = own[decision as keyof typeof own]?.title;
+      if (tip) b.title = tip;
       b.addEventListener("click", (e) => {
         e.stopPropagation(); // not a click on the tile behind it
         if (!guard.ready(rid)) return; // only just appeared under the cursor
@@ -571,7 +575,7 @@ function renderTile(s: SessionView, now: number): HTMLElement {
   tile.dataset.id = s.id;
   tile.tabIndex = 0;
   tile.setAttribute("role", "button");
-  tile.setAttribute("aria-label", `${s.project || "Unknown project"}: ${statusText(s, now)}. Show details`);
+  tile.setAttribute("aria-label", `${sessionName(s) || "Unknown project"}: ${statusText(s, now)}. Show details`);
   if (s.id === focusId) tile.classList.add("focus");
 
   const a = avatar(s.id);
@@ -579,7 +583,7 @@ function renderTile(s: SessionView, now: number): HTMLElement {
 
   const body = el("div", "tile-body");
   const row = el("div", "row");
-  row.append(el("span", "dot"), el("h2", undefined, s.project || "Unknown project"));
+  row.append(el("span", "dot"), el("h2", undefined, sessionName(s) || "Unknown project"));
   row.append(el("span", "agent", AGENT_NAMES[s.agent] ?? s.agent));
   body.append(row);
   // A waiting tile's permission box below already says what it wants.

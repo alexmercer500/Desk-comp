@@ -83,6 +83,13 @@ const HOLD_ACK: Duration = Duration::from_millis(1500);
 const HOLD_BUDGET: Duration = Duration::from_secs(300);
 /// Longest reply passed on to the agent.
 const MAX_REPLY: usize = 4000;
+/// Claude Code's "plan ready" tool: its card approves the plan and picks how
+/// the work after it goes (see plan_mode).
+const PLAN_TOOL: &str = "ExitPlanMode";
+/// What Claude reads when the plan is turned down from the card: as the
+/// terminal's "No, keep planning", it stays in plan mode and asks.
+const KEEP_PLANNING: &str =
+    "Not yet: keep planning. The user wants changes to this plan before you start; ask them what to change.";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -145,12 +152,12 @@ fn main() {
     }
     if permission {
         // All of it, so what's allowed is what was seen (the detail above is a summary).
-        let (input, cut) = full_input(&hook);
+        let (input, cut) = if is_plan(&hook) { plan_text(&hook) } else { full_input(&hook) };
         summary["input"] = Value::String(input);
         if cut {
             summary["cut"] = Value::Bool(true);
         }
-        let rules = always_rules(&hook);
+        let rules = if is_plan(&hook) { vec![plan_mode("acceptEdits")] } else { always_rules(&hook) };
         if !rules.is_empty() {
             summary["canAlways"] = Value::Bool(true);
             summary["alwaysRule"] = Value::String(describe_rules(&rules));
@@ -526,6 +533,9 @@ fn questions(hook: &Map<String, Value>) -> Value {
 /// the ones the card spelled out. Anything else — no answer, a timeout,
 /// garbage — prints nothing, and the agent asks in its terminal.
 fn reply_permission(decision: &str, hook: &Map<String, Value>) -> Option<String> {
+    if is_plan(hook) {
+        return reply_plan(decision, hook);
+    }
     let decision = match decision.trim() {
         "allow" => json!({ "behavior": "allow" }),
         "always" => match always_rules(hook) {
@@ -536,6 +546,44 @@ fn reply_permission(decision: &str, hook: &Map<String, Value>) -> Option<String>
         _ => return None,
     };
     Some(json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision } }).to_string())
+}
+
+fn is_plan(hook: &Map<String, Value>) -> bool {
+    tool_name(hook).as_deref() == Some(PLAN_TOOL)
+}
+
+/// The mode the work after a plan runs in, as Claude Code's own "setMode" update (this session only).
+fn plan_mode(mode: &str) -> Value {
+    json!({ "type": "setMode", "mode": mode, "destination": "session" })
+}
+
+/// A plan card's answer, as the terminal's plan dialog would give it: Allow is
+/// "Yes, manually approve edits", Always "Yes, auto-accept edits", Deny "No,
+/// keep planning". Claude Code only takes an allow for this tool with the
+/// tool's input handed back (updatedInput, unchanged); a bare allow leaves its
+/// dialog waiting.
+fn reply_plan(decision: &str, hook: &Map<String, Value>) -> Option<String> {
+    let input = Value::Object(tool_input(hook).unwrap_or_default());
+    let decision = match decision.trim() {
+        "allow" => json!({ "behavior": "allow", "updatedInput": input, "updatedPermissions": [plan_mode("default")] }),
+        "always" => json!({ "behavior": "allow", "updatedInput": input, "updatedPermissions": [plan_mode("acceptEdits")] }),
+        "deny" => json!({ "behavior": "deny", "message": KEEP_PLANNING }),
+        _ => return None,
+    };
+    Some(json!({ "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision } }).to_string())
+}
+
+/// The plan itself (Markdown), as the card shows it: the plan file's path and
+/// other bookkeeping don't change what's approved. Cut like full_input.
+fn plan_text(hook: &Map<String, Value>) -> (String, bool) {
+    let Some(plan) = tool_input(hook).and_then(|t| t.get("plan").and_then(Value::as_str).map(str::to_string)) else {
+        return full_input(hook);
+    };
+    let all = reveal(plan.trim());
+    if all.chars().count() <= MAX_INPUT_SHOWN {
+        return (all, false);
+    }
+    (short(&all, MAX_INPUT_SHOWN), true)
 }
 
 /// What the relay hands back to the agent.
@@ -897,6 +945,8 @@ fn summarize(hook: &Map<String, Value>, agent: &str, event: Option<&str>, tool: 
         "kind": kind,
         // The agent's permission mode ("default", "plan", "auto-accept" …), where it says.
         "mode": text(&["permission_mode"], 32).filter(|m| !m.is_empty()),
+        // The session's own name (Claude Code's /rename or --name), on its start and its prompts.
+        "title": text(&["session_title"], 80).map(|t| reveal(t.trim())).filter(|t| !t.is_empty()),
         "summary": summary,
         "transcript": transcript,
         "edits": edits,
@@ -1037,6 +1087,41 @@ mod tests {
         let deny: Value = serde_json::from_str(&reply_permission(" deny\n", &hook).unwrap()).unwrap();
         assert_eq!(deny["hookSpecificOutput"]["decision"]["behavior"], "deny");
         assert!(deny["hookSpecificOutput"]["decision"]["message"].is_string());
+    }
+
+    #[test]
+    fn a_plan_is_answered_with_its_input_back_and_the_mode_to_work_in() {
+        let hook = obj(
+            r##"{"hook_event_name":"PermissionRequest","tool_name":"ExitPlanMode","tool_input":{"plan":"# Plan\n1. Add hello.txt","planFilePath":"C:\\p.md"}}"##,
+        );
+        let decision = |d: &str| -> Value {
+            let out: Value = serde_json::from_str(&reply_permission(d, &hook).unwrap()).unwrap();
+            out["hookSpecificOutput"]["decision"].clone()
+        };
+        // Claude Code ignores a bare allow here: the input goes back whole, unchanged.
+        let manual = decision("allow");
+        assert_eq!(manual["behavior"], "allow");
+        assert_eq!(manual["updatedInput"], hook["tool_input"]);
+        assert_eq!(manual["updatedPermissions"][0], json!({"type":"setMode","mode":"default","destination":"session"}));
+        let auto = decision("always");
+        assert_eq!(auto["updatedInput"], hook["tool_input"]);
+        assert_eq!(auto["updatedPermissions"][0]["mode"], "acceptEdits");
+        let keep = decision("deny");
+        assert_eq!(keep["behavior"], "deny");
+        assert!(keep.get("interrupt").is_none(), "keeps planning, doesn't stop Claude");
+        assert_eq!(keep["message"], KEEP_PLANNING);
+        assert_eq!(reply_permission("terminal", &hook), None);
+        // The card shows the plan, not its file path.
+        assert_eq!(plan_text(&hook), ("# Plan\n1. Add hello.txt".to_string(), false));
+        assert_eq!(describe_rules(&[plan_mode("acceptEdits")]), "accept every edit for this session");
+    }
+
+    #[test]
+    fn a_sessions_own_name_is_passed_on() {
+        let hook = obj(r#"{"hook_event_name":"UserPromptSubmit","session_id":"s","session_title":" Checkout fix ","cwd":"C:\\shop"}"#);
+        assert_eq!(summarize(&hook, "claude-code", Some("UserPromptSubmit"), None)["title"], "Checkout fix");
+        let untitled = obj(r#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"C:\\shop"}"#);
+        assert!(summarize(&untitled, "claude-code", Some("UserPromptSubmit"), None)["title"].is_null());
     }
 
     #[test]

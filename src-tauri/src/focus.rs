@@ -10,6 +10,13 @@ pub async fn focus_session(procs: Vec<u32>, project: String) -> Result<bool, Str
     Ok(imp::focus(&procs, &project))
 }
 
+/// Whether that session's window is the one in front: you're looking at it, so
+/// its finish needs no sound or bubble (the panel and the phone still have it).
+#[tauri::command]
+pub async fn session_in_front(procs: Vec<u32>, project: String) -> Result<bool, String> {
+    Ok(imp::in_front(&procs, &project))
+}
+
 #[cfg(windows)]
 pub(crate) use imp::find as find_window;
 
@@ -28,9 +35,12 @@ mod imp {
         fn GetWindowTextW(hwnd: Hwnd, text: *mut u16, max: i32) -> i32;
         fn ShowWindow(hwnd: Hwnd, cmd: i32) -> i32;
         fn SetForegroundWindow(hwnd: Hwnd) -> i32;
+        fn GetForegroundWindow() -> Hwnd;
+        fn GetAncestor(hwnd: Hwnd, flags: u32) -> Hwnd;
         fn keybd_event(key: u8, scan: u8, flags: u32, extra: usize);
     }
     const GW_OWNER: u32 = 4;
+    const GA_ROOTOWNER: u32 = 3;
     const SW_RESTORE: i32 = 9;
     const VK_MENU: u8 = 0x12;
     const KEYEVENTF_KEYUP: u32 = 2;
@@ -74,6 +84,17 @@ mod imp {
         })
     }
 
+    pub fn in_front(procs: &[u32], project: &str) -> bool {
+        let Some((target, _)) = find(procs, project) else {
+            return false;
+        };
+        // SAFETY: plain queries; a null foreground window matches nothing.
+        unsafe {
+            let front = GetForegroundWindow();
+            front != 0 && (front == target || GetAncestor(front, GA_ROOTOWNER) == target)
+        }
+    }
+
     pub fn focus(procs: &[u32], project: &str) -> bool {
         let Some((target, _)) = find(procs, project) else {
             return false;
@@ -98,6 +119,10 @@ mod imp {
 #[cfg(not(windows))]
 mod imp {
     pub fn focus(_procs: &[u32], _project: &str) -> bool {
+        false
+    }
+
+    pub fn in_front(_procs: &[u32], _project: &str) -> bool {
         false
     }
 }

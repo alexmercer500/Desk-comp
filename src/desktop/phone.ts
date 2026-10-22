@@ -4,7 +4,7 @@
 //
 // Kept small and plain: the last 20 steps, at most 50 files, strings shortened.
 
-import { AGENT_NAMES, describeStep, type SessionView, type Turn } from "./agents";
+import { AGENT_NAMES, describeStep, sessionName, type SessionView, type Turn } from "./agents";
 import { firstLine } from "./format";
 
 export type PhoneStatus = "working" | "waiting" | "done" | "error" | "idle";
@@ -97,7 +97,7 @@ export function phoneView(sessions: SessionView[]): PhoneSession[] {
     return {
       id: s.id,
       agent: AGENT_NAMES[s.agent] ?? s.agent,
-      project: s.project,
+      project: sessionName(s),
       status,
       line: clip(lineOf(s, status, turn), 160),
       prompt: turn?.prompt ? clip(turn.prompt, 1000) : null,

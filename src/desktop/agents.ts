@@ -8,7 +8,7 @@
 // a timeline of steps, files edited, commands run), a pending permission if
 // any, and its last few finished tasks with the agent's own summary.
 
-import type { BubbleMessage, Question } from "../bubble/types";
+import type { BubbleMessage, ChoiceLabels, Question } from "../bubble/types";
 import { addToChange, diffText, type Change } from "./diff";
 import { baseName, dotted, elapsed, firstLine, plainText, plural, relativeTo } from "./format";
 
@@ -24,6 +24,8 @@ export interface AgentEvent {
   kind: string | null;
   /** The agent's permission mode ("default", "plan", "auto-accept" …), where it says. */
   mode?: string | null;
+  /** The session's own name (Claude Code's /rename), on its start and its prompts. */
+  title?: string | null;
   prompt?: string | null;
   error?: string | null;
   /** The agent's last reply, read by the app from the local transcript on Stop. */
@@ -121,7 +123,10 @@ export interface Permission {
 export interface SessionView {
   id: string;
   agent: string;
+  /** The folder it started in (its window's title is matched against it). */
   project: string;
+  /** Its own name, when it was given one (Claude Code's /rename): shown instead of the folder (sessionName). */
+  title: string | null;
   cwd: string | null;
   status: Status;
   /** The request on the card, oldest first. */
@@ -728,9 +733,11 @@ export class AgentTracker {
     }
     const shown = p.input || p.detail;
     const more = s.queued.length;
+    const plan = p.tool === PLAN_TOOL;
     const meta = [
       p.rid && p.cut && `Too long to show here in full: read it and answer in ${p.where}`,
-      p.rid && !p.cut && p.canAlways && p.alwaysRule && `Always: ${p.alwaysRule}`,
+      p.rid && !p.cut && plan && PLAN_HINT,
+      p.rid && !p.cut && !plan && p.canAlways && p.alwaysRule && `Always: ${p.alwaysRule}`,
       !p.rid && `Answer in ${p.where}`,
       more > 0 && `${more} more waiting`,
     ].filter(Boolean).join("\n");
@@ -741,7 +748,7 @@ export class AgentTracker {
       title: this.titleFor(s),
       kind: "attention",
       sticky: true,
-      text: shown ? `Needs your OK to ${p.action}:` : (message || `Needs your OK to ${p.action}`),
+      text: plan ? "Has a plan ready:" : shown ? `Needs your OK to ${p.action}:` : (message || `Needs your OK to ${p.action}`),
       detail: shown ?? undefined,
       mono: !!shown,
       meta: meta || undefined,
@@ -749,6 +756,7 @@ export class AgentTracker {
       always: p.rid ? p.canAlways && !p.cut : undefined,
       noAllow: p.rid && p.cut ? true : undefined,
       rule: p.rid && p.canAlways ? (p.alwaysRule ?? undefined) : undefined,
+      labels: plan ? PLAN_CHOICES : undefined,
       elsewhere: elsewhere(p.where),
     });
   }
@@ -787,6 +795,7 @@ export class AgentTracker {
         id,
         agent: e.agent,
         project: baseName(e.cwd),
+        title: null,
         cwd: e.cwd,
         status: "idle",
         permission: null,
@@ -801,10 +810,13 @@ export class AgentTracker {
         plan: null,
       };
       this.sessions.set(id, s);
-    } else if (e.cwd) {
+    } else if (e.cwd && !s.cwd) {
+      // Named after the folder it started in: an agent that cds into a
+      // subfolder (cwd follows it) is still the same project.
       s.cwd = e.cwd;
       s.project = baseName(e.cwd);
     }
+    if (e.title) s.title = e.title;
     if (s.status === "ended" && e.event !== "SessionEnd") s.status = "idle";
     return s;
   }
@@ -828,13 +840,17 @@ export class AgentTracker {
 
   private titleFor(s: Session) {
     const agent = AGENT_NAMES[s.agent] ?? s.agent;
-    return s.project ? `${agent} · ${s.project}` : agent;
+    const name = sessionName(s);
+    return name ? `${agent} · ${name}` : agent;
   }
 
   private anyBusy() {
     return this.busyCount() > 0;
   }
 }
+
+/** What to call a session: its own name when it has one (/rename), else its folder ("" when neither is known). */
+export const sessionName = (s: Pick<SessionView, "title" | "project">) => s.title || s.project;
 
 const permissionId = (session: string) => `permission:${session}`;
 
@@ -859,8 +875,23 @@ const newTurn = (prompt: string | null, now: number): Turn => ({
 
 const emptyDay = (now: number): DayStats => ({ date: localDate(now), done: 0, failed: 0, asks: 0, workMs: 0 });
 
+/**
+ * Claude Code's "plan ready" (ExitPlanMode). Its card offers the terminal's
+ * own plan choices on the usual buttons (the relay answers them so, see
+ * reply_plan in the hook): Allow starts with each edit approved by hand,
+ * Always accepts every edit for the session, Deny keeps planning.
+ */
+export const PLAN_TOOL = "ExitPlanMode";
+export const PLAN_CHOICES: ChoiceLabels = {
+  allow: { text: "Manual", title: "Start on the plan, approving each edit yourself" },
+  always: { text: "Auto-accept", title: "Start on the plan, accepting every edit for this session" },
+  deny: { text: "Keep planning", title: "Not yet: Claude stays in plan mode and asks what to change" },
+};
+const PLAN_HINT = "Manual: you approve each edit. Auto-accept: edits go ahead for this session.";
+
 function permissionAction(tool: string): string {
   if (tool === "AskUserQuestion") return "ask you";
+  if (tool === PLAN_TOOL) return "start on its plan";
   if (tool === "Bash") return "run";
   if (EDIT_TOOLS.test(tool)) return "edit";
   if (tool === "WebFetch") return "open";

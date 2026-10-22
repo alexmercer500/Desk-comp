@@ -1,7 +1,7 @@
 {
   "name": "desk-companion",
   "private": true,
-  "version": "0.15.4",
+  "version": "0.15.5",
   "type": "module",
   "scripts": {
     "predev": "cargo build --release -p companion-hook --manifest-path src-tauri/Cargo.toml",

@@ -22,6 +22,12 @@ export interface BubbleRow {
   line: string;
 }
 
+/** A permission card's buttons in other words: the label, and what it does (its tooltip). */
+export type ChoiceLabels = Partial<Record<"allow" | "always" | "deny", { text: string; title: string }>>;
+
+/** The usual words on a permission card's buttons. */
+export const CHOICE_TEXT = { allow: "Allow", always: "Always", deny: "Deny" } as const;
+
 export interface BubbleMessage {
   category?: BubbleCategory;
   /** Offer "Always" next to Allow (the agent suggested a rule for it). */
@@ -30,6 +36,8 @@ export interface BubbleMessage {
   rule?: string;
   /** No Allow (or Always) for this request: it couldn't be shown whole. Deny and the terminal stay. */
   noAllow?: boolean;
+  /** Other words for Allow / Always / Deny, and their tooltips (a plan: Manual / Auto-accept / Keep planning). */
+  labels?: ChoiceLabels;
   /** Questions to answer with buttons, instead of Allow / Deny. */
   questions?: Question[];
   /** Clicking opens this instead of the activity panel. */

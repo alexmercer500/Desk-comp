@@ -28,6 +28,7 @@ const COMMANDS: &[&str] = &[
     "phone_pair_again",
     "phone_sessions",
     "focus_session",
+    "session_in_front",
     "answer_keys",
     "assistant_status",
     "assistant_set_key",

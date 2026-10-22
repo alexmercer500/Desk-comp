@@ -9,6 +9,15 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.15.5 (22 October 2026, Android 0.5.3 carried over)
+
+- **Fixed: approving a Claude Code plan from the card.** When Claude finished a plan, Allow on the card didn't start it: Claude Code was still waiting in the terminal. Now the card shows the plan with the terminal's own choices:
+  - **Manual**: start, and approve each edit yourself.
+  - **Auto-accept**: start, and let edits go ahead for this session.
+  - **Keep planning**: Claude stays in plan mode and asks what you'd like changed.
+- **Sessions keep their name.** A session was renamed after whatever folder Claude moved into (start in `shop`, and after a `cd interface` it was called `interface`). Now it keeps the folder it started in. If you named the session with `/rename` in Claude Code, that name is used everywhere instead: on the cards, in the panel, on the island and on the phone.
+- **Quiet when you're watching.** If a task finishes or fails while its own terminal or editor window is in front of you, there's no chime and no bubble: you can already see it. It's still in the activity panel, and the phone still hears about it.
+
 ## 0.15.4 (21 October 2026, Android 0.5.3 carried over)
 
 - **Fixed: Rui or Dogesh Bhai could vanish after the PC sat idle.** When the screen turned off, Windows sometimes reset the graphics card and wiped the 3D character. Speech bubbles kept working, but the character only came back after a restart. Now the app redraws the character on its own as soon as the graphics are back, or after 10 seconds at most. If 3D can't start again, the 2D character takes over.

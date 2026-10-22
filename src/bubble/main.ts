@@ -10,7 +10,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { ClickGuard } from "./guard";
 import { renderQuestions } from "./question";
 import { readFirst } from "./readfirst";
-import { showFor, type BubbleMessage } from "./types";
+import { CHOICE_TEXT, showFor, type BubbleMessage } from "./types";
 
 // Colours from the chosen theme, before anything is drawn.
 initTheme();
@@ -138,6 +138,12 @@ async function display(msg: BubbleMessage | null) {
     b.hidden = asking ? d !== "terminal" : (d === "always" && !msg.always) || (allows && Boolean(msg.noAllow));
     if (d === "terminal") b.textContent = msg.elsewhere ?? "In terminal";
     if (d === "always") b.dataset.title = msg.rule ? `Allow, and from now on: ${msg.rule}` : "Allow, and don't ask again for this";
+    if (d === "allow" || d === "always" || d === "deny") {
+      const own = msg.labels?.[d];
+      b.textContent = own?.text ?? CHOICE_TEXT[d];
+      if (own) b.dataset.title = own.title;
+      else if (d !== "always") delete b.dataset.title;
+    }
     b.title = b.dataset.title ?? "";
   }
   hint.hidden = true;

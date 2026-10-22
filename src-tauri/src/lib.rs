@@ -63,6 +63,7 @@ pub fn run() {
             phone::phone_pair_again,
             phone::phone_sessions,
             focus::focus_session,
+            focus::session_in_front,
             assistant::assistant_status,
             assistant::assistant_set_key,
             assistant::assistant_forget_key,

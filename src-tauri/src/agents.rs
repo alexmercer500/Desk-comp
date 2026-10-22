@@ -280,6 +280,9 @@ pub struct AgentEvent {
     /// The agent's permission mode ("default", "plan", "auto-accept" …), where it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mode: Option<String>,
+    /// The session's own name (Claude Code's /rename), on its start and its prompts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
     /// Input only: read here, never forwarded.
     #[serde(default, skip_serializing)]
     transcript: Option<String>,

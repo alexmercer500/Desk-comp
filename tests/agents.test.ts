@@ -429,6 +429,42 @@ describe("several sessions", () => {
   });
 });
 
+describe("a session's name", () => {
+  it("stays the folder it started in when the agent moves into a subfolder", () => {
+    t.handle(ev("UserPromptSubmit", { prompt: "Fix the build" }));
+    t.handle(ev("PreToolUse", { tool: "Bash", detail: "npm run build", cwd: `${CWD}\\interface` }));
+    t.handle(ev("Stop", { cwd: `${CWD}\\interface` }));
+    expect(t.snapshot()[0]).toMatchObject({ project: "shop", cwd: CWD });
+    expect(shown.at(-1)?.title).toBe("Claude Code · shop");
+  });
+
+  it("is the session's own (/rename) name once it has one, everywhere it shows", () => {
+    t.handle(ev("UserPromptSubmit", { prompt: "Fix the build", title: "Checkout fix" }));
+    t.handle(ev("Stop"));
+    expect(t.snapshot()[0]).toMatchObject({ project: "shop", title: "Checkout fix" });
+    expect(shown.at(-1)?.title).toBe("Claude Code · Checkout fix");
+  });
+});
+
+describe("a plan ready for review (Claude Code's ExitPlanMode)", () => {
+  it("shows the plan with the terminal's choices: Manual, Auto-accept, Keep planning", () => {
+    t.handle(ev("UserPromptSubmit", { prompt: "Plan the cart fix" }));
+    t.handle(ev("PermissionRequest", { tool: "ExitPlanMode", rid: "r1", input: "# Plan\n1. Fix rounding", canAlways: true, alwaysRule: "accept every edit for this session" }));
+    expect(shown.at(-1)).toMatchObject({
+      text: "Has a plan ready:",
+      detail: "# Plan\n1. Fix rounding",
+      always: true,
+      labels: { allow: { text: "Manual" }, always: { text: "Auto-accept" }, deny: { text: "Keep planning" } },
+    });
+    expect(shown.at(-1)?.meta).toContain("Manual: you approve each edit");
+  });
+
+  it("other requests keep the usual buttons", () => {
+    t.handle(ev("PermissionRequest", { tool: "Bash", detail: "npm test", rid: "r2", input: "npm test" }));
+    expect(shown.at(-1)?.labels).toBeUndefined();
+  });
+});
+
 describe("snapshot", () => {
   it("is one copy until something changes, then a fresh one", () => {
     t.handle(ev("UserPromptSubmit", { prompt: "a" }));

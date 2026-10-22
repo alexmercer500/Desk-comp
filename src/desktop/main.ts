@@ -19,7 +19,7 @@ import { showFor, type BubbleMessage } from "../bubble/types";
 import { CharacterController } from "../engine/controller";
 import type { CharacterId, StateName } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, isCharacter } from "../skins";
-import { AgentTracker, activityOf, type AgentEvent, type DayStats, type Decision, type StatsStore } from "./agents";
+import { AgentTracker, activityOf, sessionName, type AgentEvent, type DayStats, type Decision, type StatsStore } from "./agents";
 import { Companion, allowed, type Prefs, type SystemEvent } from "./companion";
 import { Island, agentRows, agentStatus, workingCard } from "./island";
 import { phoneView } from "./phone";
@@ -200,10 +200,32 @@ let prefs: Prefs = initialPrefs;
 /** Notifications on screen now (by id), so an update to one doesn't chime again. */
 const shownIds = new Set<string>();
 
+/** A task's ending: nothing to say about it while you're looking at its window. */
+const QUIET_IN_FRONT: ReadonlySet<string> = new Set(["agent-done", "agent-error"]);
+
+/**
+ * Whether that session's terminal or editor is the window in front (focus.rs):
+ * the answer is already in front of you, so no chime and no bubble. Its
+ * history, the panel and the phone still have it.
+ */
+async function watching(session: string): Promise<boolean> {
+  const s = agents.snapshot().find((x) => x.id === session);
+  if (!s?.procs.length) return false;
+  return invoke<boolean>("session_in_front", { procs: s.procs, project: s.project }).catch(() => false);
+}
+
 const bubble = {
-  show(msg: BubbleMessage) {
+  /** `checked`: already found not to be about the window you're looking at (QUIET_IN_FRONT). */
+  show(msg: BubbleMessage, checked = false) {
     // Switched off, or notifications paused (Settings).
     if (!allowed(msg, prefs, Date.now())) return;
+    if (!checked && msg.session && msg.category && QUIET_IN_FRONT.has(msg.category)) {
+      const session = msg.session;
+      void watching(session).then((seen) => {
+        if (!seen) bubble.show(msg, true);
+      });
+      return;
+    }
     // Rui reacts to some in his own way (a break: exercises with you).
     if (!shownIds.has(msg.id)) stage?.hint(msg.category);
     // A chime for a new notification, not for one that's only being updated.
@@ -467,7 +489,7 @@ async function focusSession(id: string) {
   if (!s?.procs.length) return;
   closePanel();
   const found = await invoke<boolean>("focus_session", { procs: s.procs, project: s.project }).catch(() => false);
-  if (!found) bubble.show({ id: "notice:window", category: "notice", title: s.project, text: "Couldn't find that session's window.", kind: "info" });
+  if (!found) bubble.show({ id: "notice:window", category: "notice", title: sessionName(s), text: "Couldn't find that session's window.", kind: "info" });
 }
 void listen<AgentEvent>("agent", ({ payload }) => agents.handle(payload));
 window.setInterval(() => agents.sweep(), 5000);

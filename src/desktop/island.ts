@@ -16,8 +16,8 @@
 import { ClickGuard } from "../bubble/guard";
 import { renderQuestions, type Answers } from "../bubble/question";
 import { readFirst } from "../bubble/readfirst";
-import { showFor, type BubbleKind, type BubbleMessage } from "../bubble/types";
-import { AGENT_NAMES, describeStep, type Decision, type SessionView } from "./agents";
+import { CHOICE_TEXT, showFor, type BubbleKind, type BubbleMessage } from "../bubble/types";
+import { AGENT_NAMES, describeStep, sessionName, type Decision, type SessionView } from "./agents";
 import { firstLine } from "./format";
 
 export type IslandState = "tucked" | "peek" | "status" | "list" | "notice";
@@ -116,7 +116,7 @@ export function workingCard(sessions: SessionView[]): Pick<BubbleMessage, "kind"
     return {
       kind,
       session: s.id,
-      title: s.project ? `${agent} · ${s.project}` : agent,
+      title: sessionName(s) ? `${agent} · ${sessionName(s)}` : agent,
       text: s.permission ? `Wants to ${s.permission.action}` : nowLine(s, 90),
       meta: prompt ? `“${firstLine(prompt, 70)}”` : undefined,
     };
@@ -131,7 +131,7 @@ export function workingCard(sessions: SessionView[]): Pick<BubbleMessage, "kind"
   };
 }
 
-const name = (s: SessionView) => s.project || "Agent";
+const name = (s: SessionView) => sessionName(s) || "Agent";
 
 function nowLine(s: SessionView, max: number): string {
   const last = s.current?.steps[s.current.steps.length - 1];
@@ -404,6 +404,12 @@ export class Island {
       b.hidden = asking ? d !== "terminal" : (d === "always" && !msg?.always) || (allows && Boolean(msg?.noAllow));
       if (d === "terminal") b.textContent = msg?.elsewhere ?? "In terminal";
       if (d === "always") b.dataset.title = msg?.rule ? `Allow, and from now on: ${msg.rule}` : "Allow, and don't ask again for this";
+      if (d === "allow" || d === "always" || d === "deny") {
+        const own = msg?.labels?.[d];
+        b.textContent = own?.text ?? CHOICE_TEXT[d];
+        if (own) b.dataset.title = own.title;
+        else if (d !== "always") delete b.dataset.title;
+      }
       b.title = b.dataset.title ?? "";
     }
     p.cardBody.title = msg?.session ? "Show this session" : "";
