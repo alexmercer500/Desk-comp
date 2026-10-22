@@ -3,6 +3,8 @@
 // when a task is done, a slump on an error, a pop when an agent needs you,
 // Z's while asleep. The picture changes with the mood, through the engine's
 // eye morph (a quick squash, swap, and back), so a mood never just blinks over.
+// With a "blink" picture (its eyes closed) the main one blinks now and then,
+// and sleeps with it when there's no "sleeping" one.
 //
 // The pictures live in the app (custom.rs); custom-load.ts brings them into
 // each window. Until the main one is here there's nothing to draw.
@@ -15,9 +17,13 @@ import {
   landingSquash, notifyPop, successHop, touchSquash,
 } from "./common";
 
-/** What a picture can be for. "idle" is the main one, shown for any mood without its own. */
-export type Mood = "idle" | "working" | "waiting" | "done" | "error" | "sleeping";
-export const MOODS: readonly Mood[] = ["idle", "working", "waiting", "done", "error", "sleeping"];
+/**
+ * What a picture can be for. "idle" is the main one, shown for any mood
+ * without its own; "blink" is the main one with its eyes closed; "surprised"
+ * is for being poked or dragged. In the order Settings (and a sheet) has them.
+ */
+export type Mood = "idle" | "blink" | "working" | "waiting" | "done" | "error" | "sleeping" | "surprised";
+export const MOODS: readonly Mood[] = ["idle", "blink", "working", "waiting", "done", "error", "sleeping", "surprised"];
 
 /** How the pictures are shown: as they are, or each as a round sticker (good for photos). */
 export type Shape = "free" | "round";
@@ -35,8 +41,9 @@ const BOX = 1.15;
 const ROUND = 1.05;
 const RIM = 0.035;
 
-/** The picture to show for a mood: its own, or the main one. */
-export const pictureFor = (mood: string): Picture | undefined => pictures[mood as Mood] ?? pictures.idle;
+/** The picture to show for a mood: its own, or (asleep) the main one with its eyes closed, or the main one. */
+export const pictureFor = (mood: string): Picture | undefined =>
+  pictures[mood as Mood] ?? (mood === "sleeping" ? pictures.blink : undefined) ?? pictures.idle;
 
 /** A mood's own picture, if it has one (Settings' thumbnails). */
 export const customPicture = (mood: Mood): HTMLImageElement | undefined => {
@@ -91,6 +98,11 @@ export function moodOf(state: StateName, variant: Variant): Mood {
     case "SLEEPY":
     case "SLEEPING":
       return "sleeping";
+    case "TOUCHED":
+    case "HELD":
+    case "LANDING":
+    case "CONFUSED":
+      return "surprised";
     default:
       return "idle";
   }
@@ -98,7 +110,8 @@ export function moodOf(state: StateName, variant: Variant): Mood {
 
 // ── Pose ──────────────────────────────────────────────────────────────────────
 
-const rest: Pose = { ...ENGINE_REST, blink: 0 };
+// Blinks (the engine's) show only with a "blink" picture, on the main one (draw).
+const rest: Pose = { ...ENGINE_REST };
 
 /** A hop every `everyMs` (0…1 height), for "look at me". */
 function bounce(st: number, everyMs: number): number {
@@ -235,7 +248,9 @@ function events(i: PoseInput, prev: number, emit: Emit, p: Pose) {
 // ── Drawing ───────────────────────────────────────────────────────────────────
 
 function draw(g: CanvasRenderingContext2D, p: Pose, eye: string, f: Frame) {
-  const pic = pictureFor(eye);
+  // A blink: the main picture with its eyes closed, for the moment the engine's eyes are shut.
+  const blinking = eye === "idle" && p.eyeOpen < 0.5 && pictures.blink !== undefined;
+  const pic = blinking ? pictures.blink : pictureFor(eye);
   if (!pic) return;
   g.save();
   g.translate(f.ox, f.oy);

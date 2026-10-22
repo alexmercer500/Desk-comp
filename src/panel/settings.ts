@@ -10,7 +10,9 @@ import type { CharacterId, StateName, Variant } from "../engine/types";
 import { CHARACTER_NAMES, SKINS, applyCustomPrefs, isCharacter } from "../skins";
 import { MOODS, customPicture, hasCustomCharacter, type Mood } from "../skins/custom";
 import { loadCustomCharacter } from "../skins/custom-load";
-import { PICTURE_TYPES, preparePicture } from "./picture";
+import { PICTURE_TYPES, prepareSet, preparePicture, splitSheet } from "./picture";
+import { FILE_NAMES, filesPrompt, isPictureName, moodFromName, pictureType, sheetPrompt } from "./character-import";
+import { readZip } from "./zip";
 import { LOOKS, LOOK_NAMES, THEMES, THEME_NAMES, themeColors } from "../three/palette";
 import { UI_THEMES } from "../theme";
 import { linkState, linkText, since, type AgentStatus, type RelayTest } from "./connections";
@@ -275,20 +277,24 @@ function characterPicker(): HTMLElement {
 /** Each mood's slot: its title, and when it shows. */
 const MOOD_TEXT: Record<Mood, [string, string]> = {
   idle: ["Main", "Shown whenever a mood has no picture of its own"],
+  blink: ["Blink", "The main one with its eyes closed, for blinking"],
   working: ["Working", "While an agent works"],
   waiting: ["Needs you", "A permission or a question"],
   done: ["Done", "A task finished"],
   error: ["Oops", "Something went wrong"],
   sleeping: ["Asleep", "After a while with nothing going on"],
+  surprised: ["Surprised", "When you poke it or drag it about"],
 };
 /** What the preview plays for each mood. */
 const MOOD_STATE: Record<Mood, [StateName, Variant]> = {
   idle: ["IDLE", null],
+  blink: ["IDLE", null],
   working: ["WORKING", null],
   waiting: ["WORKING", "wait"],
   done: ["SUCCESS", null],
   error: ["ERROR", null],
   sleeping: ["SLEEPING", null],
+  surprised: ["TOUCHED", "dizzy"],
 };
 
 /** Its editor is open without it being the character (its card was clicked before it had a picture). */
@@ -297,6 +303,10 @@ let customOpen = false;
 let redrawCustomCard: (() => void) | null = null;
 /** The editor's live preview. */
 let customPreview: Engine | null = null;
+/** Take away plain backgrounds from pictures added (on unless switched off here). */
+let plainBackground = true;
+/** Which prompt the AI box shows and copies. */
+let promptKind: "sheet" | "files" = "sheet";
 
 /** Its card: a drawing of it once it has its main picture, else a "+" to make it. */
 function customCard(): HTMLElement {
@@ -316,7 +326,7 @@ function customCard(): HTMLElement {
       void set("character", "custom");
       return;
     }
-    // Nothing to show yet: open its editor to add the main picture.
+    // Nothing to show yet: open its editor to add pictures.
     customOpen = true;
     void refreshSettings();
   });
@@ -333,10 +343,112 @@ function customCard(): HTMLElement {
   return b;
 }
 
-/** Your own character's choices: its name, a picture per mood, its shape, and a preview. */
+/** A hidden file picker behind a button. */
+function picker(label: string, accept: string, multiple: boolean, picked: (files: File[]) => void): HTMLButtonElement {
+  const input = el("input");
+  input.type = "file";
+  input.accept = accept;
+  input.multiple = multiple;
+  input.hidden = true;
+  input.addEventListener("change", () => {
+    const files = [...(input.files ?? [])];
+    input.value = "";
+    if (files.length) picked(files);
+  });
+  const b = el("button", "set-button", label);
+  b.type = "button";
+  // The input sits in the button: its own click comes up through here too.
+  b.addEventListener("click", (e) => {
+    if (e.target !== input) input.click();
+  });
+  b.append(input);
+  return b;
+}
+
+/** Your own character's choices: making it with an AI, its pictures, name, shape, and a preview. */
 function customOptions(): HTMLElement {
   const box = el("div", "rui-options custom-options");
   controls.set("customOptions", box);
+
+  // ① Made with an AI: the prompt to copy, and where its pictures come back in.
+  const ai = el("div", "custom-ai");
+  const kinds = el("div", "segmented");
+  kinds.setAttribute("role", "radiogroup");
+  kinds.setAttribute("aria-label", "What the AI makes");
+  const promptText = el("pre", "custom-prompt");
+  const showPrompt = () => {
+    promptText.textContent = promptKind === "sheet" ? sheetPrompt() : filesPrompt();
+    for (const b of kinds.children) b.setAttribute("aria-checked", String((b as HTMLElement).dataset.kind === promptKind));
+  };
+  for (const [kind, label] of [["sheet", "One sheet"], ["files", "Separate files"]] as const) {
+    const b = el("button", undefined, label);
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.dataset.kind = kind;
+    b.addEventListener("click", () => {
+      promptKind = kind;
+      showPrompt();
+    });
+    kinds.append(b);
+  }
+  const copy = el("button", "set-button", "Copy the prompt");
+  copy.type = "button";
+  copy.addEventListener("click", async () => {
+    const text = promptText.textContent ?? "";
+    let copied = await navigator.clipboard.writeText(text).then(() => true, () => false);
+    if (!copied) {
+      // The clipboard API can be refused; copying a selection still works.
+      details.open = true;
+      const range = document.createRange();
+      range.selectNodeContents(promptText);
+      const sel = getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      copied = document.execCommand("copy");
+    }
+    if (copied) customSay("Prompt copied. Paste it into ChatGPT or Gemini along with a picture of your character.");
+    else customSay("Couldn't copy it: the prompt is selected below, press Ctrl+C.", true);
+  });
+  const steps = el("ol", "custom-steps");
+  for (const step of [
+    "Copy the prompt.",
+    "In ChatGPT or Gemini, attach a picture of your character and paste the prompt.",
+    "Save what it makes, then add it here: a sheet with Add a sheet…, separate pictures or a .zip with Add files or a zip…",
+  ]) steps.append(el("li", undefined, step));
+  const details = el("details", "custom-prompt-box");
+  details.append(el("summary", undefined, "Read the prompt"), promptText);
+  const aiHead = row(
+    "Make it with AI",
+    "An AI that draws pictures can make your character in every mood from one picture of it. One sheet works with any of them; separate files need one that can make a zip. (Claude doesn't draw pictures.)",
+    kinds,
+  );
+  const copyLine = el("div", "custom-buttons");
+  copyLine.append(copy);
+  ai.append(aiHead, steps, copyLine, details);
+  showPrompt();
+
+  // ② Pictures: several at once, or one per mood.
+  const sheet = picker("Add a sheet…", PICTURE_TYPES, false, ([file]) => void addSheet(file));
+  const many = picker("Add files or a zip…", `${PICTURE_TYPES},.zip,application/zip`, true, (files) => void addFiles(files));
+  const addLine = el("div", "custom-buttons");
+  addLine.append(sheet, many);
+  const addRow = row(
+    "Add several at once",
+    `A sheet: one picture, 4 moods across and 2 down, in the order below. Files: named after their mood, like ${FILE_NAMES.idle}, ${FILE_NAMES.working}, ${FILE_NAMES.waiting}.`,
+    addLine,
+  );
+  const status = el("p", "set-hint custom-status");
+  status.setAttribute("role", "status");
+  controls.set("customStatus", status);
+
+  const background = toggle((on) => {
+    plainBackground = on;
+  });
+  background.checked = plainBackground;
+  const backgroundRow = row("Remove plain backgrounds", "Takes away a one-colour background around the character (AI pictures usually have one).", background, background.id);
+
+  const slots = el("div", "custom-slots");
+  for (const mood of MOODS) slots.append(customSlot(mood));
 
   const name = el("input", "set-input");
   name.maxLength = 24;
@@ -353,10 +465,7 @@ function customOptions(): HTMLElement {
   const nameLine = el("div", "set-key");
   nameLine.append(name);
 
-  const slots = el("div", "custom-slots");
-  for (const mood of MOODS) slots.append(customSlot(mood));
-
-  // The preview: your character, playing the mood picked under it.
+  // ③ The preview: your character, playing the mood picked under it.
   const preview = el("div", "custom-preview");
   controls.set("customPreviewBox", preview);
   const stage = el("canvas");
@@ -368,6 +477,7 @@ function customOptions(): HTMLElement {
   moods.setAttribute("role", "radiogroup");
   moods.setAttribute("aria-label", "Preview a mood");
   for (const mood of MOODS) {
+    if (mood === "blink") continue; // it blinks by itself in Main
     const m = el("button", undefined, MOOD_TEXT[mood][0]);
     m.type = "button";
     m.setAttribute("role", "radio");
@@ -388,10 +498,14 @@ function customOptions(): HTMLElement {
   controls.set("customUseRow", useRow);
 
   box.append(
-    el("p", "set-hint custom-intro", "A picture for each mood. Only the main one is needed: a mood without its own shows the main one. A PNG with a see-through background looks best; a photo looks good as a round sticker."),
-    row("Name", null, nameLine),
+    el("p", "set-hint custom-intro", "Your character is your pictures, brought to life: it breathes, hops, slumps and dozes like the others. One picture is enough; a picture for each mood makes it far livelier."),
+    ai,
+    addRow,
+    backgroundRow,
+    status,
     slots,
-    row("Shape", "Round sticker: each picture in a white circle.", segmented("customShape", "Shape", [["free", "As it is"], ["round", "Round sticker"]])),
+    row("Name", null, nameLine),
+    row("Shape", "As it is suits a picture with a see-through background. Round sticker puts each picture in a white circle, for photos.", segmented("customShape", "Shape", [["free", "As it is"], ["round", "Round sticker"]])),
     preview,
     useRow,
   );
@@ -407,27 +521,16 @@ function customSlot(mood: Mood): HTMLElement {
   thumb.append(img);
   const text = el("div", "custom-slot-text");
   text.append(el("span", "custom-slot-title", MOOD_TEXT[mood][0]), el("span", "custom-slot-hint", MOOD_TEXT[mood][1]));
-  const input = el("input");
-  input.type = "file";
-  input.accept = PICTURE_TYPES;
-  input.hidden = true;
-  input.addEventListener("change", () => {
-    const file = input.files?.[0];
-    input.value = "";
-    if (file) void addPicture(mood, file);
-  });
   const what = MOOD_TEXT[mood][0].toLowerCase();
-  const choose = el("button", "set-button", "Choose…");
-  choose.type = "button";
+  const choose = picker("Choose…", PICTURE_TYPES, false, ([file]) => void addPicture(mood, file));
   choose.setAttribute("aria-label", `Choose the ${what} picture`);
-  choose.addEventListener("click", () => input.click());
   const remove = el("button", "set-button", "Remove");
   remove.type = "button";
   remove.setAttribute("aria-label", `Remove the ${what} picture`);
   remove.addEventListener("click", () => void removePicture(mood));
   const buttons = el("div", "custom-slot-buttons");
   buttons.append(choose, remove);
-  s.append(thumb, text, buttons, input);
+  s.append(thumb, text, buttons);
   controls.set(`customSlot:${mood}`, s);
   return s;
 }
@@ -448,11 +551,9 @@ function fillCustom(p: Prefs) {
     img.hidden = !pic;
     if (pic && img.src !== pic.src) img.src = pic.src;
     s.classList.toggle("no-picture", !pic);
-    const [choose, remove] = s.querySelectorAll("button");
-    choose.textContent = pic ? "Change…" : "Choose…";
+    const [choose, remove] = s.querySelectorAll<HTMLButtonElement>(".custom-slot-buttons > button");
+    choose.firstChild!.textContent = pic ? "Change…" : "Choose…";
     remove.hidden = !pic;
-    // The other moods come once there's a main picture to fall back to.
-    choose.disabled = mood !== "idle" && !has;
   }
   controls.get("customPreviewBox")!.hidden = !has;
   controls.get("customUseRow")!.hidden = !has || p.character === "custom";
@@ -461,35 +562,140 @@ function fillCustom(p: Prefs) {
   else customPreview?.stop();
 }
 
+/** A line under the editor's buttons: what just happened. */
+function customSay(text: string, error = false) {
+  const status = controls.get("customStatus");
+  if (!status) return;
+  status.textContent = text;
+  status.classList.toggle("set-error", error);
+}
+
+const moodWords = (moods: Iterable<Mood>) => [...moods].map((m) => MOOD_TEXT[m][0]).join(", ");
+
+/** Keeps pictures (base64 PNGs by mood); true when they all went in. */
+async function keepPictures(ready: Map<Mood, string>): Promise<Mood[]> {
+  const kept: Mood[] = [];
+  // The main one first: the others fall back to it.
+  for (const mood of [...ready.keys()].sort((a, b) => MOODS.indexOf(a) - MOODS.indexOf(b))) {
+    try {
+      await invoke("custom_picture_set", { mood, png: ready.get(mood) });
+      kept.push(mood);
+    } catch (e) {
+      customSay(`Couldn't keep the ${MOOD_TEXT[mood][0].toLowerCase()} picture: ${String(e)}`, true);
+    }
+  }
+  return kept;
+}
+
+/** After pictures were added: the windows' copies, and (with its first main picture) it becomes the character. */
+async function afterAdding(hadMain: boolean) {
+  await loadCustomCharacter();
+  if (!hadMain && hasCustomCharacter()) await set("character", "custom");
+  else await refreshSettings();
+}
+
 async function addPicture(mood: Mood, file: File) {
-  const first = mood === "idle" && !hasCustomCharacter();
-  say("Getting the picture ready…");
+  const hadMain = hasCustomCharacter();
+  customSay("Getting the picture ready…");
   try {
-    await invoke("custom_picture_set", { mood, png: await preparePicture(file) });
-    say("");
+    const png = await preparePicture(file, { plainBackground });
+    await invoke("custom_picture_set", { mood, png });
+    customSay(`${MOOD_TEXT[mood][0]} picture added.`);
   } catch (e) {
-    say(e instanceof Error ? e.message : `Couldn't add it: ${String(e)}`, true);
+    customSay(e instanceof Error ? e.message : `Couldn't add it: ${String(e)}`, true);
     return;
   }
-  await loadCustomCharacter();
-  // Its first picture: it becomes your character straight away.
-  if (first) await set("character", "custom");
-  else await refreshSettings();
+  await afterAdding(hadMain);
+}
+
+async function addSheet(file: File) {
+  const hadMain = hasCustomCharacter();
+  customSay("Cutting up the sheet…");
+  let ready: Map<Mood, string>;
+  try {
+    ready = await splitSheet(file, MOODS, { plainBackground });
+  } catch (e) {
+    customSay(e instanceof Error ? e.message : `Couldn't read that sheet: ${String(e)}`, true);
+    return;
+  }
+  const kept = await keepPictures(ready);
+  const missing = MOODS.filter((m) => !ready.has(m));
+  customSay(`Added ${kept.length} from the sheet: ${moodWords(kept)}.${missing.length ? ` Empty in the sheet: ${moodWords(missing)}.` : ""}`);
+  await afterAdding(hadMain);
+}
+
+async function addFiles(files: File[]) {
+  const hadMain = hasCustomCharacter();
+  customSay("Getting the pictures ready…");
+  // Pictures picked as they are, and those inside any zip.
+  const named: { name: string; file: Blob }[] = [];
+  try {
+    for (const f of files) {
+      if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") {
+        for (const entry of await readZip(f)) {
+          if (isPictureName(entry.name)) named.push({ name: entry.name, file: new Blob([entry.data], { type: pictureType(entry.name) }) });
+        }
+      } else {
+        named.push({ name: f.name, file: f });
+      }
+    }
+  } catch (e) {
+    customSay(e instanceof Error ? e.message : `Couldn't open that: ${String(e)}`, true);
+    return;
+  }
+  // A sheet among them is cut up; the rest go by their names.
+  const sheetFile = named.find((n) => moodFromName(n.name) === "sheet");
+  const items = new Map<Mood, { key: Mood; file: Blob }>();
+  const unknown: string[] = [];
+  for (const n of named) {
+    const mood = moodFromName(n.name);
+    if (mood === "sheet") continue;
+    if (mood && !items.has(mood)) items.set(mood, { key: mood, file: n.file });
+    else unknown.push(n.name.split("/").pop() ?? n.name);
+  }
+  const ready = new Map<Mood, string>();
+  const failed: string[] = [];
+  if (sheetFile) {
+    try {
+      for (const [m, png] of await splitSheet(sheetFile.file, MOODS, { plainBackground })) ready.set(m, png);
+    } catch (e) {
+      failed.push(`the sheet (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
+  const set_ = await prepareSet([...items.values()], { plainBackground });
+  for (const [m, png] of set_.ready) ready.set(m, png); // named files win over the sheet's cells
+  for (const f of set_.failed) failed.push(`${MOOD_TEXT[f.key][0]} (${f.why})`);
+  if (!ready.size) {
+    customSay(
+      unknown.length
+        ? `None of those names say which mood they are (${unknown.slice(0, 3).join(", ")}…). Name them like ${FILE_NAMES.idle}, ${FILE_NAMES.done}, or add them one by one below.`
+        : `Nothing could be added${failed.length ? `: ${failed.join("; ")}` : "."}`,
+      true,
+    );
+    return;
+  }
+  const kept = await keepPictures(ready);
+  const notes = [
+    `Added ${kept.length}: ${moodWords(kept)}.`,
+    unknown.length ? `Not used (name not recognised): ${unknown.join(", ")}.` : "",
+    failed.length ? `Couldn't use: ${failed.join("; ")}.` : "",
+  ];
+  customSay(notes.filter(Boolean).join(" "), unknown.length + failed.length > 0);
+  await afterAdding(hadMain);
 }
 
 async function removePicture(mood: Mood) {
   try {
     await invoke("custom_picture_clear", { mood });
-    say("");
+    customSay(`${MOOD_TEXT[mood][0]} picture removed.`);
   } catch (e) {
-    say(`Couldn't remove it: ${String(e)}`, true);
+    customSay(`Couldn't remove it: ${String(e)}`, true);
   }
   await loadCustomCharacter();
   // Without its main picture it isn't the character any more; the editor stays open to add another.
   if (mood === "idle") customOpen = true;
   await refreshSettings();
 }
-
 
 /** Redraws Dogesh Bhai's card (after a change of outfit). */
 let redrawDogesh: (() => void) | null = null;

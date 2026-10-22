@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use base64::Engine as _;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// The moods a picture can be for. "idle" is the main one: it stands in for any mood without its own.
-pub const MOODS: &[&str] = &["idle", "working", "waiting", "done", "error", "sleeping"];
+/// The moods a picture can be for (src/skins/custom.ts). "idle" is the main one: it stands in for any mood without its own.
+pub const MOODS: &[&str] = &["idle", "blink", "working", "waiting", "done", "error", "sleeping", "surprised"];
 /// Largest picture accepted, bytes (Settings makes them at most 512 px, far smaller than this).
 const MAX_BYTES: usize = 4 << 20;
 /// Largest side accepted, px.

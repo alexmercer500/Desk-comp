@@ -11,13 +11,14 @@ The installed version is shown at the bottom of the tray menu.
 
 ## 0.16.0 (22 October 2026, Android 0.5.3 carried over)
 
-- **Make your own character from your pictures.** In Settings → Character, choose **Your own**, then pick a picture: a drawing, a logo, a photo of your pet. It moves like the other characters: it breathes, sways, hops when a task is done, slumps when something goes wrong, pops up when an agent needs you, and dozes off with little Z's.
-  - **One picture is enough.** You can add a different one for each moment: Working, Needs you, Done, Oops and Asleep. A moment without its own picture shows the main one, and the picture changes with a quick squash.
-  - **Give it a name**, shown wherever the character is named.
-  - **As it is or a round sticker.** A PNG with a see-through background looks best as it is. A photo looks good as a round sticker, which puts it in a white circle.
-  - Try each moment in the preview before you use it.
-  - Pictures are trimmed of empty see-through edges and kept small, on your PC only. Clicking and dragging work on the picture itself.
-  - Also in the tray menu, as "Your own character".
+- **Make your own character from your pictures.** In Settings → Character, choose **Your own**: a drawing, a logo, a photo of your pet. It moves like the other characters: it breathes, sways, hops when a task is done, slumps when something goes wrong, pops up when an agent needs you, and dozes off with little Z's.
+  - **A picture for every mood, made by an AI.** Click **Copy the prompt**, then paste it into ChatGPT or Gemini with one picture of your character. It draws a "sheet" of your character in 8 moods. Add the sheet with **Add a sheet…** and the app cuts it into its 8 pictures by itself. (Claude doesn't draw pictures.)
+  - **8 moods:** Main, Blink, Working, Needs you, Done, Oops, Asleep and Surprised. With a Blink picture it blinks now and then; Surprised is for when you poke it or drag it about. Any mood without its own picture shows the main one.
+  - **Add pictures however you have them:** one by one in each mood's slot, several at once, or in a zip. Files are matched to moods by their name (idle.png, working.png, needs-you.png, done.png, oops.png, asleep.png, blink.png, surprised.png, and other usual names). There's also a prompt for AIs that can make a zip of separate files named like that.
+  - **Plain backgrounds come off by themselves** (AI pictures usually come on white), with a switch to turn that off. White inside the character, like its eyes, stays.
+  - **The same size in every mood:** pictures from one sheet, or files of one size, are trimmed together, so your character doesn't shrink when it raises its arms.
+  - **Give it a name**, shown wherever the character is named. **As it is or a round sticker**: a round sticker puts each picture in a white circle, for photos.
+  - Try each mood in the preview before you use it. Pictures are kept small, on your PC only. Clicking and dragging work on the picture itself. Also in the tray menu, as "Your own character".
   - The phone keeps showing the character it had before; your own pictures don't go to the phone yet.
 
 ## 0.15.5 (22 October 2026, not released on its own: in 0.16.0)
