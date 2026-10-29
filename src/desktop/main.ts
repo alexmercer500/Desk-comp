@@ -165,6 +165,13 @@ async function restage() {
   await use3d(who);
 }
 
+// Back from sleep, an unlock or a while away, or after Windows' compositor
+// restarted (repaint.rs): a frame straight away, and a new stage if his was lost.
+void listen("repaint", () => {
+  c.engine.redraw();
+  if (stage?.isLost()) void restage();
+});
+
 /** The clickable part of the window: the character's body (the island reports its own). */
 let lastHit = "";
 function reportHit() {

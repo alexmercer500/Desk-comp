@@ -9,6 +9,11 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.16.2 (29 October 2026, Android 0.5.3 carried over)
+
+- **Fixed: a black box round the character.** Under heavy load, or when a graphics driver or another app took Windows' compositor down with it, the character's window lost its see-through background and its whole square turned black until the app restarted. The app now puts the see-through background back within 15 seconds, and straight away when the compositor restarts.
+- **Fixed: the character could stay gone after a long time away.** On waking from sleep, unlocking the PC, or coming back after a few minutes away, the character is drawn again straight away (Rui and Dogesh Bhai in 3D get a new stage if theirs was lost), without losing what's on screen.
+
 ## 0.16.1 (22 October 2026, Android 0.5.3 carried over)
 
 - **Fixed: your own character shook in the Desk Companion window.** It stood among the characters walking along the top, flipping left and right many times a second. It isn't in that line any more; on your desktop it was never affected.

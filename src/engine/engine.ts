@@ -213,6 +213,11 @@ export class Engine {
     return 0;
   }
 
+  /** One frame now, unless nothing's drawn (hidden, or the 3D character draws itself). */
+  redraw() {
+    if (this.running && !this.hidden && !this.headless) this.render();
+  }
+
   now() {
     return this.clockMs;
   }

@@ -11,6 +11,7 @@ mod focus;
 mod peek;
 mod phone;
 mod placement;
+mod repaint;
 mod secrets;
 mod setup;
 mod shortcuts;
@@ -93,6 +94,7 @@ pub fn run() {
             desktop::spawn_poll(handle.clone());
             agents::spawn(handle.clone());
             system::spawn(handle.clone());
+            repaint::spawn(handle.clone());
             updates::spawn(handle.clone());
             // Test that agents can reach us (an antivirus may hold the relay).
             connections::spawn(handle.clone());

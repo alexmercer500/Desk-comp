@@ -447,6 +447,10 @@ pub fn spawn(app: AppHandle) {
                 }
             }
             for ev in out {
+                // Back after a while: the display may have been off, so everything's drawn afresh.
+                if matches!(ev, SystemEvent::Active { .. }) {
+                    crate::repaint::refresh(&app);
+                }
                 let _ = app.emit_to(desktop::LABEL, "system", ev);
             }
             // Plugged in or not, whatever the battery notifications are set to.
@@ -462,6 +466,9 @@ pub fn spawn(app: AppHandle) {
             // Locked: nobody can see him, so the page stops drawing (and nothing else changes).
             if let Some(locked) = lock.poll(win::input_desktop_locked(), win::idle_secs()) {
                 let _ = app.emit_to(desktop::LABEL, "locked", locked);
+                if !locked {
+                    crate::repaint::refresh(&app);
+                }
             }
             std::thread::sleep(POLL);
         }

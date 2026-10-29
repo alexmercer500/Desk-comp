@@ -142,6 +142,10 @@ export class RuiStage {
     window.clearTimeout(this.lostTimer);
     this.lostTimer = window.setTimeout(this.onContextRestored, LOST_RETRY_MS);
   };
+  /** His drawing is gone (the graphics were reset), whether or not anyone said so. */
+  isLost(): boolean {
+    return this.renderer.getContext().isContextLost();
+  }
   private onContextRestored = () => {
     if (!this.lostTimer) return;
     window.clearTimeout(this.lostTimer);
