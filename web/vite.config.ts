@@ -5,7 +5,7 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 // app's source one folder up (Vercel: Root Directory `web`, with files outside
 // it included in the build, which is its default).
 
-/** Where the site lives once deployed. Set VITE_SITE_URL to your own domain. */
+/** Where the site lives once deployed, when nothing says otherwise. */
 const DEFAULT_SITE = "https://kulhi.vercel.app";
 
 /** Fills the page's absolute addresses, and writes robots.txt and sitemap.xml for search engines. */
@@ -34,7 +34,10 @@ function seo(site: string, verify: string): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = { ...process.env, ...loadEnv(mode, import.meta.dirname, "VITE_") };
-  const site = (env.VITE_SITE_URL || DEFAULT_SITE).replace(/\/+$/, "");
+  // VITE_SITE_URL wins; on Vercel, the project's production domain (your own
+  // domain once you add one, else its vercel.app address) is used by itself.
+  const vercel = env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : "";
+  const site = (env.VITE_SITE_URL || vercel || DEFAULT_SITE).replace(/\/+$/, "");
   return {
     plugins: [seo(site, env.VITE_GOOGLE_SITE_VERIFICATION ?? "")],
     resolve: { alias: { "@app": resolve(import.meta.dirname, "../src") } },

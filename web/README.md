@@ -20,7 +20,7 @@ Any static host works; the output is `web/dist`.
 
 ## Search engines, link previews, analytics
 
-- **Your domain:** set `VITE_SITE_URL` (for example `https://kulhi.app`) in the Vercel project's Environment Variables. It fills the canonical link, the link-preview tags, the structured data, `robots.txt` and `sitemap.xml`. Without it the site assumes `https://kulhi.vercel.app`.
+- **Your domain:** any domain works. On Vercel the build uses the project's production domain by itself (`VERCEL_PROJECT_PRODUCTION_URL`: your own domain once it's added under Settings → Domains, else the `vercel.app` address), for the canonical link, the link-preview tags, the structured data, `robots.txt` and `sitemap.xml`. Redeploy after adding a domain. To force an address (another host, or a domain other than the main one), set `VITE_SITE_URL`, for example `https://kulhi.app`. With neither, the site assumes `https://kulhi.vercel.app`.
 - **Google Search Console:** add the site, pick the "HTML tag" check, and put its code in `VITE_GOOGLE_SITE_VERIFICATION`; the next deploy carries the tag. Then submit `<your domain>/sitemap.xml`.
 - **Analytics:** Vercel Web Analytics (no cookies). Turn it on in the Vercel project (Analytics tab); the page already sends page views when it runs there, and nothing in local dev.
 - **Link previews:** `public/og.png` (1200x630) is a capture of the hero. Retake it after the hero changes.
