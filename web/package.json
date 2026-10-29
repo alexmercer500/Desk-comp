@@ -1,0 +1,20 @@
+{
+  "name": "kulhi-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/schibsted-grotesk": "^5.2.5",
+    "@fontsource/martian-mono": "^5.2.5",
+    "@fontsource/shrikhand": "^5.2.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^6.4.1"
+  }
+}

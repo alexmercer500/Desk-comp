@@ -1025,7 +1025,8 @@ function drawLens(g: CanvasRenderingContext2D, p: Pose) {
   g.strokeStyle = "rgba(201,164,106,0.8)";
   g.lineWidth = 0.008;
   g.beginPath();
-  g.arc(cx, cy, r - 0.004, Math.PI * 0.95, Math.PI * 1.6);
+  // Never below zero: the last frames of the glass shrinking away make r tiny.
+  g.arc(cx, cy, Math.max(0, r - 0.004), Math.PI * 0.95, Math.PI * 1.6);
   g.stroke();
   g.restore();
 }
