@@ -406,9 +406,11 @@
 
       <!-- 05:20, set up before the sun's up -->
       <section class="scene scene--predawn" id="install" data-time="05:20" data-label="Set up" aria-labelledby="install-h">
-        <div class="wrap split split--top">
-          <div>
-            <h2 id="install-h">Set up in a minute.</h2>
+        <div class="wrap">
+          <h2 id="install-h">Set up in a minute.</h2>
+          <div class="setup">
+          <div class="setup-col">
+            <h3 class="steps-h" id="install-pc">On your PC</h3>
             <ol class="steps">
               <li>
                 <b>Download the installer</b>
@@ -423,7 +425,9 @@
                 <span>Settings → Coding agents. One switch each.</span>
               </li>
             </ol>
-            <h3 class="steps-h" id="install-phone">And your phone, if you like</h3>
+          </div>
+          <div class="setup-col">
+            <h3 class="steps-h" id="install-phone">Your phone, if you like</h3>
             <ol class="steps">
               <li>
                 <b>Get the Android app on your phone</b>
@@ -438,7 +442,9 @@
                 <span>On the PC: Settings → Phone → Link a phone → Show pairing code. Scan the code with the app. It updates itself after that.</span>
               </li>
             </ol>
-            <h3 class="steps-h" id="install-relay">And away from home, with your own relay</h3>
+          </div>
+          <div class="setup-col">
+            <h3 class="steps-h" id="install-relay">Away from home</h3>
             <p class="steps-note">
               On the same Wi-Fi, the phone needs nothing more. To reach your PC from anywhere, you run a small relay on Cloudflare's free
               plan. It only passes messages along, encrypted: it can't read them.
@@ -460,6 +466,7 @@
                   up by itself. Rather use a terminal? <a href="https://github.com/alexmercer500/Desk-comp/blob/main/docs/RELAY.md">The full guide</a>.</span>
               </li>
             </ol>
+          </div>
           </div>
           <div class="faq">
             <details>

@@ -1465,11 +1465,18 @@ button.card-btn--allow:hover {
   font: 700 1rem/1 var(--display);
   font-variant-numeric: tabular-nums;
 }
-.steps-h {
-  margin-top: 3rem;
+/* PC, phone and relay side by side, the questions underneath. */
+.setup {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(2rem, 4vw, 3.5rem);
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+}
+.setup-col {
+  min-width: 0;
 }
 .steps-h + .steps {
-  margin-top: 1.5rem;
+  margin-top: 1.4rem;
 }
 .steps-note {
   margin: 0.9rem 0 0;
@@ -1493,6 +1500,13 @@ button.card-btn--allow:hover {
   color: var(--text);
 }
 .faq {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: clamp(2rem, 4vw, 3.5rem);
+  align-items: start;
+  margin-top: clamp(3rem, 6vw, 4.5rem);
+}
+.faq details:nth-child(-n + 2) {
   border-top: 1px solid var(--line);
 }
 .faq details {
@@ -1631,8 +1645,13 @@ button.card-btn--allow:hover {
 @media (max-width: 980px) {
   .hero-grid,
   .split,
-  .phone-grid {
+  .phone-grid,
+  .setup,
+  .faq {
     grid-template-columns: 1fr;
+  }
+  .faq details:nth-child(2) {
+    border-top: 0;
   }
   .stage {
     margin-right: 6%;
