@@ -1471,6 +1471,16 @@ button.card-btn--allow:hover {
 .steps-h + .steps {
   margin-top: 1.5rem;
 }
+.steps-note {
+  margin: 0.9rem 0 0;
+  color: var(--text);
+}
+.steps-note + .steps {
+  margin-top: 1.5rem;
+}
+.steps code {
+  font: 0.88em var(--mono);
+}
 .steps a {
   color: var(--ink);
 }

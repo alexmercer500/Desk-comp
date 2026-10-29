@@ -332,7 +332,7 @@
             </p>
             <p>
               Away from home, it can go through a relay you run yourself on Cloudflare's free plan, encrypted end to end. Settings on the PC
-              walks you through making one.
+              walks you through <a href="#install-relay">making one</a>.
             </p>
             <div class="actions">
               <a class="btn btn--primary" data-link="android" href="https://github.com/alexmercer500/Desk-comp-releases/releases">
@@ -436,6 +436,28 @@
               <li>
                 <b>Pair it with your PC</b>
                 <span>On the PC: Settings → Phone → Link a phone → Show pairing code. Scan the code with the app. It updates itself after that.</span>
+              </li>
+            </ol>
+            <h3 class="steps-h" id="install-relay">And away from home, with your own relay</h3>
+            <p class="steps-note">
+              On the same Wi-Fi, the phone needs nothing more. To reach your PC from anywhere, you run a small relay on Cloudflare's free
+              plan. It only passes messages along, encrypted: it can't read them.
+            </p>
+            <ol class="steps">
+              <li>
+                <b>Make your relay</b>
+                <span>With a free Cloudflare account and a GitHub account, open
+                  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/alexmercer500/Desk-comp/tree/main/relay">Cloudflare's deploy page</a>,
+                  keep the name it suggests, and click Deploy.</span>
+              </li>
+              <li>
+                <b>Copy its address</b>
+                <span>Open the new Worker. Its address ends in <code>.workers.dev</code>.</span>
+              </li>
+              <li>
+                <b>Paste it into Kulhi</b>
+                <span>Settings → Phone → Away from this network → Relay address. Save, then turn on Reach your phone anywhere. Your phone picks it
+                  up by itself. Rather use a terminal? <a href="https://github.com/alexmercer500/Desk-comp/blob/main/docs/RELAY.md">The full guide</a>.</span>
               </li>
             </ol>
           </div>
