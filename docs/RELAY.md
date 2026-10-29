@@ -10,7 +10,9 @@ The relay is a Cloudflare Worker with one Durable Object per room (a room is one
 
 ## Setup (you, once, about 10 minutes)
 
-Works from any computer; nothing is tied to the one you deploy from.
+**The quick way** (what Settings → Phone → Away from this network → "Make your own relay" walks you through): with free Cloudflare and GitHub accounts, open the [deploy page](https://deploy.workers.cloudflare.com/?url=https://github.com/alexmercer500/Desk-comp/tree/main/relay), keep the suggested name, click Deploy, copy the Worker's `workers.dev` address, and paste it into **Relay address** in Settings. Cloudflare copies the `relay/` folder into your GitHub and deploys it to your account. (This needs the repository public, with `relay/` on `main`.)
+
+**From a terminal.** Works from any computer; nothing is tied to the one you deploy from.
 
 1. Sign up at <https://dash.cloudflare.com/sign-up> (free).
 2. In a terminal: `cd relay`, then `npm install`.
@@ -23,7 +25,7 @@ Works from any computer; nothing is tied to the one you deploy from.
 
 Test the relay's rules locally, with no account: `cd relay && npm test` (starts the Worker with `wrangler dev` and runs real WebSocket connections against it). Test the whole path without a phone: copy the pairing link (Settings → Phone → Show pairing code) and run `node scripts/phone-sim.mjs "<link>" --relay`.
 
-Only your own builds carry your address (from `.env`); the code in git has none, so each person who builds the app runs their own relay, on their own free allowance.
+Only your own builds carry your address (from `.env`); the code in git has none, and published releases have none either (`scripts/release.mjs` builds with an empty `DESK_COMPANION_RELAY` unless given `--relay <address>`). Each person runs their own relay, on their own free allowance, and pastes its address in Settings.
 
 **A PC with no Wi-Fi** (wired to a LAN) and a phone on its own mobile data can pair and stay linked through the relay alone: with the relay on, the pairing code carries its address, and the phone, finding no local network to search, goes straight to it. The PC's network only needs to allow outgoing HTTPS (a WebSocket to `*.workers.dev`); a network that forces all traffic through a proxy isn't supported yet. The pairing code can be shown even when the PC has no address a phone could reach directly.
 

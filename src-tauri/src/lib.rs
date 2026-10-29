@@ -63,6 +63,7 @@ pub fn run() {
             phone::phone_status,
             phone::phone_pairing,
             phone::phone_pair_again,
+            phone::open_relay_page,
             phone::phone_sessions,
             focus::focus_session,
             focus::session_in_front,

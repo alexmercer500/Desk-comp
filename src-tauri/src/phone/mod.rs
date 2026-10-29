@@ -489,6 +489,32 @@ pub async fn phone_pair_again(app: AppHandle) -> Result<PhoneStatus, String> {
     Ok(status)
 }
 
+/// The relay's code, ready for Cloudflare's one-click deploy (it copies the
+/// `relay/` folder into the user's own GitHub and deploys it to their account).
+pub const RELAY_DEPLOY: &str = "https://deploy.workers.cloudflare.com/?url=https://github.com/alexmercer500/Desk-comp/tree/main/relay";
+/// The full setup guide, for anyone who'd rather use a terminal.
+pub const RELAY_GUIDE: &str = "https://github.com/alexmercer500/Desk-comp/blob/main/docs/RELAY.md";
+
+/// Settings → Phone → the relay guide's buttons: opens one of these pages in
+/// the browser. Only these: the page can't hand over an address of its own.
+#[tauri::command]
+pub async fn open_relay_page(page: String) -> Result<(), String> {
+    let url = match page.as_str() {
+        "deploy" => RELAY_DEPLOY,
+        "guide" => RELAY_GUIDE,
+        _ => return Err("Unknown page".into()),
+    };
+    let mut cmd = std::process::Command::new("rundll32.exe");
+    cmd.args(["url.dll,FileProtocolHandler", url]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd.spawn().map(|_| ()).map_err(|e| format!("Couldn't open the browser ({e}). The address is {url}"))
+}
+
 /// Longest session list accepted from the page.
 const MAX_SESSIONS_BYTES: usize = 256 * 1024;
 

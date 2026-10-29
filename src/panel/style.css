@@ -573,6 +573,15 @@ label.set-text { cursor: pointer; }
   .set-button.set-progress:disabled { transition: none; }
 }
 
+/* Making your own relay: a few numbered steps, folded away once there is one. */
+.set-guide { margin: 4px 0 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; }
+.set-guide > summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.set-guide > summary:focus-visible { outline: 2px solid var(--attention); outline-offset: 2px; border-radius: 4px; }
+.set-steps { display: grid; gap: 7px; margin: 9px 0 6px; padding-left: 20px; font-size: 12px; line-height: 1.45; }
+.set-steps .set-button { margin-top: 5px; }
+.set-steps code { padding: 0 4px; border-radius: 4px; background: var(--code); font-size: 11px; overflow-wrap: anywhere; }
+.set-guide .set-hint .set-button { margin-left: 4px; }
+
 /* The relay's address: a full-width field under its title. */
 .set-relay-address { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px; }
 .set-input {

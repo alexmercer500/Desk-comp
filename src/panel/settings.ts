@@ -1224,6 +1224,12 @@ function fill(s: Settings, ask: AskStatus) {
   builtIn.textContent = s.builtInRelay ? `Empty uses the relay built into this copy (${s.builtInRelay}). Paste another to use your own.` : "";
   builtIn.hidden = !s.builtInRelay;
   (controls.get("phoneRelay") as HTMLInputElement).disabled = !p.relayUrl && !s.builtInRelay && !p.phoneRelay;
+  const guide = controls.get("relayGuide") as HTMLDetailsElement;
+  const hasRelay = Boolean(p.relayUrl || s.builtInRelay);
+  if (guide.dataset.had !== String(hasRelay)) {
+    guide.open = !hasRelay;
+    guide.dataset.had = String(hasRelay);
+  }
 
   (controls.get("phonePeek") as HTMLInputElement).disabled = !p.phoneLink;
 
@@ -1346,13 +1352,44 @@ function relaySettings(): HTMLElement {
       switchRow(
         "phoneRelay",
         "Reach your phone anywhere",
-        "When the phone isn't on this network, it connects through a relay you run on Cloudflare (free). Everything is encrypted between this PC and the phone: the relay can't read it. Setup: docs/RELAY.md.",
+        "When the phone isn't on this network, it connects through a relay you run on Cloudflare (free). Everything is encrypted between this PC and the phone: the relay can't read it.",
       ),
+      relayGuide(),
       address,
       status,
     ).section,
   );
   return box;
+}
+
+/** How to make a relay of your own: five steps, with the deploy page a click away. */
+function relayGuide(): HTMLElement {
+  const guide = el("details", "set-guide");
+  controls.set("relayGuide", guide);
+  guide.append(el("summary", undefined, "Make your own relay (free, about 5 minutes)"));
+  const page = (which: "deploy" | "guide", label: string) => {
+    const b = el("button", "set-button", label);
+    b.type = "button";
+    b.addEventListener("click", () => {
+      invoke("open_relay_page", { page: which }).catch((e) => say(String(e), true));
+    });
+    return b;
+  };
+  const steps = el("ol", "set-steps");
+  const step = (...parts: (string | Node)[]) => {
+    const li = el("li");
+    li.append(...parts);
+    steps.append(li);
+  };
+  step("You'll need a free Cloudflare account and a GitHub account. Sign up for either one when the page asks.");
+  step("Open Cloudflare's deploy page. It copies the relay's code into your GitHub and puts it on your Cloudflare account.", el("br"), page("deploy", "Open the deploy page"));
+  step("Keep the name it suggests and click ", el("b", undefined, "Deploy"), ". It takes a minute or two.");
+  step("Open the new Worker and copy its address. It looks like ", el("code", undefined, "https://desk-companion-relay.you.workers.dev"), ".");
+  step("Paste it into ", el("b", undefined, "Relay address"), " below, click ", el("b", undefined, "Save"), ", then turn on ", el("b", undefined, "Reach your phone anywhere"), ". The line underneath says ", el("b", undefined, "Relay: connected"), " when it works. Your phone picks up the address by itself.");
+  const more = el("p", "set-hint");
+  more.append("Rather use a terminal, or something went wrong? ", page("guide", "Read the full guide"));
+  guide.append(steps, more);
+  return guide;
 }
 
 /** "Relay: connected", or what's wrong. */

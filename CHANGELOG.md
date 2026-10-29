@@ -9,6 +9,12 @@ Version numbers go up with every update:
 
 The installed version is shown at the bottom of the tray menu.
 
+## 0.17.0 (29 October 2026, Android 0.5.3 carried over)
+
+- **Set up your own relay from Settings.** Settings → Phone → Away from this network now walks you through making the relay that lets your phone reach this PC from anywhere: a free Cloudflare account, one click on **Open the deploy page**, then paste the address it gives you into **Relay address**. The steps open by themselves while no relay is set, and fold away once one is.
+- **Published copies come without a relay.** Each person runs their own on their own free Cloudflare allowance, so nobody's messages pass through someone else's. If your phone used the relay built into an earlier copy, paste that relay's address into **Relay address** once after updating.
+- **Fixed:** a drawing error when Kulhi put the magnifying glass away.
+
 ## 0.16.2 (29 October 2026, Android 0.5.3 carried over)
 
 - **Fixed: a black box round the character.** Under heavy load, or when a graphics driver or another app took Windows' compositor down with it, the character's window lost its see-through background and its whole square turned black until the app restarted. The app now puts the see-through background back within 15 seconds, and straight away when the compositor restarts.

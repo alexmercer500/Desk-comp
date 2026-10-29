@@ -136,6 +136,10 @@ function buildWindows() {
   env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ??= "";
   // Baked into the app: where it looks for updates.
   env.DESK_COMPANION_UPDATE_URL = `${base}/latest.json`;
+  // Published builds carry no relay: everyone runs their own (Settings → Phone
+  // shows how) and pastes its address. Your .env relay stays for your own
+  // builds (npx tauri build); --relay <address> bakes one into a release anyway.
+  env.DESK_COMPANION_RELAY = arg("--relay") ?? "";
 
   // Build, with the update artifacts (installer signature) this time.
   const override = path.join(os.tmpdir(), `desk-companion-release-${process.pid}.json`);
