@@ -14,6 +14,7 @@ import { SKINS, isCharacter } from "@app/skins";
 import ruiStill from "@app/assets/rui/idle-anime-panda.webp";
 import { startDemo } from "./demo";
 import { links } from "./links";
+import { inject } from "@vercel/analytics";
 
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -142,3 +143,8 @@ const pal = lives.find((l) => l.el.hasAttribute("data-demo-pal"));
 if (demo && pal) startDemo(demo, pal.c);
 
 void links();
+
+// Page views, through Vercel Web Analytics: no cookies, nothing that follows
+// a visitor around. It only runs on the deployed site (and only once it's
+// switched on in the Vercel project).
+inject({ mode: import.meta.env.PROD ? "production" : "development", debug: false });

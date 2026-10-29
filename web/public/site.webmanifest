@@ -1,0 +1,13 @@
+{
+  "name": "Kulhi",
+  "short_name": "Kulhi",
+  "description": "A desktop pet that watches your AI coding agents.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#ffcf73",
+  "theme_color": "#ffcf73",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -3,16 +3,72 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Kulhi: a tiny chai cup that keeps an eye on your coding agents</title>
+    <title>Kulhi: a desktop pet that watches your AI coding agents</title>
     <meta
       name="description"
-      content="Kulhi lives on your Windows desktop, tells you when Claude Code, Codex, Copilot and friends finish or need you, and lets you Allow or Deny right from its card. Free and open source."
+      content="Kulhi is a tiny chai cup that lives on your Windows desktop. It tells you when Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor and friends finish or need you, with Allow and Deny right on its card. Free and open source."
     />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="%SITE%/" />
+    <meta name="application-name" content="Kulhi" />
     <meta name="theme-color" content="#ffcf73" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <meta property="og:title" content="Kulhi" />
-    <meta property="og:description" content="A tiny chai cup that lives on your desktop and keeps an eye on your coding agents." />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Link previews -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Kulhi" />
+    <meta property="og:locale" content="en_GB" />
+    <meta property="og:url" content="%SITE%/" />
+    <meta property="og:title" content="Kulhi: your coding agents, watched by a tiny chai cup" />
+    <meta
+      property="og:description"
+      content="A desktop pet for Windows that tells you when your AI coding agents finish or need you, with Allow and Deny on its card. Free and open source."
+    />
+    <meta property="og:image" content="%SITE%/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Kulhi the chai cup beside a pretend coding agent's terminal on a sunny desktop." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Kulhi: your coding agents, watched by a tiny chai cup" />
+    <meta
+      name="twitter:description"
+      content="A desktop pet for Windows that tells you when your AI coding agents finish or need you. Free and open source."
+    />
+    <meta name="twitter:image" content="%SITE%/og.png" />
+    <meta name="twitter:image:alt" content="Kulhi the chai cup beside a pretend coding agent's terminal on a sunny desktop." />
+
+    <!-- What search engines show about the app -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "Kulhi",
+            "alternateName": "Desk Companion",
+            "description": "A desktop pet for Windows that tells you when AI coding agents (Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor, Antigravity, Command Code) finish or need you, and lets you Allow or Deny their requests from its card. An Android app takes the OK with you.",
+            "url": "%SITE%/",
+            "image": "%SITE%/og.png",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "Windows 10, Windows 11, Android 11+",
+            "downloadUrl": "https://github.com/alexmercer500/Desk-comp-releases/releases/latest",
+            "license": "https://opensource.org/licenses/MIT",
+            "isAccessibleForFree": true,
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "codeRepository": "https://github.com/alexmercer500/Desk-comp"
+          },
+          {
+            "@type": "WebSite",
+            "name": "Kulhi",
+            "url": "%SITE%/"
+          }
+        ]
+      }
+    </script>
+%VERIFY%
     <link rel="stylesheet" href="/src/style.css" />
     <script type="module" src="/src/main.ts"></script>
   </head>
@@ -520,7 +576,7 @@
 
     <footer class="foot">
       <div class="wrap foot-inner">
-        <p><b>Kulhi</b> is free and open source under the MIT licence.</p>
+        <p><b>Kulhi</b> is free and open source under the MIT licence. This site counts visits without cookies.</p>
         <ul>
           <li><a data-link="repo" href="https://github.com/alexmercer500/Desk-comp">Source</a></li>
           <li><a href="https://github.com/alexmercer500/Desk-comp-releases/releases">Releases</a></li>

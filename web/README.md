@@ -18,14 +18,21 @@ Any static host works; the output is `web/dist`.
 
 **Netlify / Cloudflare Pages:** base directory `web`, build command `npm run build`, publish directory `web/dist`.
 
+## Search engines, link previews, analytics
+
+- **Your domain:** set `VITE_SITE_URL` (for example `https://kulhi.app`) in the Vercel project's Environment Variables. It fills the canonical link, the link-preview tags, the structured data, `robots.txt` and `sitemap.xml`. Without it the site assumes `https://kulhi.vercel.app`.
+- **Google Search Console:** add the site, pick the "HTML tag" check, and put its code in `VITE_GOOGLE_SITE_VERIFICATION`; the next deploy carries the tag. Then submit `<your domain>/sitemap.xml`.
+- **Analytics:** Vercel Web Analytics (no cookies). Turn it on in the Vercel project (Analytics tab); the page already sends page views when it runs there, and nothing in local dev.
+- **Link previews:** `public/og.png` (1200x630) is a capture of the hero. Retake it after the hero changes.
+
 ## What's where
 
 | File | What |
 |---|---|
-| `index.html` | All the sections and copy |
-| `src/style.css` | The look: lid colours, die-cut sticker borders, the pretend desk, labels |
-| `src/main.ts` | Live stickers (poke, peel and drop), only drawing while on screen |
+| `index.html` | All the sections and copy, the page's metadata and structured data |
+| `src/style.css` | The look: one day's painted sky, scene by scene, the pretend desk, storyboard frames, the crew's stage |
+| `src/main.ts` | Live characters (eyes follow, click to say hello, doze at night), the nav's colour script, analytics |
 | `src/demo.ts` | The pretend agent whose permission card you answer |
-| `src/links.ts` | GitHub links, and the download button pointing at the newest installer on GitHub Releases |
-
-The download button asks GitHub for the latest release of `alexmercer500/Desk-comp-releases` and links its `x64-setup.exe`; if GitHub can't be reached it stays on the latest-release page. When the code repository is renamed or moved, change `REPO` in `src/links.ts` and the links in `index.html`.
+| `src/links.ts` | GitHub links, and the downloads pointing at the newest installer and Android app on GitHub Releases |
+| `vite.config.ts` | The `@app` alias, and the absolute addresses, `robots.txt` and `sitemap.xml` |
+| `public/` | Icons, the link-preview image, the web manifest |
