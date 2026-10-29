@@ -49,6 +49,7 @@ The agent watcher with a personality. One companion watches every coding agent o
 ## Brand Commitments
 
 - The public name is Kulhi. The site's two actions carry equal weight: Download for Windows, and Star on GitHub.
+- Website look (user, 29 Oct 2026): modern and slick, light, sitting alongside Notion / Superhuman, Arc / Framer and Linear / Raycast. The user rejected a bright, saturated sticker-sheet look as childish; no full-width saturated colour blocks. Kulhi stays the hero character, drawn cleanly (no sticker borders).
 - The characters are the brand: their names, designs and personalities (spec in `character-animation-spec.md`, `character-blueprint-prompts.md`). Desi warmth in the details (Kulhi the chai cup, "Chai break?", Dogesh Bhai, Billu).
 - Copy is plain, friendly, short; speaks to the user as "you"; no hype.
 

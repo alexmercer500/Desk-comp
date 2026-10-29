@@ -8,243 +8,305 @@
       name="description"
       content="Kulhi lives on your Windows desktop, tells you when Claude Code, Codex, Copilot and friends finish or need you, and lets you Allow or Deny right from its card. Free and open source."
     />
-    <meta name="theme-color" content="#2346f5" />
+    <meta name="theme-color" content="#f7f7f8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta property="og:title" content="Kulhi" />
     <meta property="og:description" content="A tiny chai cup that lives on your desktop and keeps an eye on your coding agents." />
     <meta property="og:type" content="website" />
+    <link rel="stylesheet" href="/src/style.css" />
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <a class="skip" href="#agents">Skip to what it does</a>
+    <a class="skip" href="#main">Skip to content</a>
 
-    <!-- ── The lid ─────────────────────────────────────────────── -->
-    <header class="lid lid--cobalt hero" id="top">
-      <nav class="nav" aria-label="Sections">
-        <a class="nav-mark" href="#top" aria-label="Kulhi, back to top">Kulhi</a>
-        <ul>
+    <header class="nav-wrap">
+      <nav class="nav" aria-label="Main">
+        <a class="brand" href="#top" aria-label="Kulhi, back to top">
+          <span class="brand-mark live" data-character="kulhi"><canvas aria-hidden="true"></canvas></span>
+          Kulhi
+        </a>
+        <ul class="nav-links">
           <li><a href="#agents">Agents</a></li>
-          <li><a href="#crew">The crew</a></li>
+          <li><a href="#crew">Characters</a></li>
           <li><a href="#phone">Phone</a></li>
           <li><a href="#install">Install</a></li>
-          <li>
-            <a class="nav-gh" data-link="repo" href="https://github.com/alexmercer500/Desk-comp">
-              <svg class="icon" aria-hidden="true"><use href="#i-github" /></svg>GitHub
-            </a>
-          </li>
         </ul>
+        <a class="nav-gh" data-link="repo" href="https://github.com/alexmercer500/Desk-comp">
+          <svg class="icon" aria-hidden="true"><use href="#i-github" /></svg><span>GitHub</span>
+        </a>
       </nav>
-
-      <div class="hero-copy">
-        <h1 class="wordmark sticker-text" data-tilt="-4">Kulhi</h1>
-        <p class="promise label peel">A tiny chai cup that lives on your desktop and keeps an eye on your coding agents.</p>
-        <p class="hero-more">
-          It tells you when Claude Code, Codex, Copilot and friends finish, and when they need you, with Allow and Deny right on its card.
-          Free and open source, for Windows.
-        </p>
-        <div class="actions">
-          <a class="btn btn--sun" data-link="download" href="https://github.com/alexmercer500/Desk-comp-releases/releases/latest">
-            <svg class="icon" aria-hidden="true"><use href="#i-windows" /></svg>
-            <span>Download for Windows</span>
-          </a>
-          <a class="btn btn--pink" data-link="repo" href="https://github.com/alexmercer500/Desk-comp">
-            <svg class="icon" aria-hidden="true"><use href="#i-star" /></svg>
-            <span>Star on GitHub</span>
-          </a>
-        </div>
-        <p class="fine" data-version>Windows 10 and 11 · free · MIT licence</p>
-      </div>
-
-      <div class="hero-stage" aria-label="Kulhi and friends, as stickers you can peel off and move">
-        <figure class="sticker live sticker--hero" data-character="kulhi" data-tilt="6" style="--x: 57%; --y: 42%; --s: min(32vw, 420px)">
-          <canvas aria-label="Kulhi, a chai cup"></canvas>
-        </figure>
-        <figure class="sticker live" data-character="hexo" data-tilt="-10" style="--x: 30%; --y: 12%; --s: min(14vw, 165px)">
-          <canvas aria-label="Hexo, a hex nut"></canvas>
-        </figure>
-        <figure class="sticker live" data-character="glim" data-tilt="8" style="--x: 88%; --y: 12%; --s: min(12vw, 145px)">
-          <canvas aria-label="Glim, a firefly"></canvas>
-        </figure>
-        <figure class="sticker live" data-character="billu" data-tilt="-6" style="--x: 24%; --y: 76%; --s: min(15vw, 180px)">
-          <canvas aria-label="Billu, a cat on a flying saucer"></canvas>
-        </figure>
-        <figure class="sticker live" data-character="dogesh" data-tilt="9" style="--x: 84%; --y: 72%; --s: min(14vw, 170px)">
-          <canvas aria-label="Dogesh Bhai, a scaredy pup"></canvas>
-        </figure>
-        <p class="peel-hint" aria-hidden="true">psst, they peel</p>
-      </div>
     </header>
 
-    <main>
-      <!-- ── Agents ─────────────────────────────────────────────── -->
-      <section class="lid lid--pink agents" id="agents" aria-labelledby="agents-h">
-        <div class="wrap agents-grid">
-          <div class="agents-copy">
-            <h2 id="agents-h" class="sticker-text" data-tilt="-2">It watches your agents so you don't have to.</h2>
-            <p>
-              Start a task, go make chai. Kulhi shows what each agent is up to, tells you what it finished in the agent's own words, and
-              asks for you the moment one needs permission.
-            </p>
-            <p class="promise-small peel">Nothing is ever allowed without your click.</p>
+    <main id="main">
+      <!-- ── Hero ───────────────────────────────────────────────── -->
+      <section class="hero" id="top" aria-labelledby="hero-h">
+        <div class="hero-copy">
+          <h1 id="hero-h">Your coding agents, watched by a tiny chai&nbsp;cup.</h1>
+          <p class="hero-sub">
+            Kulhi lives on your Windows desktop. It tells you when Claude Code, Codex, Copilot and friends finish, and when they need you,
+            with Allow and Deny right on its card.
+          </p>
+          <div class="actions">
+            <a class="btn btn--primary" data-link="download" href="https://github.com/alexmercer500/Desk-comp-releases/releases/latest">
+              <svg class="icon" aria-hidden="true"><use href="#i-windows" /></svg>Download for Windows
+            </a>
+            <a class="btn btn--secondary" data-link="repo" href="https://github.com/alexmercer500/Desk-comp">
+              <svg class="icon" aria-hidden="true"><use href="#i-star" /></svg>Star on GitHub
+            </a>
           </div>
+          <p class="fine" data-version>Free and open source · Windows 10 and 11 · MIT licence</p>
+        </div>
 
-          <div class="desk" data-demo>
-            <div class="desk-screen">
-              <div class="island" data-island>
-                <span class="dot" data-dot></span>
-                <span class="island-text" data-island-text>shop-app · Reading cart.ts</span>
-              </div>
-
-              <div class="term" aria-hidden="true">
-                <p class="term-bar"><span></span><span></span><span></span><b>shop-app — Claude Code</b></p>
-                <ol class="term-lines" data-term></ol>
-              </div>
-
-              <div class="card" data-card hidden>
-                <p class="card-title"><span class="dot dot--ask"></span>Claude Code wants to run</p>
-                <pre class="card-cmd"><code>git push origin main</code></pre>
-                <div class="card-actions">
-                  <button type="button" class="card-btn card-btn--allow" data-answer="allow">Allow</button>
-                  <button type="button" class="card-btn" data-answer="always">Always</button>
-                  <button type="button" class="card-btn" data-answer="deny">Deny</button>
-                </div>
-              </div>
-
-              <p class="card done-card" data-done hidden><span class="dot dot--done"></span><span data-done-text>Pushed 3 commits to main.</span></p>
-
-              <figure class="sticker live desk-pal" data-character="kulhi" data-demo-pal style="--s: 190px" data-tilt="-4">
-                <canvas aria-label="Kulhi, watching the agent"></canvas>
-              </figure>
+        <figure class="stage" data-demo>
+          <div class="desk">
+            <div class="island" data-island>
+              <span class="dot" data-dot></span>
+              <span class="island-text" data-island-text>shop-app · Reading cart.ts</span>
             </div>
-            <p class="demo-note" aria-live="polite" data-demo-note>A pretend agent at work. Answer its card yourself.</p>
+
+            <div class="desk-window" aria-hidden="true">
+              <p class="term-bar"><span></span><span></span><span></span><b>localhost:5173 · Your cart</b></p>
+              <div class="shop">
+                <p class="shop-h">Your cart</p>
+                <p class="shop-row"><span>Masala chai, 250 g</span><b>₹420</b></p>
+                <p class="shop-row"><span>Kulhad set of six</span><b>₹820</b></p>
+                <p class="shop-row shop-row--coupon"><span>CHAI10</span><b>−₹124</b></p>
+                <p class="shop-row shop-row--total"><span>Total</span><b>₹1,116</b></p>
+              </div>
+            </div>
+
+            <div class="term" aria-hidden="true">
+              <p class="term-bar"><span></span><span></span><span></span><b>shop-app · Claude Code</b></p>
+              <ol class="term-lines" data-term></ol>
+            </div>
+
+            <div class="card" data-card hidden>
+              <p class="card-title"><span class="dot dot--ask"></span>Claude Code wants to run</p>
+              <pre class="card-cmd"><code>git push origin main</code></pre>
+              <div class="card-actions">
+                <button type="button" class="card-btn card-btn--allow" data-answer="allow">Allow</button>
+                <button type="button" class="card-btn" data-answer="always">Always</button>
+                <button type="button" class="card-btn" data-answer="deny">Deny</button>
+              </div>
+            </div>
+
+            <p class="card done-card" data-done hidden><span class="dot dot--done"></span><span data-done-text>Pushed 3 commits to main.</span></p>
+
+            <div class="taskbar" aria-hidden="true">
+              <span class="tb-icons">
+                <svg class="icon"><use href="#i-windows" /></svg>
+                <svg class="icon"><use href="#i-folder" /></svg>
+                <svg class="icon"><use href="#i-globe" /></svg>
+                <svg class="icon tb-on"><use href="#i-term" /></svg>
+              </span>
+              <time>16:42</time>
+            </div>
+
+            <div class="pal live desk-pal" data-character="kulhi" data-demo-pal>
+              <canvas aria-label="Kulhi, watching the agent"></canvas>
+            </div>
+          </div>
+          <figcaption class="demo-note" aria-live="polite" data-demo-note>A pretend agent at work. Answer its card yourself.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ── Agents ─────────────────────────────────────────────── -->
+      <section class="section" id="agents" aria-labelledby="agents-h">
+        <div class="wrap split">
+          <div class="split-copy">
+            <h2 id="agents-h">One companion for every agent on your PC.</h2>
+            <p>
+              Turn each one on in Settings with a single switch. Kulhi adds its hooks to that agent's own settings, backed up first, and
+              takes them out again when you switch it off.
+            </p>
+            <p class="note">Nothing is ever allowed without your click.</p>
+          </div>
+          <div class="table-wrap">
+            <table class="matrix">
+              <caption class="sr">What Kulhi can do with each agent</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Agent</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Allow / Deny</th>
+                  <th scope="col">Questions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Claude Code</th>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg><span class="extra">plus Always, plans</span></td>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Codex</th>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg><span class="extra">plus Always</span></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Command Code</th>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">GitHub Copilot <span class="extra">CLI and VS Code</span></th>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Gemini CLI</th>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Cursor</th>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                </tr>
+                <tr>
+                  <th scope="row">Antigravity</th>
+                  <td><svg class="yes" role="img" aria-label="Yes"><use href="#i-check" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                  <td><svg class="no" role="img" aria-label="No"><use href="#i-minus" /></svg></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── What it does well ──────────────────────────────────── -->
+      <section class="section features" aria-label="What it does">
+        <div class="wrap feature">
+          <div class="feature-copy">
+            <h3>Answer it from the card.</h3>
+            <p>
+              When an agent asks to run something, the card shows the exact command. Allow it, allow it for good, or deny it, without hunting
+              for the terminal. Claude's multiple-choice questions and plan approvals come with buttons too.
+            </p>
+          </div>
+          <div class="field field--peach field--ask">
+            <div class="pal live ask-pal" data-character="billu"><canvas aria-label="Billu"></canvas></div>
+            <div class="ui-card ask-card">
+              <p class="card-title"><span class="dot dot--ask"></span>blog wants to run</p>
+              <pre class="card-cmd"><code>npm run deploy -- --prod</code></pre>
+              <div class="card-actions">
+                <span class="card-btn card-btn--allow">Allow</span><span class="card-btn">Always</span><span class="card-btn">Deny</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <ul class="wrap agent-list" aria-label="Agents Kulhi can watch">
-          <li class="tag tag--full"><b>Claude Code</b><span>Allow, Always, Deny, questions, plans</span></li>
-          <li class="tag tag--full"><b>Codex</b><span>Allow, Always, Deny</span></li>
-          <li class="tag"><b>GitHub Copilot</b><span>CLI and VS Code: status</span></li>
-          <li class="tag"><b>Gemini CLI</b><span>status</span></li>
-          <li class="tag"><b>Cursor</b><span>status</span></li>
-          <li class="tag"><b>Antigravity</b><span>status</span></li>
-          <li class="tag"><b>Command Code</b><span>status and questions</span></li>
-        </ul>
+        <div class="wrap feature feature--flip">
+          <div class="feature-copy">
+            <h3>Know what it finished.</h3>
+            <p>
+              When a task ends you get the agent's own summary, not just a ping. Kulhi stays quiet when you're already looking at that
+              agent's window, and steps aside for full-screen apps.
+            </p>
+          </div>
+          <div class="field field--mint field--done">
+            <div class="pal live done-pal" data-character="glim"><canvas aria-label="Glim"></canvas></div>
+            <div class="ui-toast done-toast">
+              <span class="dot dot--done"></span>
+              <div>
+                <p class="toast-title">shop-app is done</p>
+                <p class="toast-body">Fixed the cart total when a coupon is applied, and added a test for it.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="wrap feature">
+          <div class="feature-copy">
+            <h3>In a corner, or at the top edge.</h3>
+            <p>
+              Drag it anywhere on your desktop, or tuck it into a thin tab at the top of the screen that slides out into an island when an
+              agent gets busy. Hover it to see every session at once.
+            </p>
+          </div>
+          <div class="field field--lavender field--edge">
+            <div class="ui-island edge-island">
+              <p class="ui-island-head"><span class="dot" data-state="work"></span>3 sessions · 1 needs you</p>
+              <ul>
+                <li><span class="dot" data-state="work"></span><b>shop-app</b> Editing cart.ts</li>
+                <li><span class="dot dot--ask"></span><b>blog</b> needs your OK</li>
+                <li><span class="dot dot--done"></span><b>docs</b> done · 2 min ago</li>
+              </ul>
+            </div>
+            <div class="pal live edge-pal" data-character="hexo"><canvas aria-label="Hexo"></canvas></div>
+          </div>
+        </div>
       </section>
 
       <!-- ── The crew ───────────────────────────────────────────── -->
-      <section class="lid lid--sun crew" id="crew" aria-labelledby="crew-h">
+      <section class="section crew" id="crew" aria-labelledby="crew-h">
         <div class="wrap">
-          <h2 id="crew-h" class="sticker-text" data-tilt="2">Pick your desk mate.</h2>
-          <p class="lede">Kulhi brought friends. Poke one, or peel it off the sheet.</p>
-        </div>
-        <div class="sheet wrap" role="list">
-          <figure class="slot" role="listitem">
-            <div class="sticker live" data-character="kulhi" data-tilt="-3"><canvas aria-label="Kulhi"></canvas></div>
-            <figcaption><b>Kulhi</b> a chai cup, always warm</figcaption>
-          </figure>
-          <figure class="slot" role="listitem">
-            <div class="sticker live" data-character="hexo" data-tilt="4"><canvas aria-label="Hexo"></canvas></div>
-            <figcaption><b>Hexo</b> a hex nut with a big heart</figcaption>
-          </figure>
-          <figure class="slot" role="listitem">
-            <div class="sticker live" data-character="glim" data-tilt="-5"><canvas aria-label="Glim"></canvas></div>
-            <figcaption><b>Glim</b> a firefly who glows when it's done</figcaption>
-          </figure>
-          <figure class="slot" role="listitem">
-            <div class="sticker live" data-character="billu" data-tilt="3"><canvas aria-label="Billu"></canvas></div>
-            <figcaption><b>Billu</b> a ginger cat on a flying saucer</figcaption>
-          </figure>
-          <figure class="slot" role="listitem">
-            <div class="sticker live" data-character="dogesh" data-tilt="-2"><canvas aria-label="Dogesh Bhai"></canvas></div>
-            <figcaption><b>Dogesh Bhai</b> a scaredy pup with nine outfits</figcaption>
-          </figure>
-          <figure class="slot" role="listitem">
-            <div class="sticker still" data-tilt="5"><img src="../src/assets/rui/idle-anime-panda.webp" alt="Rui, a 3D yeti in a hood" width="144" height="144" /></div>
-            <figcaption><b>Rui</b> a 3D yeti in a hood, in six colours</figcaption>
-          </figure>
-          <figure class="slot slot--own" role="listitem">
-            <div class="own" aria-hidden="true">
-              <svg class="icon icon--big"><use href="#i-plus" /></svg>
-            </div>
-            <figcaption>
-              <b>Your own</b> Copy the app's prompt into any AI, add the picture sheet it makes, and Kulhi cuts it into eight moods.
-            </figcaption>
-          </figure>
+          <h2 id="crew-h">Pick your desk mate.</h2>
+          <p class="lede">Each one has its own moods for working, needs you, done and asleep. Click one to say hello.</p>
+          <ul class="cast">
+            <li class="member">
+              <div class="plate plate--peach"><div class="pal live" data-character="kulhi"><canvas aria-label="Kulhi"></canvas></div></div>
+              <p><b>Kulhi</b>A chai cup, always warm</p>
+            </li>
+            <li class="member">
+              <div class="plate plate--sky"><div class="pal live" data-character="hexo"><canvas aria-label="Hexo"></canvas></div></div>
+              <p><b>Hexo</b>A hex nut with a big heart</p>
+            </li>
+            <li class="member">
+              <div class="plate plate--lavender"><div class="pal live" data-character="glim"><canvas aria-label="Glim"></canvas></div></div>
+              <p><b>Glim</b>A firefly who glows when it's done</p>
+            </li>
+            <li class="member">
+              <div class="plate plate--peach"><div class="pal live" data-character="billu"><canvas aria-label="Billu"></canvas></div></div>
+              <p><b>Billu</b>A ginger cat on a flying saucer</p>
+            </li>
+            <li class="member">
+              <div class="plate plate--mint"><div class="pal live" data-character="dogesh"><canvas aria-label="Dogesh Bhai"></canvas></div></div>
+              <p><b>Dogesh Bhai</b>A scaredy pup with nine outfits</p>
+            </li>
+            <li class="member">
+              <div class="plate plate--sky" data-rui></div>
+              <p><b>Rui</b>A 3D yeti in a hood, in six colours</p>
+            </li>
+            <li class="member member--own">
+              <div class="plate plate--own"><svg class="icon icon--big" aria-hidden="true"><use href="#i-plus" /></svg></div>
+              <p><b>Your own</b>Copy the app's prompt into any AI, add the picture sheet it makes, and Kulhi cuts it into eight moods.</p>
+            </li>
+          </ul>
         </div>
       </section>
 
-      <!-- ── Everyday ──────────────────────────────────────────── -->
-      <section class="lid lid--cobalt everyday" aria-labelledby="everyday-h">
-        <div class="wrap">
-          <h2 id="everyday-h" class="sticker-text" data-tilt="-2">And the little things.</h2>
+      <!-- ── Little things ──────────────────────────────────────── -->
+      <section class="section" aria-labelledby="little-h">
+        <div class="wrap split split--top">
+          <div class="split-copy">
+            <h2 id="little-h">And the little things.</h2>
+            <p>
+              Break reminders, finished downloads, low battery, a welcome back after you've been away. Each one is a small note from your
+              character, and each one has its own switch.
+            </p>
+          </div>
+          <ol class="toasts" aria-label="Examples">
+            <li class="toast"><img src="/favicon.png" alt="" width="28" height="28" /><p><b>Chai break?</b>You've been at it for 50 minutes.</p><time>now</time></li>
+            <li class="toast"><img src="/favicon.png" alt="" width="28" height="28" /><p><b>Download finished</b>report-final-v3.pdf</p><time>2m</time></li>
+            <li class="toast"><img src="/favicon.png" alt="" width="28" height="28" /><p><b>Battery at 15%</b>Maybe find the charger.</p><time>9m</time></li>
+            <li class="toast"><img src="/favicon.png" alt="" width="28" height="28" /><p><b>Welcome back</b>Two agents finished while you were away.</p><time>1h</time></li>
+          </ol>
         </div>
-        <div class="wrap bubbles">
-          <p class="bubble bubble--sun" data-tilt="-4"><b>Chai break?</b> You've been at it for 50 minutes.</p>
-          <p class="bubble" data-tilt="3"><b>Download finished.</b> report-final-v3.pdf</p>
-          <p class="bubble bubble--pink" data-tilt="-2"><b>Battery at 15%.</b> Maybe find the charger.</p>
-          <p class="bubble" data-tilt="5"><b>Welcome back!</b> Two agents finished while you were away.</p>
-        </div>
-        <ul class="wrap homes" aria-label="Where it lives">
-          <li class="home home--big" data-tilt="-2">
-            <div class="scene scene--corner" aria-hidden="true">
-              <div class="mini-win">
-                <p class="mini-bar"><span></span><span></span><span></span>cart.ts — shop-app</p>
-                <pre class="mini-code"><code><i>export function</i> total(cart: Cart) {
-  <i>const</i> sum = cart.items.reduce(add, 0);
-  <i>return</i> cart.coupon ? sum * 0.9 : sum;
-}</code></pre>
-              </div>
-              <p class="mini-taskbar"><span></span><span></span><span></span><span></span><b>16:42</b></p>
-              <div class="sticker live scene-pal" data-character="kulhi" style="--s: 120px"><canvas aria-label="Kulhi in the corner"></canvas></div>
-            </div>
-            <h3>In a corner</h3>
-            <p>Drag it anywhere on your desktop. It potters about, follows your cursor with its eyes, and dozes off when you step away.</p>
-          </li>
-          <li class="home" data-tilt="1.5">
-            <div class="scene scene--top" aria-hidden="true">
-              <span class="scene-island"><span class="dot" data-state="work"></span>blog · Editing post.md</span>
-              <div class="mini-win mini-win--page">
-                <p class="mini-bar"><span></span><span></span><span></span>post.md — blog</p>
-                <p class="mini-page"><b># Chai, and other deadlines</b>Writing about the week I shipped three things and drank eleven cups.</p>
-              </div>
-            </div>
-            <h3>At the top edge</h3>
-            <p>A thin tab that slides out into an island when an agent gets busy, with each session's status on one line.</p>
-          </li>
-          <li class="home home--away" data-tilt="-1">
-            <div class="scene scene--full" aria-hidden="true">
-              <p class="film"><b>Monsoon Express</b>Episode 4 · paused</p>
-              <p class="film-bar"><span></span><b>12:04 / 48:10</b></p>
-            </div>
-            <div class="sticker live scene-pal scene-pal--away" data-character="glim" style="--s: 88px"><canvas aria-label="Glim stepping aside"></canvas></div>
-            <h3>Out of your way</h3>
-            <p>It steps aside for full-screen apps, and stays quiet when you're already looking at the agent's window.</p>
-          </li>
-        </ul>
       </section>
 
       <!-- ── Phone ─────────────────────────────────────────────── -->
-      <section class="lid lid--ink phone" id="phone" aria-labelledby="phone-h">
-        <div class="wrap phone-grid">
-          <div class="phone-shell" aria-hidden="true">
-            <div class="phone-screen">
-              <p class="phone-time">16:42</p>
-              <div class="phone-note">
-                <p class="phone-app">Kulhi</p>
-                <p class="phone-title">blog needs your OK</p>
-                <p class="phone-body"><code>npm run deploy</code></p>
-                <div class="phone-actions"><span>Allow</span><span>Deny</span></div>
-              </div>
-              <div class="phone-note phone-note--quiet">
-                <p class="phone-app">Kulhi</p>
-                <p class="phone-title">shop-app is done</p>
-                <p class="phone-body">Fixed the cart total and added a test.</p>
-              </div>
-              <div class="sticker live phone-pal" data-character="billu" data-tilt="-8" style="--s: 96px"><canvas aria-label="Billu on the phone"></canvas></div>
-            </div>
-          </div>
+      <section class="section" id="phone" aria-labelledby="phone-h">
+        <div class="wrap phone-panel">
           <div class="phone-copy">
-            <h2 id="phone-h" class="sticker-text" data-tilt="2">Leave the desk. Take the OK with you.</h2>
+            <h2 id="phone-h">Leave the desk. Take the OK with you.</h2>
             <p>
               The Android app shows your agents, lets you Allow or Deny, and can reply to an agent that finished. It pairs with your PC over
               your own Wi-Fi or your phone's hotspot.
@@ -254,32 +316,75 @@
               through setting one up.
             </p>
           </div>
+          <div class="phone" aria-hidden="true">
+            <div class="phone-screen">
+              <p class="phone-time">16:42</p>
+              <div class="phone-note">
+                <p class="phone-app">Kulhi · now</p>
+                <p class="phone-title">blog needs your OK</p>
+                <p class="phone-body"><code>npm run deploy</code></p>
+                <div class="phone-actions"><span>Allow</span><span>Deny</span></div>
+              </div>
+              <div class="phone-note">
+                <p class="phone-app">Kulhi · 4m</p>
+                <p class="phone-title">shop-app is done</p>
+                <p class="phone-body">Fixed the cart total and added a test.</p>
+              </div>
+              <div class="phone-note">
+                <p class="phone-app">Kulhi · 12m</p>
+                <p class="phone-title">docs finished</p>
+                <p class="phone-reply">Reply to carry on…</p>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
       <!-- ── Private ───────────────────────────────────────────── -->
-      <section class="lid lid--sun private" aria-labelledby="private-h">
-        <div class="wrap">
-          <h2 id="private-h" class="sticker-text" data-tilt="-1">Yours, and only yours.</h2>
+      <section class="section" aria-labelledby="private-h">
+        <div class="wrap split split--top">
+          <div class="split-copy">
+            <h2 id="private-h">Yours, and only yours.</h2>
+            <p>No account and no telemetry. This is everything that ever leaves your PC, and when.</p>
+          </div>
+          <dl class="ledger">
+            <div>
+              <dt>Agent events</dt>
+              <dd>Stay on your PC, over a local pipe only your Windows user can write to. Never file contents or command output.</dd>
+            </div>
+            <div>
+              <dt>Account</dt>
+              <dd>None. Install it and it's yours.</dd>
+            </div>
+            <div>
+              <dt>Telemetry</dt>
+              <dd>None.</dd>
+            </div>
+            <div>
+              <dt>Ask <span>optional</span></dt>
+              <dd>Your question and a short device summary go to Anthropic, with your own API key. The panel shows exactly what's sent.</dd>
+            </div>
+            <div>
+              <dt>Phone <span>optional</span></dt>
+              <dd>Over your own Wi-Fi, or through a relay you run yourself, encrypted end to end.</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>MIT licensed, every line on GitHub.</dd>
+            </div>
+          </dl>
         </div>
-        <ul class="wrap warnings">
-          <li class="warn" data-tilt="-3"><b>No account</b> Install it and it's yours.</li>
-          <li class="warn warn--ink" data-tilt="2"><b>No telemetry</b> Nothing about you leaves your PC.</li>
-          <li class="warn" data-tilt="-1"><b>Runs on your PC</b> Agent events stay on a local pipe only you can write to.</li>
-          <li class="warn warn--ink" data-tilt="3"><b>Your click only</b> Every Allow is yours to give.</li>
-          <li class="warn" data-tilt="-2"><b>MIT licensed</b> Read every line, change anything.</li>
-        </ul>
       </section>
 
       <!-- ── Install ───────────────────────────────────────────── -->
-      <section class="lid lid--pink install" id="install" aria-labelledby="install-h">
-        <div class="wrap install-grid">
+      <section class="section" id="install" aria-labelledby="install-h">
+        <div class="wrap split split--top">
           <div>
-            <h2 id="install-h" class="sticker-text" data-tilt="-2">Stick it on in a minute.</h2>
+            <h2 id="install-h">Set up in a minute.</h2>
             <ol class="steps">
               <li>
-                <b>Download</b>
-                <span>The installer is about 5 MB and installs for you only, no admin rights.</span>
+                <b>Download the installer</b>
+                <span>About 5 MB. It installs for you only, with no admin rights.</span>
               </li>
               <li>
                 <b>Run it, even if Windows frowns</b>
@@ -287,7 +392,7 @@
               </li>
               <li>
                 <b>Connect your agents</b>
-                <span>Settings → Coding agents. One switch each; turning it off takes the hooks out again.</span>
+                <span>Settings → Coding agents. One switch each.</span>
               </li>
             </ol>
           </div>
@@ -317,20 +422,17 @@
       </section>
 
       <!-- ── Close ─────────────────────────────────────────────── -->
-      <section class="lid lid--cobalt close" aria-labelledby="close-h">
-        <div class="wrap close-inner">
-          <figure class="sticker live close-pal" data-character="kulhi" data-tilt="-6" style="--s: min(40vw, 260px)">
-            <canvas aria-label="Kulhi, waving you off"></canvas>
-          </figure>
-          <h2 id="close-h" class="wordmark wordmark--close sticker-text" data-tilt="-3">Put a kulhi on your desk.</h2>
+      <section class="section close" aria-labelledby="close-h">
+        <div class="wrap close-panel">
+          <div class="pal live close-pal" data-character="kulhi"><canvas aria-label="Kulhi"></canvas></div>
+          <h2 id="close-h">Put a kulhi on your desk.</h2>
+          <p>Free, open source, and about a minute to set up.</p>
           <div class="actions actions--center">
-            <a class="btn btn--sun" data-link="download" href="https://github.com/alexmercer500/Desk-comp-releases/releases/latest">
-              <svg class="icon" aria-hidden="true"><use href="#i-windows" /></svg>
-              <span>Download for Windows</span>
+            <a class="btn btn--primary" data-link="download" href="https://github.com/alexmercer500/Desk-comp-releases/releases/latest">
+              <svg class="icon" aria-hidden="true"><use href="#i-windows" /></svg>Download for Windows
             </a>
-            <a class="btn btn--pink" data-link="repo" href="https://github.com/alexmercer500/Desk-comp">
-              <svg class="icon" aria-hidden="true"><use href="#i-star" /></svg>
-              <span>Star on GitHub</span>
+            <a class="btn btn--secondary" data-link="repo" href="https://github.com/alexmercer500/Desk-comp">
+              <svg class="icon" aria-hidden="true"><use href="#i-star" /></svg>Star on GitHub
             </a>
           </div>
         </div>
@@ -339,7 +441,7 @@
 
     <footer class="foot">
       <div class="wrap foot-inner">
-        <p>Kulhi is free and open source under the MIT licence.</p>
+        <p><b>Kulhi</b> is free and open source under the MIT licence.</p>
         <ul>
           <li><a data-link="repo" href="https://github.com/alexmercer500/Desk-comp">Source</a></li>
           <li><a href="https://github.com/alexmercer500/Desk-comp-releases/releases">Releases</a></li>
@@ -350,8 +452,13 @@
 
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
       <symbol id="i-windows" viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.1 10.4 4v7.3H3V5.1Zm8.4-1.2L21 2.5v8.8h-9.6V3.9ZM3 12.7h7.4V20L3 18.9v-6.2Zm8.4 0H21v8.8l-9.6-1.4v-7.4Z" /></symbol>
-      <symbol id="i-star" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z" /></symbol>
-      <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9L12 3.5Z" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M7 12h10" /></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-9.5Z" /></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.4 2.4 3.5 5.2 3.5 8.5s-1.1 6.1-3.5 8.5c-2.4-2.4-3.5-5.2-3.5-8.5S9.6 5.9 12 3.5Z" /></g></symbol>
+      <symbol id="i-term" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.5" /><path d="m7 10 3 2.5L7 15M12.5 15H17" /></g></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.2 4.2L19 7" /></symbol>
       <symbol id="i-github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5A10 10 0 0 0 12 2Z" /></symbol>
     </svg>
   </body>
