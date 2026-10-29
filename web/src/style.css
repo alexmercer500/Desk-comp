@@ -1615,6 +1615,18 @@ button.card-btn--allow:hover {
 .foot p {
   margin: 0;
 }
+.foot-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+.foot .foot-thanks a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+}
+.foot .foot-thanks a:hover {
+  text-decoration-color: currentColor;
+}
 .foot b {
   color: var(--ink);
   font-weight: 700;

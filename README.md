@@ -14,7 +14,19 @@ It keeps an eye on things for you:
 
 Everything can be changed in the **Desk Companion window** (it opens when you start the app yourself, or from tray → Open Desk Companion…; the gear in the panel has the same settings): where it lives, character and size, which notifications to show and pausing them, which agent moments to hear about, whether Allow / Deny is answered from the companion at all, the Ask feature and what it shares, connecting Claude Code and starting with Windows. The most-used switches are in the tray menu too.
 
-**Where I live**: on the desktop (drag it anywhere), or **at the top edge** of the screen, in a little island like coucou's. There it stays tucked away as a thin tab until you push the cursor to the top edge or an agent gets busy; then it slides out with a status line ("shop-app · Editing cart.ts", "blog needs your OK"). Hover the line to see every busy session. Notifications grow out of the island itself: a permission becomes a card with the command and Allow / Deny until it's answered, a finished task shows for a few seconds, then the island shrinks back. Click it and it grows into a bigger dark island: every session as a tile with its own little character (working, asking, pleased, asleep), Allow / Deny on the one that's waiting, and the Ask tab. Drag the island to slide it along the edge. By default it sits three quarters of the way across, so it doesn't sit on top of coucou's island in the middle.
+**Where I live**: on the desktop (drag it anywhere), or **at the top edge** of the screen, in a little island like [coucou](https://github.com/Louis-CFM/coucou)'s. There it stays tucked away as a thin tab until you push the cursor to the top edge or an agent gets busy; then it slides out with a status line ("shop-app · Editing cart.ts", "blog needs your OK"). Hover the line to see every busy session. Notifications grow out of the island itself: a permission becomes a card with the command and Allow / Deny until it's answered, a finished task shows for a few seconds, then the island shrinks back. Click it and it grows into a bigger dark island: every session as a tile with its own little character (working, asking, pleased, asleep), Allow / Deny on the one that's waiting, and the Ask tab. Drag the island to slide it along the edge. By default it sits three quarters of the way across, so it doesn't sit on top of coucou's island in the middle if you run both.
+
+## Inspired by
+
+Kulhi owes a lot to [coucou](https://github.com/Louis-CFM/coucou) by Louis-CFM: a tiny friend that lives in your Mac's notch and on your iPhone, keeps an eye on your AI coding agents, and lets you approve them from the notch or the Lock Screen. If you're on a Mac, use it; it's lovely.
+
+Kulhi brings that idea to the Windows desktop, with its own cast and an Android app. Several of its best parts started as coucou's ideas:
+
+- the island at the top edge of the screen that grows out into a card when an agent needs you, and the bigger card when a task is done
+- guarding the Allow button so a stray click can't approve something you didn't see
+- answering an agent's question with your own words, and seeing its edits as they happen
+
+The ideas were too good to keep on one platform. Thank you, coucou.
 
 ## Run it (development)
 
