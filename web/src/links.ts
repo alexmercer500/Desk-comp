@@ -1,6 +1,7 @@
-// Where the buttons go. The download points at the newest installer on
-// GitHub Releases (the same place the app updates from); if GitHub can't be
-// asked, it stays on the latest-release page, which works just as well.
+// Where the buttons go. The downloads point at the newest installer and the
+// newest Android app on GitHub Releases (the same place both apps update
+// from); if GitHub can't be asked, they stay on the releases pages, which work
+// just as well.
 
 export const REPO = "https://github.com/alexmercer500/Desk-comp";
 const RELEASES = "alexmercer500/Desk-comp-releases";
@@ -13,6 +14,7 @@ interface Release {
 export async function links() {
   for (const a of document.querySelectorAll<HTMLAnchorElement>('[data-link="repo"]')) a.href = REPO;
   for (const a of document.querySelectorAll<HTMLAnchorElement>('[data-link="changelog"]')) a.href = `${REPO}/blob/main/CHANGELOG.md`;
+  void android();
 
   let release: Release;
   try {
@@ -33,5 +35,32 @@ export async function links() {
   const mb = Math.max(1, Math.round(installer.size / 1e6));
   for (const p of document.querySelectorAll<HTMLElement>("[data-version]")) {
     p.textContent = `Version ${version} · ${mb} MB · Windows 10 and 11 · free · MIT licence`;
+  }
+}
+
+/** The newest Android app: a release only carries one when the phone app changed, so look back through a few. */
+async function android() {
+  let releases: Release[];
+  try {
+    const res = await fetch(`https://api.github.com/repos/${RELEASES}/releases?per_page=20`, {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) return;
+    releases = (await res.json()) as Release[];
+  } catch {
+    return;
+  }
+  for (const r of releases) {
+    const apk = r.assets.find((a) => /Android-([\d.]+)\.apk$/i.test(a.name));
+    if (!apk) continue;
+    for (const a of document.querySelectorAll<HTMLAnchorElement>('[data-link="android"]')) a.href = apk.browser_download_url;
+    const version = /Android-([\d.]+)\.apk$/i.exec(apk.name)?.[1];
+    const mb = Math.max(1, Math.round(apk.size / 1e6));
+    for (const p of document.querySelectorAll<HTMLElement>("[data-android-version]")) {
+      const how = p.querySelector("a");
+      p.textContent = `Version ${version} · ${mb} MB · free · Android 11 or newer · `;
+      if (how) p.append(how);
+    }
+    return;
   }
 }

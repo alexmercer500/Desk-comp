@@ -1465,6 +1465,15 @@ button.card-btn--allow:hover {
   font: 700 1rem/1 var(--display);
   font-variant-numeric: tabular-nums;
 }
+.steps-h {
+  margin-top: 3rem;
+}
+.steps-h + .steps {
+  margin-top: 1.5rem;
+}
+.steps a {
+  color: var(--ink);
+}
 .steps b {
   color: var(--ink);
   font-weight: 600;
