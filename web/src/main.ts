@@ -1,9 +1,7 @@
-// Kulhi's website: one day in Kulhi's life. The app's own characters, live
-// (their eyes follow the cursor, a click says hello, they doze when night
-// falls), a pretend agent whose card you answer, the nav's colour script
-// following the time of day, and download links to the latest release.
+// Kulhi's website. The app's own characters, live (their eyes follow the
+// cursor, a click says hello, one dozes beside the phone), a pretend agent
+// whose card you answer, and download links to the latest release.
 
-import "@fontsource-variable/bricolage-grotesque/standard.css";
 import "@fontsource-variable/geist/index.css";
 import "@fontsource-variable/geist-mono/index.css";
 
@@ -14,6 +12,7 @@ import { SKINS, isCharacter } from "@app/skins";
 import ruiStill from "@app/assets/rui/idle-anime-panda.webp";
 import { startDemo } from "./demo";
 import { links } from "./links";
+import { theme } from "./theme";
 import { inject } from "@vercel/analytics";
 
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -91,7 +90,7 @@ for (const l of lives) {
   });
 }
 
-// Night falls on the one in the phone scene; the sun wakes the one at the end.
+// The one beside the phone is asleep; the one at the end wakes as you arrive.
 const onScreen = (el: Element, fn: () => void) =>
   new IntersectionObserver(([e]) => e.isIntersecting && fn(), { threshold: 0.5 }).observe(el);
 for (const l of lives) {
@@ -104,44 +103,13 @@ for (const l of lives) {
   if (l.el.hasAttribute("data-wake")) onScreen(l.el, () => l.c.tap());
 }
 
-// ── The colour script: which frame of the day you're in ──────────────────────
-
-const navWrap = document.querySelector<HTMLElement>(".nav-wrap");
-const chips = [...document.querySelectorAll<HTMLAnchorElement>(".script-strip a")];
-const nowTime = document.querySelector<HTMLElement>("[data-now-time]");
-const nowLabel = document.querySelector<HTMLElement>("[data-now-label]");
-const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-const scenes = [...document.querySelectorAll<HTMLElement>(".scene[id]")];
-
-const showScene = (scene: HTMLElement) => {
-  const css = getComputedStyle(scene);
-  const bg = css.getPropertyValue("--nav").trim();
-  const ink = css.getPropertyValue("--ink").trim();
-  if (navWrap && bg) {
-    navWrap.style.setProperty("--nav-bg", bg);
-    navWrap.style.setProperty("--nav-ink", scene.id === "sunrise" ? "#2b1606" : ink);
-  }
-  if (themeColor && bg) themeColor.content = bg;
-  for (const a of chips) a.setAttribute("aria-current", String(a.hash === `#${scene.id}`));
-  if (nowTime) nowTime.textContent = scene.dataset.time ?? "";
-  if (nowLabel) nowLabel.textContent = scene.dataset.label ?? "";
-};
-
-// The frame under a line just below the nav is the one you're in.
-const where = new IntersectionObserver(
-  (entries) => {
-    for (const e of entries) if (e.isIntersecting) showScene(e.target as HTMLElement);
-  },
-  { rootMargin: "-12% 0px -87% 0px" },
-);
-for (const s of scenes) where.observe(s);
-
 // ── The pretend agent, and the links ─────────────────────────────────────────
 
 const demo = document.querySelector<HTMLElement>("[data-demo]");
 const pal = lives.find((l) => l.el.hasAttribute("data-demo-pal"));
 if (demo && pal) startDemo(demo, pal.c);
 
+theme();
 void links();
 
 // Page views, through Vercel Web Analytics: no cookies, nothing that follows

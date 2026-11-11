@@ -23,15 +23,16 @@ Any static host works; the output is `web/dist`.
 - **Your domain:** any domain works. On Vercel the build uses the project's production domain by itself (`VERCEL_PROJECT_PRODUCTION_URL`: your own domain once it's added under Settings → Domains, else the `vercel.app` address), for the canonical link, the link-preview tags, the structured data, `robots.txt` and `sitemap.xml`. Redeploy after adding a domain. To force an address (another host, or a domain other than the main one), set `VITE_SITE_URL`, for example `https://kulhi.app`. With neither, the site assumes `https://kulhi.vercel.app`.
 - **Google Search Console:** add the site, pick the "HTML tag" check, and put its code in `VITE_GOOGLE_SITE_VERIFICATION`; the next deploy carries the tag. Then submit `<your domain>/sitemap.xml`.
 - **Analytics:** Vercel Web Analytics (no cookies). Turn it on in the Vercel project (Analytics tab); the page already sends page views when it runs there, and nothing in local dev.
-- **Link previews:** `public/og.png` (1200x630) is a capture of the hero. Retake it after the hero changes.
+- **Link previews:** `public/og.png` (1200x630) is a capture of the hero headline over the desk demo. Retake it after the hero changes.
 
 ## What's where
 
 | File | What |
 |---|---|
 | `index.html` | All the sections and copy, the page's metadata and structured data |
-| `src/style.css` | The look: one day's painted sky, scene by scene, the pretend desk, storyboard frames, the crew's stage |
-| `src/main.ts` | Live characters (eyes follow, click to say hello, doze at night), the nav's colour script, analytics |
+| `src/style.css` | The look: warm paper, ink and one clay accent (light and dark), a ruled frame with numbered sections, the pretend desk, the crew's cells |
+| `src/main.ts` | Live characters (eyes follow, click to say hello, one dozes beside the phone), analytics |
+| `src/theme.ts` | Light or dark: follows the system until the visitor picks one with the nav's button, and remembers it |
 | `src/demo.ts` | The pretend agent whose permission card you answer |
 | `src/links.ts` | GitHub links, and the downloads pointing at the newest installer and Android app on GitHub Releases |
 | `vite.config.ts` | The `@app` alias, and the absolute addresses, `robots.txt` and `sitemap.xml` |
