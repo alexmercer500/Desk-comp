@@ -125,3 +125,7 @@ Only a permission request or a question waits (up to 110 s) for you; every other
 | `integrations/commandcode-mod.ts` | The mod installed into Command Code (`~/.commandcode/mods/desk-companion.ts`) |
 | `character-animation-spec.md`, `character-blueprint-prompts.md` | The design specs |
 | `CHANGELOG.md` | What changed in each version |
+
+## Licence
+
+The code is under the MIT licence ([LICENSE](LICENSE)). The characters, the name and the icon are not: see [TRADEMARKS.md](TRADEMARKS.md).
