@@ -92,6 +92,11 @@ components:
     height: "3.1rem"
   button-dark-hover:
     backgroundColor: "#3a2f25"
+  button-line:
+    textColor: "{colors.ink}"
+    rounded: "{rounded.button}"
+    padding: "0 1.4rem"
+    height: "3.1rem"
   text-link:
     textColor: "{colors.ink}"
   section-bar:
@@ -195,10 +200,11 @@ Small, quiet radii: 10px buttons and windows, 12px panels and the table, 14px th
 
 ### Buttons
 - **Dark button:** ink fill, paper text, 10px, 3.1rem tall (2.4rem small in the nav), weight 500. Hover lightens to `#3a2f25`; active nudges down 1px.
-- **Text link with arrow:** ink, weight 500; the arrow slides 3px on hover. Used for Star on GitHub next to the dark button.
+- **Line button:** the second choice beside the dark one. Same size and radius, no fill, a 1.5px ink line drawn inside; hover fills it with paper-2. Used for Get the Android app.
+- **Text link with arrow:** ink, weight 500; the arrow slides 3px on hover. Used for How to set up, which scrolls to the set-up steps.
 
 ### Navigation
-Sticky, paper at 86% with a 12px blur and a bottom rule. Brand left (live Kulhi mark and "kulhi." with a clay full stop), section links centred; on the right the light/dark button (a moon in light, a sun in dark), the GitHub icon and a small Download button in ink.
+Sticky, paper at 86% with a 12px blur and a bottom rule. Brand left (live Kulhi mark and "kulhi." with a clay full stop), section links centred; on the right the light/dark button (a moon in light, a sun in dark) and a small Download button in ink. No GitHub link: the source repo is private.
 
 ### Section bar
 The first thing in every section: a mono label with the clay number and a short dash, a muted tagline on the right, rules above and below.

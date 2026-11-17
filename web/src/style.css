@@ -447,6 +447,14 @@ p {
 .btn--dark:hover {
   background: color-mix(in oklab, var(--ink) 82%, var(--paper));
 }
+/* The second choice beside the dark one: same size, drawn in a line. */
+.btn--line {
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.btn--line:hover {
+  background: var(--paper-2);
+}
 .btn:active {
   translate: 0 1px;
 }
@@ -845,7 +853,7 @@ button.card-btn--allow:hover {
 .matrix thead th {
   background: var(--paper-2);
   color: var(--muted);
-  font: 450 0.68rem/1.4 var(--mono);
+  font: 450 0.7rem/1.4 var(--mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
