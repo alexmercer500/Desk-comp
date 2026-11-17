@@ -13,7 +13,7 @@ function seo(site: string, verify: string): Plugin {
   const verifyTag = verify ? `    <meta name="google-site-verification" content="${verify}" />\n` : "";
   return {
     name: "kulhi-seo",
-    transformIndexHtml: (html) => html.replaceAll("%SITE%", site).replace("%VERIFY%\n", verifyTag),
+    transformIndexHtml: (html) => html.replaceAll("%SITE%", site).replace(/%VERIFY%[\r\n]+/, verifyTag),
     generateBundle() {
       const today = new Date().toISOString().slice(0, 10);
       this.emitFile({ type: "asset", fileName: "robots.txt", source: `User-agent: *\nAllow: /\n\nSitemap: ${site}/sitemap.xml\n` });

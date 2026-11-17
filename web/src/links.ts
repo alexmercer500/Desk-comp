@@ -33,7 +33,9 @@ export async function links() {
   const version = release.tag_name.replace(/^v/, "");
   const mb = Math.max(1, Math.round(installer.size / 1e6));
   for (const p of document.querySelectorAll<HTMLElement>("[data-version]")) {
-    p.textContent = `Version ${version} · ${mb} MB · Windows 10 and 11 · free · MIT licence`;
+    const code = p.querySelector("a");
+    p.textContent = `Version ${version} · ${mb} MB · Windows 10 and 11 · free · MIT licence · `;
+    if (code) p.append(code);
   }
 }
 
