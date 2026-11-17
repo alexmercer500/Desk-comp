@@ -204,7 +204,7 @@ Small, quiet radii: 10px buttons and windows, 12px panels and the table, 14px th
 - **Text link with arrow:** ink, weight 500; the arrow slides 3px on hover. Used for How to set up, which scrolls to the set-up steps.
 
 ### Navigation
-Sticky, paper at 86% with a 12px blur and a bottom rule. Brand left (live Kulhi mark and "kulhi." with a clay full stop), section links centred; on the right the light/dark button (a moon in light, a sun in dark) and a small Download button in ink. No GitHub link: the source repo is private.
+Sticky, paper at 86% with a 12px blur and a bottom rule. Brand left (live Kulhi mark and "kulhi." with a clay full stop), section links centred; on the right the light/dark button (a moon in light, a sun in dark) and a small Download button in ink. The source is linked from the footer.
 
 ### Section bar
 The first thing in every section: a mono label with the clay number and a short dash, a muted tagline on the right, rules above and below.

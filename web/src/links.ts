@@ -3,6 +3,7 @@
 // from); if GitHub can't be asked, they stay on the releases pages, which work
 // just as well.
 
+export const REPO = "https://github.com/alexmercer500/Desk-comp";
 const RELEASES = "alexmercer500/Desk-comp-releases";
 
 interface Release {
@@ -11,6 +12,7 @@ interface Release {
 }
 
 export async function links() {
+  for (const a of document.querySelectorAll<HTMLAnchorElement>('[data-link="repo"]')) a.href = REPO;
   void android();
 
   let release: Release;
