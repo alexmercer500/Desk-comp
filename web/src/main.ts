@@ -14,6 +14,7 @@ import { startDemo } from "./demo";
 import { links } from "./links";
 import { theme } from "./theme";
 import { inject } from "@vercel/analytics";
+import { injectSpeedInsights } from "@vercel/speed-insights";
 
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -116,3 +117,6 @@ void links();
 // a visitor around. It only runs on the deployed site (and only once it's
 // switched on in the Vercel project).
 inject({ mode: import.meta.env.PROD ? "production" : "development", debug: false });
+// How fast the page loads for real visitors (Vercel Speed Insights), on the
+// deployed site only.
+if (import.meta.env.PROD) injectSpeedInsights();

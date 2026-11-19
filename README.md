@@ -1,6 +1,12 @@
-# Desk Companion
+# Kulhi (Desk Companion)
 
-A small character that lives in the corner of your Windows desktop: **Kulhi** (a chai cup), **Hexo** (a hex nut), **Glim** (a firefly) **Billu** (a ginger cat on a little flying saucer), or **Rui**, a 3D yeti in a hood (tray → Character). Drag it anywhere; it potters about, follows your cursor with its eyes, and dozes off when you step away.
+**Your coding agents, watched by a tiny chai cup.** Kulhi lives on your Windows desktop and tells you when Claude Code, Codex, Copilot, Gemini CLI, Cursor and friends finish or need you, with Allow and Deny right on its card. An Android app takes the OK with you.
+
+[![Kulhi on a desktop, while a coding agent asks to run git push from its card](web/public/og.png)](https://wincomp.vercel.app)
+
+**[Website](https://wincomp.vercel.app)** · **[Download for Windows](https://github.com/alexmercer500/Desk-comp-releases/releases/latest)** · **[Android app](https://github.com/alexmercer500/Desk-comp-releases/releases)** · free, MIT licensed code
+
+A small character that lives in the corner of your Windows desktop: **Kulhi** (a chai cup), **Hexo** (a hex nut), **Glim** (a firefly), **Billu** (a ginger cat on a little flying saucer), **Dogesh Bhai** (a lanky, easily startled dog, in 2D or 3D), or **Rui**, a 3D yeti in a hood (tray → Character). Drag it anywhere; it potters about, follows your cursor with its eyes, and dozes off when you step away.
 
 It keeps an eye on things for you:
 
