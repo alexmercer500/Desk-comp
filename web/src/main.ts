@@ -110,6 +110,26 @@ const demo = document.querySelector<HTMLElement>("[data-demo]");
 const pal = lives.find((l) => l.el.hasAttribute("data-demo-pal"));
 if (demo && pal) startDemo(demo, pal.c);
 
+// ── The real recording: plays while it's on screen, never by itself for
+// visitors who asked for less motion (they get the poster and the controls).
+const film = document.querySelector<HTMLVideoElement>("[data-film]");
+if (film) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    film.autoplay = false;
+    film.removeAttribute("autoplay");
+    film.pause();
+  } else {
+    film.autoplay = false; // the observer decides
+    new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) void film.play().catch(() => {});
+        else film.pause();
+      },
+      { threshold: 0.35 },
+    ).observe(film);
+  }
+}
+
 theme();
 void links();
 
